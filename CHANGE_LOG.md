@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-08-28 CST — IndexLink V2 README 状态、演示与贡献者说明
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：项目文档、演示入口与贡献者归属更新。
+- 涉及文件：`README.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：将中英文 README 更新为 IndexLink V2 当前状态：版本化策略、Strategy Studio、固定样本准入、统一策略 resolver 与 Web 运行状态提示均已完成接入，继续明确单用户、paper-only、无收益承诺边界。新增 YouTube 项目演示链接 `https://www.youtube.com/watch?v=t8TCjlqE7D0`；修正英文路线图中过时的 Studio/激活“未实现”表述。贡献者部分明确 Jame 的项目发起、架构/70-20-10 基本面与趋势层、前端、PR 审阅与维护职责；Xuanzhou Gu 的 V2 后端、策略、部署、测试、文档与演示闭环职责；Yucong Peng 的 AI 层设计与实现职责。
+- 验证：`git diff --check` 通过。
+
 ### 2026-08-28 CST — Strategy Studio 全量双语与前端覆盖率门槛
 
 - 执行模型：GPT-5 Codex。

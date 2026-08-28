@@ -8,17 +8,23 @@
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-demo%20MVP-blue" alt="Demo MVP"></a>
+  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-V2%20demo%20MVP-blue" alt="V2 Demo MVP"></a>
   <a href="./STRATEGY_STUDIO_MIGRATION_PLAN.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
 </p>
 
-# IndexLink
+# IndexLink V2
 
-IndexLink 是一个面向长期投资者的**透明、可审计、可扩展的量化定投策略工作台与 paper-trading 执行平台**。它帮助资金有限、希望长期坚持纪律的学生和上班族，把“计划为什么这样建议、是否执行、实际发生了什么”保留为可追溯记录，而不是把黑箱判断包装成投资建议。
+IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展的量化定投策略工作台与 paper-trading 执行平台**。它帮助资金有限、希望长期坚持纪律的学生和上班族，把“计划为什么这样建议、是否执行、实际发生了什么”保留为可追溯记录，而不是把黑箱判断包装成投资建议。
 
-项目当前仍是 demo MVP：可在本地 SQLite 或 Alibaba Cloud ECS 上运行，创建定投计划、拉取市场输入、获得受限 Qwen 解释、生成决策存证、查看模拟账户，并在操作者明确确认后向 MockBroker 或本机 Futu/Moomoo OpenD **模拟账户**提交 paper order。
+当前版本为可演示的 V2 MVP：可在本地 SQLite 或 Alibaba Cloud ECS 上运行，创建定投计划、配置/激活版本化策略、拉取市场输入、获得受限 Qwen 解释、生成决策存证、查看模拟账户，并在操作者明确确认后向 MockBroker 或本机 Futu/Moomoo OpenD **模拟账户**提交 paper order。策略 Studio、统一策略运行时、固定样本准入和 Web 运行状态提示均已接入；系统仍只支持单用户、paper-only 演示。
 
 > **不承诺跑赢。** IndexLink 不预测市场，不判断“真实价值”，不保证收益。固定 DCA 是必须保留的公平基准；任何策略都必须在匹配的资金流、成本、数据和执行时点下接受验证。
+
+## 项目演示
+
+观看当前版本的演示视频：[IndexLink V2 Demo（YouTube）](https://www.youtube.com/watch?v=t8TCjlqE7D0)。
+
+视频展示的是受控的本地/模拟账户演示链路，不代表真实投资建议、实盘下单能力或收益承诺。
 
 ## 产品目标
 
@@ -43,7 +49,7 @@ IndexLink 是一个面向长期投资者的**透明、可审计、可扩展的�
 
 当前生产演示仍包含历史的 70/20/10 决策路径：基本面/历史位置、趋势和受限 Qwen 情绪用于生成建议及证据。这是现有的 `CoreOpportunityV1` 候选语义，**不是经证明能提高收益的默认承诺**。
 
-仓库保留 C1–C4、校准夹具和报告，以记录真实的研究结果与失败候选：在匹配固定 DCA 的历史样本中，部分候选主要改变现金使用率、回撤或波动，并未稳定形成收益优势。旧模型现已作为版本化内置策略保留，`FixedDcaPolicy` 已成为新计划默认值和公平对照基准。受限 DSL 已具备确定性、无 IO 的解释器，并由历史评估器直接调用；SQLite 现保存不可变 DSL 版本并提供只读 HTTP 查询，策略创建、激活、实时执行与 Studio 仍未实现。
+仓库保留 C1–C4、校准夹具和报告，以记录真实的研究结果与失败候选：在匹配固定 DCA 的历史样本中，部分候选主要改变现金使用率、回撤或波动，并未稳定形成收益优势。旧模型现已作为版本化内置策略保留，`FixedDcaPolicy` 已成为新计划默认值和公平对照基准。受限 DSL 已具备确定性、无 IO 的解释器，并由历史评估器直接调用；SQLite 保存不可变 DSL 版本，Strategy Studio 已支持校验、保存、复制、当前数据模拟、固定样本准入和计划激活。激活后的策略版本由 Decision Preview、scheduler、审计与 paper-only 执行共用同一 resolver。
 
 | 能力 | 当前状态 | 边界 |
 | :--- | :--- | :--- |
@@ -166,7 +172,8 @@ curl http://127.0.0.1:8080/ready
 4. **受限 DSL/AST、校验与确定性 runtime**：已完成；仅允许白名单指标、有限表达式与机会桶动作，拒绝任意脚本、超深条件树和超预算固定金额；首条命中规则会在完整快照上生成通用推荐。
 5. **统一历史评估**：已完成首个 runtime-backed 候选；`strategy-evaluation` 直接调用同一 DSL 解释器，以决策日 RSI-14 和下一交易日成交口径生成离线实验结果。
 6. **策略存储、Studio 与准入**：已完成不可变版本存储、受控创建/验证、当前数据模拟和计划激活。DSL 版本激活前必须比较固定样本下的 Fixed DCA 期末净值、回撤、波动与现金使用率，并通过预算/核心桶安全门槛；历史夹具覆盖不足时明确拒绝。
-7. **Qwen Copilot**：后续生成候选草案及解释，始终经确定性校验、回测和人工审阅。
+7. **运行可观测性与前端联调**：已完成；Web 通过 `/health`、`/ready`、`/runtime-status` 区分 API、SQLite、Qwen、OpenD 与 scheduler 状态，并使用 React Query 管理服务端数据缓存。
+8. **Qwen Copilot 与研究数据扩展**：后续生成候选策略草案和更完整的历史证据；始终经确定性校验、回测和人工审阅，且不会获得下单权限。
 
 详见 [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md)。
 
@@ -183,6 +190,6 @@ curl http://127.0.0.1:8080/ready
 
 Copyright © 2026 IndexLink Contributors。项目以 [MIT License](./LICENSE) 发布。
 
-- Jame — 项目原始作者与仓库维护者。
-- Xuanzhou Gu — 后端、SQLite 持久化、OpenD paper trading、决策存证、策略研究与演示闭环贡献者。
-- Yucong Peng — 项目贡献者。
+- [Jame (`jamesra26`)](https://github.com/jamesra26) — 项目发起者；架构设计、70/20/10 基本面与趋势层设计、前端实现、PR 审阅与持续维护。
+- [Xuanzhou Gu (`GuZZ1119`)](https://github.com/GuZZ1119) — V2 独立项目维护者；后端与 API、SQLite 持久化、计划/双桶/调度闭环、策略契约与 DSL Studio、回测与校准、Qwen/OpenD paper-trading 集成、阿里云部署、测试、文档与演示闭环实现。
+- [Yucong Peng (`YucongPeng`)](https://github.com/YucongPeng) — AI 层设计与实现。

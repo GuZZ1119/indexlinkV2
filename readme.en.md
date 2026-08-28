@@ -3,22 +3,28 @@
 </p>
 
 <p align="center">
-  <a href="./readme.md">中文文档</a> | English
+  <a href="./README.md">中文文档</a> | English
 </p>
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-demo%20MVP-blue" alt="Demo MVP"></a>
+  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-V2%20demo%20MVP-blue" alt="V2 Demo MVP"></a>
   <a href="./STRATEGY_STUDIO_MIGRATION_PLAN.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
 </p>
 
-# IndexLink
+# IndexLink V2
 
-IndexLink is a **transparent, auditable, extensible quantitative DCA strategy studio and paper-trading execution platform** for long-term investors. It helps students and working professionals with limited budgets preserve a traceable answer to “why was this suggested, was it executed, and what actually happened?” rather than presenting opaque judgement as investment advice.
+IndexLink V2 is a **transparent, auditable, extensible quantitative DCA strategy studio and paper-trading execution platform** for long-term investors. It helps students and working professionals with limited budgets preserve a traceable answer to “why was this suggested, was it executed, and what actually happened?” rather than presenting opaque judgement as investment advice.
 
-The project is currently a demo MVP. It runs locally with SQLite or on Alibaba Cloud ECS, creates investment plans, retrieves market inputs, produces bounded Qwen explanations, stores decision evidence, reads a paper account, and submits a paper order to MockBroker or a local Futu/Moomoo OpenD **paper account** only after an explicit operator request.
+The current release is a demonstrable V2 MVP. It runs locally with SQLite or on Alibaba Cloud ECS, creates investment plans, configures and activates versioned policies, retrieves market inputs, produces bounded Qwen explanations, stores decision evidence, reads a paper account, and submits a paper order to MockBroker or a local Futu/Moomoo OpenD **paper account** only after an explicit operator request. Strategy Studio, the unified policy runtime, fixed-sample admission, and Web runtime-status hints are integrated; the system remains a single-user, paper-only demonstration.
 
 > **No outperformance promise.** IndexLink does not predict markets, determine intrinsic value, or guarantee returns. Fixed DCA remains the required fair benchmark; every policy must be validated under matched cash flows, costs, data, and execution timing.
+
+## Project Demo
+
+Watch the current demo: [IndexLink V2 Demo on YouTube](https://www.youtube.com/watch?v=t8TCjlqE7D0).
+
+The video shows a controlled local/paper-account flow. It is not investment advice, live-trading capability, or a return promise.
 
 ## Product Goal
 
@@ -165,8 +171,9 @@ See [deployment/aliyun/README.md](./deployment/aliyun/README.md) for deployment 
 3. **Policy-version and audit upgrade:** complete; new records retain the policy version and generic recommendation snapshot while legacy records remain readable.
 4. **Restricted DSL/AST, validation, and deterministic runtime:** complete; it allows only allow-listed indicators, bounded expressions, and opportunity actions, rejecting arbitrary scripts, excessive condition trees, and fixed actions above budget. The first matching rule produces a generic recommendation from a complete snapshot.
 5. **Unified historical evaluation:** a first runtime-backed candidate is complete; `strategy-evaluation` calls the same DSL interpreter with decision-date RSI-14 and next-trading-day execution assumptions.
-6. **Strategy storage and read-only API:** complete; immutable SQLite version storage plus `GET /strategies` and `GET /strategies/:policy_id/:policy_version` revalidate stored JSON. Controlled creation/validation and Studio are next.
-7. **Qwen Copilot:** later generate candidate specifications and explanations, always subject to deterministic validation, backtesting, and human review.
+6. **Strategy storage, Studio, and admission:** complete; immutable SQLite version storage, controlled creation/validation, current-data simulation, and plan activation are available. A DSL version must compare terminal wealth, drawdown, volatility, and cash utilisation against Fixed DCA on a fixed fixture and pass budget/core-bucket safety gates before activation; insufficient historical coverage is explicitly rejected.
+7. **Runtime observability and Web integration:** complete; the Web app uses `/health`, `/ready`, and `/runtime-status` to distinguish API, SQLite, Qwen, OpenD, and scheduler state, with React Query managing server-data caching.
+8. **Qwen Copilot and expanded research data:** later generate candidate policy specifications and richer historical evidence, always subject to deterministic validation, backtesting, and human review; it will never receive order authority.
 
 See [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md) for details.
 
@@ -183,6 +190,6 @@ See [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md) for
 
 Copyright © 2026 IndexLink Contributors. Released under the [MIT License](./LICENSE).
 
-- Jame — original project author and repository maintainer.
-- Xuanzhou Gu — backend, SQLite persistence, OpenD paper trading, decision evidence, strategy research, and demo-loop contributions.
-- Yucong Peng — project contributor.
+- [Jame (`jamesra26`)](https://github.com/jamesra26) — project initiator; architecture, 70/20/10 fundamental and trend-layer design, frontend implementation, PR review, and ongoing maintenance.
+- [Xuanzhou Gu (`GuZZ1119`)](https://github.com/GuZZ1119) — independent V2 maintainer; backend and API, SQLite persistence, plan/two-bucket/scheduler flows, policy contracts and DSL Studio, evaluation and calibration, Qwen/OpenD paper-trading integration, Alibaba Cloud deployment, testing, documentation, and demo-loop implementation.
+- [Yucong Peng (`YucongPeng`)](https://github.com/YucongPeng) — AI-layer design and implementation.
