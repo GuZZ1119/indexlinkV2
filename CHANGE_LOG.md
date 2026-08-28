@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-08-28 CST — README 实现边界表述收敛
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：双语项目文档结构修正。
+- 涉及文件：`README.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：将“当前实现与策略研究”改为“实现与策略研究”，并将双语能力表由“能力 / 当前状态 / 边界”重构为“实现 / 实现细节与边界”。删除“已完成”等状态列，只保留计划、市场证据、审计、调度、双桶、paper trading、统一策略 resolver 与受限 DSL 的实际实现方式、证据限制和安全边界。
+- 验证：`git diff --check` 通过。
+
 ### 2026-08-28 CST — IndexLink V2 README 状态、演示与贡献者说明
 
 - 执行模型：GPT-5 Codex。

@@ -45,22 +45,22 @@ Create Strategy → Validate → Backtest → Review → Save Version → Activa
 
 See the [Strategy Studio Migration Plan](./STRATEGY_STUDIO_MIGRATION_PLAN.md) for the complete target design, compatibility rules, and PR sequence.
 
-## Current Implementation and Policy Research
+## Implementation and Policy Research
 
 The current demo still includes the historical 70/20/10 decision path: fundamental/historical-position, trend, and bounded Qwen sentiment produce a recommendation and evidence. This is the candidate semantics of `CoreOpportunityV1`; it is **not** a proven claim of superior returns.
 
 The repository keeps C1–C4, calibration fixtures, and reports as reproducible research assets. Under matched fixed-DCA historical samples, some candidates primarily changed cash utilisation, drawdown, or volatility and did not establish a stable return advantage. The legacy model is now retained as a versioned built-in policy, and `FixedDcaPolicy` is the new-plan default and fair benchmark. The restricted DSL has a deterministic, I/O-free interpreter shared by historical evaluation and live simulation; SQLite stores immutable versions, while Studio validates and saves them. A DSL version must pass fixed-fixture backtest, budget, and core-bucket safety gates before it can activate.
 
-| Capability | Current state | Boundary |
-| :--- | :--- | :--- |
-| Plans, schedule rules, and local SQLite | Implemented | Single-user local data; existing plans retain their current behaviour. |
-| 70/20 market inputs and Qwen evidence | Implemented | Source failure is explicit degradation or a rejected automatic decision, never fabricated input. |
-| Decision evidence and history | Implemented | New records store policy ID/version, a generic recommendation, inputs, result, Qwen rationale/news/warnings, and an optional order acknowledgement; legacy records remain readable. |
-| Minimum scheduler | Implemented | Creates idempotent evidence on due dates; **never auto-submits an order**. |
-| Two-bucket budget, opportunity cash, and period constraints | Base loop implemented | Constrained by plan budget, available cash, period caps, and paper-only boundaries. |
-| Mock/OpenD paper trading | Implemented | Local-loopback OpenD paper accounts only; no live trading. |
-| Built-in policies and unified execution entry | Implemented | New plans default to `fixed_dca@1`; existing SQLite plans migrate to `core_opportunity_v1@1`; preview, scheduler, audit, and paper-only orders use the same resolver. |
-| Restricted DSL, deterministic runtime, Studio, and admission | Controlled loop implemented | Only allow-listed indicators, bounded expressions, and opportunity actions are representable. Saving rebuilds domain invariants; activation requires a fixed-fixture backtest plus budget/core-bucket safety. The current fixture supports RSI(14)/VIX only, so unsupported history is rejected rather than fabricated. |
+| Implementation | Detail and boundary |
+| :--- | :--- |
+| Plans, schedule rules, and local SQLite | Single-user local persistence; existing plans retain their established behaviour and compatible reads. |
+| 70/20 market inputs and Qwen evidence | Fundamental/trend inputs and bounded Qwen explanations retain source and time semantics. Source failure explicitly degrades or rejects an automatic decision; no input is fabricated. |
+| Decision evidence and history | Retains policy ID/version, generic recommendation, inputs, result, Qwen rationale/news/warnings, and an optional order acknowledgement; legacy records remain readable. |
+| Minimum scheduler | Creates idempotent evidence on due dates; **never auto-submits an order**. |
+| Two-bucket budget, opportunity cash, and period constraints | Core/opportunity buckets are jointly constrained by the plan budget, available cash, cumulative period cap, and paper-only boundary. |
+| Mock/OpenD paper trading | Connects to local-loopback OpenD paper accounts only; no live-trading capability exists. |
+| Built-in policies and unified execution entry | New plans use `fixed_dca@1`; existing SQLite plans migrate to `core_opportunity_v1@1`; preview, scheduler, audit, and paper-only orders use the same resolver. |
+| Restricted DSL, deterministic runtime, Studio, and admission | Represents only allow-listed indicators, bounded expressions, and opportunity actions. Saving rebuilds domain invariants; activation compares a fixed-fixture backtest and checks budget/core-bucket safety. The fixed fixture covers RSI(14)/VIX only, so insufficient historical evidence rejects activation instead of fabricating a backtest. |
 
 ## Architecture and Safety Boundaries
 
