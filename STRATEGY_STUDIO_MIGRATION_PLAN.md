@@ -1,7 +1,7 @@
 # IndexLink 策略工作台迁移计划 / Strategy Studio Migration Plan
 
-> 状态：PR 1–6 与 PR 7 的“版本存储 + 只读 API”子阶段已完成；策略写入、激活和 Studio 仍未实现。
-> Status: PRs 1–6 and the PR 7 “version storage + read-only API” sub-stage are complete; strategy writes, activation, and Studio remain unimplemented.
+> 状态：PR 1–6 与 PR 7a–7d 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime。下一项候选工作是受限 Qwen Strategy Copilot，或扩展版本化历史夹具以放开更多 DSL 指标的准入。
+> Status: PRs 1–6 and PRs 7a–7d are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation now use the unified runtime. The next candidate is a bounded Qwen Strategy Copilot or expanded versioned historical fixtures for additional DSL indicators.
 
 ## 1. 新定位 / New Positioning
 
@@ -51,7 +51,7 @@ Create Strategy → Validate → Backtest → Review → Save Version → Activa
 | `InvestmentRecommendation` | 已实现策略引用、动作、倍率与周期预算；桶拆分、原因和风险提示继续由计划/应用层保留。 |
 | `InvestmentPolicy` | `DecisionContext -> InvestmentRecommendation` 的确定性评估契约。 |
 
-The proposed `strategy-policy` crate is pure and IO-free. Its runtime contract is:
+The implemented `strategy-policy` crate is pure and I/O-free. Its runtime contract is:
 
 ```text
 PolicyRef + complete DecisionContext → InvestmentRecommendation
@@ -65,7 +65,7 @@ PolicyRef + complete DecisionContext → InvestmentRecommendation
 | :--- | :--- | :--- |
 | `CoreOpportunityV1` | 现有逻辑的兼容包装器 | 包装当前 70/20/10、双桶和动作语义，输出保持逐项回归兼容。 |
 | `FixedDcaPolicy` | 首个新增策略 | 固定按周期预算推荐金额，用作新计划默认候选和公平基准。 |
-| DSL 策略 | 后续 | 由用户保存的、受限语法的规则策略。 |
+| DSL 策略 | 已实现受控闭环 | 用户保存的受限规则策略；仅白名单指标/表达式/机会桶动作，必须通过固定样本准入后才能激活。 |
 
 `CoreOpportunityV1` will call the existing legacy decision implementation unchanged during the first migration stage. No existing public `decision-engine` type is renamed or removed in that stage.
 

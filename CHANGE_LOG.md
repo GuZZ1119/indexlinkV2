@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-08-28 CST — V2 文档口径修正与 70/20/10 可复现基线披露
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略研究、调度文档与双语 README 真实性更新。
+- 涉及文件：`apps/server/src/config.rs`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`README.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：修正 server 配置中“固定月度”scheduler 的过时 rustdoc，明确它服务于每周或每月的固定计划日期；更新策略迁移计划顶部状态及 DSL 行，反映 PR 7a–7d 的保存、Studio、准入和激活闭环已实现。README 新增原始 `CoreOpportunityV1` 的版本化 `calibration-v1` 研究披露：历史收益严格使用 90/10/0 AI 不可用降级线，SPY/QQQ 指数代理在相同 USD 1,000 月度现金流、5 bps 成本、零现金利息和无未来函数条件下，相比 Fixed DCA 呈现较低回撤/波动但也有约 17% 未部署现金与较低期末净值；因此只作为可复现风险观察和审计能力说明，不构成稳定性或收益优势承诺。补充完整研究报告链接。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`、`git diff --check`。
+
 ### 2026-08-28 CST — README 实现边界表述收敛
 
 - 执行模型：GPT-5 Codex。

@@ -51,6 +51,21 @@ The current demo still includes the historical 70/20/10 decision path: fundament
 
 The repository keeps C1–C4, calibration fixtures, and reports as reproducible research assets. Under matched fixed-DCA historical samples, some candidates primarily changed cash utilisation, drawdown, or volatility and did not establish a stable return advantage. The legacy model is now retained as a versioned built-in policy, and `FixedDcaPolicy` is the new-plan default and fair benchmark. The restricted DSL has a deterministic, I/O-free interpreter shared by historical evaluation and live simulation; SQLite stores immutable versions, while Studio validates and saves them. A DSL version must pass fixed-fixture backtest, budget, and core-bucket safety gates before it can activate.
 
+### Original 70/20/10 research: reproducible risk observations, not a return claim
+
+The original `CoreOpportunityV1` combines 70% fundamentals, 20% trend, and 10% AI sentiment. Historical Qwen news judgements cannot be faithfully replayed, so the return/risk baseline below strictly uses the **90/10/0 AI-unavailable fallback** and calls the production domain functions directly. Frozen Qwen samples are used only for score/action-distribution sensitivity, never for return attribution.
+
+The baseline uses versioned `calibration-v1` data, matched monthly USD 1,000 external cash flows, 5 bps buy cost, zero cash interest, and a no-look-ahead protocol; uninvested cash always remains in terminal wealth. SPY/QQQ are index proxies, not a complete total-return backtest of tradable ETFs.
+
+| Index proxy | Fixed DCA: XIRR / terminal wealth | Original Core/Opportunity: XIRR / terminal wealth | Terminal difference vs DCA | Max drawdown (DCA → policy) | Annualised volatility (DCA → policy) | Cash utilisation (DCA → policy) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| S&P 500 (SPY proxy) | 19.61% / $71,669 | 17.54% / $68,926 | -3.83% | 9.70% → 9.44% | 13.32% → 12.28% | 100.00% → 82.65% |
+| NASDAQ Composite (QQQ proxy) | 16.88% / $815,385 | 15.84% / $740,761 | -9.15% | 33.03% → 31.29% | 16.83% → 15.71% | 100.00% → 83.31% |
+
+Both samples do show lower observed maximum drawdown and annualised volatility, but alongside roughly 17% undeployed cash and lower terminal wealth. That **must not** be presented as unconditional “stability improvement” or policy superiority. V2's verifiable value is exposing the trade-off: policy version, `as_of`, sources, input snapshots, recommendation, budget constraints, order intent, and acknowledgement are traceable, reproducible, and reviewable.
+
+See [Strategy Calibration Baseline V1](./STRATEGY_CALIBRATION_BASELINE_V1.md) for the full data protocol, score/action distributions, rolling out-of-sample windows, and frozen-Qwen sensitivity. See [C4 Research V1](./STRATEGY_C4_RESEARCH_V1.md) for C1–C4 research and why none was promoted as the default policy.
+
 | Implementation | Detail and boundary |
 | :--- | :--- |
 | Plans, schedule rules, and local SQLite | Single-user local persistence; existing plans retain their established behaviour and compatible reads. |

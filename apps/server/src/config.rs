@@ -43,7 +43,7 @@ pub(crate) struct Config {
     pub(crate) scheduler: SchedulerConfig,
 }
 
-/// Safe fixed-monthly automatic-decision scheduler settings.
+/// Safe periodic automatic-decision scheduler settings for weekly or monthly fixed plan dates.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SchedulerConfig {
     pub(crate) enabled: bool,
