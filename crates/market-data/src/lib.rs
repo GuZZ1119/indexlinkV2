@@ -60,6 +60,8 @@ pub struct MarketSignalInput {
     pub vix_history: Vec<f64>,
     /// 最新 VIX。
     pub vix_current: f64,
+    /// 最新 VIX 原始观测的实际交易日，使用 UTC `YYYY-MM-DD`。
+    pub vix_as_of: String,
 }
 
 /// 一根已验证的美股日线收盘价，用于只读走势与历史回放。
@@ -156,7 +158,7 @@ impl MarketSignalProvider for OpenDMarketSignalProvider {
             .await
             .map_err(|_| MarketDataError::MacroUnavailable)?;
         let cape = parse_cape_history(&cape_html)?;
-        let vix = parse_vix_csv(&vix_csv)?;
+        let (vix, vix_as_of) = parse_vix_csv_with_last_date(&vix_csv)?;
         let treasury = self.fetch_treasury_history().await?;
         let (ma_history, rsi_history) = technical_history(&daily)?;
         let (cape_history, erp_history) = cape_and_erp_history(&cape, &treasury)?;
@@ -179,6 +181,7 @@ impl MarketSignalProvider for OpenDMarketSignalProvider {
             vix_current: *vix_history
                 .last()
                 .ok_or(MarketDataError::InsufficientHistory)?,
+            vix_as_of: vix_as_of.format("%Y-%m-%d").to_string(),
             cape_history,
             erp_history,
             ma_distance_history: ma_history,
@@ -421,8 +424,14 @@ fn parse_cape_history(html: &str) -> Result<MonthlySeries, MarketDataError> {
     }
 }
 
+#[cfg(test)]
 fn parse_vix_csv(text: &str) -> Result<MonthlySeries, MarketDataError> {
+    parse_vix_csv_with_last_date(text).map(|(values, _)| values)
+}
+
+fn parse_vix_csv_with_last_date(text: &str) -> Result<(MonthlySeries, NaiveDate), MarketDataError> {
     let mut values = BTreeMap::new();
+    let mut last_observation = None;
     for row in text.lines().skip(1) {
         let columns: Vec<&str> = row.split(',').collect();
         if columns.len() < 5 {
@@ -436,13 +445,16 @@ fn parse_vix_csv(text: &str) -> Result<MonthlySeries, MarketDataError> {
         };
         if value.is_finite() {
             values.insert((date.year(), date.month()), value);
+            last_observation =
+                Some(last_observation.map_or(date, |latest: NaiveDate| latest.max(date)));
         }
     }
-    if values.is_empty() {
-        Err(MarketDataError::InsufficientHistory)
-    } else {
-        Ok(values)
-    }
+    Ok((
+        (!values.is_empty())
+            .then_some(values)
+            .ok_or(MarketDataError::InsufficientHistory)?,
+        last_observation.ok_or(MarketDataError::InsufficientHistory)?,
+    ))
 }
 
 fn parse_treasury_csv(text: &str) -> Result<MonthlySeries, MarketDataError> {
@@ -708,6 +720,14 @@ mod tests {
         }));
         let vix_csv = vix_rows.join("\n");
         assert_eq!(parse_vix_csv(&vix_csv).unwrap().len(), 60);
+        assert_eq!(
+            parse_vix_csv_with_last_date(&vix_csv)
+                .unwrap()
+                .1
+                .format("%Y-%m-%d")
+                .to_string(),
+            "2024-12-01"
+        );
         assert_eq!(
             parse_vix_csv("DATE,OPEN,HIGH,LOW,CLOSE\ninvalid"),
             Err(MarketDataError::InsufficientHistory)

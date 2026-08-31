@@ -34,6 +34,8 @@ use strategy_dsl::{
     StrategyDslRuntimeError, StrategyDslValidationError, StrategyRule, StrategySpec,
     ValueExpression,
 };
+#[cfg(test)]
+use strategy_dsl::{TechnicalClose, TechnicalMarketSnapshot, TechnicalVix};
 use strategy_policy::{DecisionContext, PolicyId, PolicyRef, PolicyValidationError, PolicyVersion};
 use thiserror::Error;
 use time::{Date, Month};
@@ -470,6 +472,8 @@ struct ParsedTechnicalSeries {
     source_gap_rows: usize,
     first_observation: NaiveDate,
     last_observation: NaiveDate,
+    #[cfg(test)]
+    values: Vec<(NaiveDate, Decimal)>,
 }
 
 fn parse_technical_series(
@@ -495,6 +499,8 @@ fn parse_technical_series(
     let mut first_observation = None;
     let mut last_valid_observation = None;
     let mut last_source_observation = None;
+    #[cfg(test)]
+    let mut parsed_values = Vec::new();
     for row in rows.filter(|row| !row.trim().is_empty()) {
         let values = row.split(',').collect::<Vec<_>>();
         if values.len() != columns.len() {
@@ -517,9 +523,13 @@ fn parse_technical_series(
         if !close.is_finite() || close <= 0.0 {
             return Err(EvaluationError::TechnicalFixtureIntegrity);
         }
+        #[cfg(test)]
+        let close = Decimal::from_f64(close).ok_or(EvaluationError::InvalidDecimal)?;
         first_observation.get_or_insert(observed);
         last_valid_observation = Some(observed);
         observations += 1;
+        #[cfg(test)]
+        parsed_values.push((observed, close));
     }
 
     Ok(ParsedTechnicalSeries {
@@ -528,7 +538,65 @@ fn parse_technical_series(
         first_observation: first_observation.ok_or(EvaluationError::TechnicalFixtureIntegrity)?,
         last_observation: last_valid_observation
             .ok_or(EvaluationError::TechnicalFixtureIntegrity)?,
+        #[cfg(test)]
+        values: parsed_values,
     })
+}
+
+/// Build one causal technical snapshot from the immutable fixture at a decision date.
+///
+/// This helper is intentionally offline-only. It retains only source observations dated on or
+/// before `as_of`; a caller must obtain an execution price from a strictly later trading date.
+#[cfg(test)]
+fn technical_snapshot_at(
+    price_file: &str,
+    as_of: NaiveDate,
+) -> Result<(TechnicalMarketSnapshot, Vec<(NaiveDate, Decimal)>), EvaluationError> {
+    let manifest: TechnicalFixtureManifest = serde_json::from_str(TECHNICAL_FIXTURE_MANIFEST)
+        .map_err(|_| EvaluationError::TechnicalFixtureManifest)?;
+    let price_series = manifest
+        .series
+        .iter()
+        .find(|series| series.file == price_file)
+        .ok_or(EvaluationError::TechnicalFixtureManifest)?;
+    let vix_series = manifest
+        .series
+        .iter()
+        .find(|series| series.file == "cboe_vix_daily.csv")
+        .ok_or(EvaluationError::TechnicalFixtureManifest)?;
+    let prices = parse_technical_series(price_series, technical_raw_source(price_file)?)?;
+    let vix = parse_technical_series(vix_series, CBOE_VIX_DAILY)?;
+    let cutoff = fixture_date(as_of)?;
+    let closes = prices
+        .values
+        .iter()
+        .filter(|(date, _)| *date <= as_of)
+        .map(|(date, close)| {
+            TechnicalClose::new(fixture_date(*date)?, *close).map_err(EvaluationError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let vix = vix
+        .values
+        .into_iter()
+        .rev()
+        .find(|(date, _)| *date <= as_of)
+        .ok_or(EvaluationError::InsufficientHistory)?;
+    let snapshot = TechnicalMarketSnapshot::new(
+        cutoff,
+        closes,
+        TechnicalVix::new(fixture_date(vix.0)?, vix.1).map_err(EvaluationError::from)?,
+    )
+    .map_err(EvaluationError::from)?;
+    Ok((snapshot, prices.values))
+}
+
+#[cfg(test)]
+fn technical_raw_source(file: &str) -> Result<&'static str, EvaluationError> {
+    match file {
+        "fred_sp500_daily.csv" => Ok(FRED_SP500_DAILY),
+        "fred_nasdaqcom_daily.csv" => Ok(FRED_NASDAQCOM_DAILY),
+        _ => Err(EvaluationError::TechnicalFixtureManifest),
+    }
 }
 
 fn parse_technical_date(value: &str, format: &str) -> Result<NaiveDate, EvaluationError> {
@@ -1876,6 +1944,79 @@ mod tests {
             .series
             .iter()
             .all(|series| series.observations > 2_000));
+    }
+
+    /// Verify immutable raw inputs create causal DSL evidence and execute only on a later close.
+    #[test]
+    fn technical_fixture_uses_decision_day_evidence_and_next_trading_day_execution() {
+        let policy = PolicyRef::new(
+            PolicyId::new("dsl_technical_fixture_probe").unwrap(),
+            PolicyVersion::new(1).unwrap(),
+        );
+        let window = LookbackWindow::new(20).unwrap();
+        let strategy = StrategySpec::new(
+            policy,
+            "Technical fixture causal probe",
+            vec![StrategyRule::new(
+                Condition::all(vec![
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::ClosePrice),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::SimpleMovingAverage(window)),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::ExponentialMovingAverage(window)),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::RelativeStrengthIndex(window)),
+                        ComparisonOperator::GreaterThanOrEqual,
+                        Decimal::ZERO,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::Drawdown(window)),
+                        ComparisonOperator::LessThanOrEqual,
+                        Decimal::ZERO,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::Vix),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                ])
+                .unwrap(),
+                PolicyAction::skip_opportunity(),
+            )],
+        )
+        .unwrap();
+        let decision_date = NaiveDate::from_ymd_opt(2024, 6, 28).unwrap();
+        let (snapshot, prices) =
+            technical_snapshot_at("fred_sp500_daily.csv", decision_date).unwrap();
+        let first = DslEvidence::from_as_of_market_snapshot(&strategy, &snapshot).unwrap();
+        let second = DslEvidence::from_as_of_market_snapshot(&strategy, &snapshot).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(snapshot.as_of(), fixture_date(decision_date).unwrap());
+        assert!(snapshot
+            .closes()
+            .iter()
+            .all(|observation| observation.as_of() <= snapshot.as_of()));
+        assert!(snapshot.vix().as_of() <= snapshot.as_of());
+        let execution = prices
+            .iter()
+            .find(|(date, _)| *date > decision_date)
+            .map(|(date, _)| *date)
+            .unwrap();
+        assert!(execution > decision_date);
+        assert!(first
+            .values()
+            .any(|(indicator, _)| indicator == IndicatorSpec::Vix));
     }
 
     /// Verify changing a committed raw hash blocks use of the technical fixture.

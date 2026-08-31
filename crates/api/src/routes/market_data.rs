@@ -92,6 +92,8 @@ struct TrendInputResponse {
     vix_history: Vec<f64>,
     /// Latest VIX value.
     vix_current: f64,
+    /// Actual market date of the latest VIX source observation.
+    vix_as_of: String,
 }
 
 /// Human-readable source disclosures for the automatic snapshot.
@@ -123,12 +125,13 @@ impl From<MarketSignalInput> for MarketSignalInputResponse {
                 rsi_current: input.rsi_current,
                 vix_history: input.vix_history,
                 vix_current: input.vix_current,
+                vix_as_of: input.vix_as_of,
             },
             sources: MarketDataSourcesResponse {
                 price: "local OpenD daily close; MA200 and RSI are computed locally",
                 fundamental:
                     "Shiller CAPE monthly table; ERP proxy = 100 / CAPE - US Treasury 10-year yield",
-                volatility: "Cboe VIX monthly last observation",
+                volatility: "Cboe VIX last available observation",
             },
         }
     }

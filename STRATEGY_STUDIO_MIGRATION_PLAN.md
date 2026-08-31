@@ -1,7 +1,7 @@
 # IndexLink 策略工作台迁移计划 / Strategy Studio Migration Plan
 
-> 状态：PR 1–6、PR 7a–7d 与不可变技术夹具 Push 1 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验。下一项工作是 Push 2：让线上与离线共用带 `as_of` 的全部 DSL 技术证据。
-> Status: PRs 1–6, PRs 7a–7d, and immutable-technical-fixture Push 1 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation use the unified runtime; `technical-v1` validates raw daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity. The next work item is Push 2: shared `as_of` technical evidence for every DSL indicator online and offline.
+> 状态：PR 1–6、PR 7a–7d 与不可变技术夹具 Push 1–2 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验，且 DSL 技术证据现已在截止日 `as_of` 下因果计算。下一项工作是 Push 3：将完整历史证据接入策略准入回测。
+> Status: PRs 1–6, PRs 7a–7d, and immutable-technical-fixture Pushes 1–2 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation use the unified runtime; `technical-v1` validates raw daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity, and DSL technical evidence is now calculated causally at an `as_of` cutoff. The next work item is Push 3: admit complete historical evidence into strategy-admission backtests.
 
 ## 1. 新定位 / New Positioning
 
@@ -153,7 +153,7 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 
 ### PR 7c — DSL Runtime V2 / Shared Technical Evidence（已完成 / Complete）
 
-- 线上与离线研究共用 `DslEvidence::from_market_snapshot`：由同一段纯 Decimal 逻辑计算收盘价、SMA、EMA、RSI、窗口回撤和 VIX，输入仅允许决策 `as_of` 当日及以前的日线。
+- 线上与离线研究共用 `DslEvidence::from_market_snapshot` 的纯 Decimal 指标公式；Push 2 进一步将其封装为 `TechnicalMarketSnapshot` 与 `DslEvidence::from_as_of_market_snapshot`，拒绝未来日期、重复/倒序日线与非法价格/VIX。Close、SMA、EMA、RSI、窗口回撤和 VIX 均只读取决策 `as_of` 当日及以前的可得观察。
 - 自动 preview/scheduler 在审计来源快照中记录 `as_of`、OpenD/Cboe 数据来源和实际所需指标窗口；保存策略后可用只读 `simulate` 查看首条命中规则和输入证据。
 - Studio 支持多条有序优先规则、单条件/全部满足/任一满足组、窗口与阈值、版本复制以及当前数据模拟；仍不支持自由代码或固定金额动作线上激活。
 
@@ -169,6 +169,12 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 - 新增 `technical-v1` manifest，记录 FRED S&P 500 / NASDAQ Composite 日线作为 SPY / QQQ 的**指数代理**，以及 Cboe VIX 日线；manifest 固定来源 URL、适用条款说明、日期格式、缺失值规则、共同覆盖区间和 SHA-256。
 - `strategy-evaluation` 仅以编译期嵌入的原始快照运行完整性校验；拒绝篡改 hash、重复/倒序日期、非正价格、结构错误或不覆盖声明范围的数据。原始缺失行明确记作 source gap，绝不前填或插值。
 - 本阶段不将代理伪装为 ETF 总回报/成交价，不更改生产策略、DSL 准入范围或任何收益结论。Push 2 才会将 Close、SMA、EMA、RSI、Drawdown、VIX 的同一 `as_of` 证据接入线上与离线评估。
+
+### 不可变技术夹具 Push 2 — 因果技术证据 / Causal Technical Evidence（已完成 / Complete）
+
+- 新增带日期的 `TechnicalClose`、`TechnicalVix` 与 `TechnicalMarketSnapshot`；快照只接受 `timestamp <= as_of` 的严格递增日线与最后可得 VIX，拒绝未来值、重复/倒序日期、非正收盘价和负 VIX，不填补交易日缺口。
+- DSL 的 Close、SMA、EMA、RSI、Drawdown、VIX 继续由同一纯 Decimal builder 计算；实时 Strategy Simulation、自动 Decision Preview 及离线 `technical-v1` 夹具测试均通过这个有因果边界的入口。历史测试明确检查“t 日生成证据，首个严格更晚交易日才可成交”。
+- 这一步只建立可验证的指标证据契约；固定样本策略准入仍仅覆盖已有的 RSI(14)/VIX 输入。Push 3 才会将 Close、SMA、EMA、回撤与 VIX 的完整历史证据实际接入准入回测和激活门槛。
 
 ### PR 8 — Qwen Strategy Copilot / Qwen Strategy Copilot
 

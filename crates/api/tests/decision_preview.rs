@@ -115,6 +115,7 @@ impl MarketSignalProvider for StaticMarketData {
             rsi_current: 1.0,
             vix_history: values,
             vix_current: 1.0,
+            vix_as_of: "2026-07-19".to_owned(),
         })
     }
 
@@ -691,7 +692,7 @@ async fn scheduler_creates_one_due_audit_record_per_plan_and_utc_day() {
         .with_market_sentiment(Arc::new(StaticNews), Arc::new(PositiveAi))
         .with_market_data(Arc::new(StaticMarketData));
     let app = build_router(state.clone());
-    let day = Utc::now().day();
+    let day = Utc::now().weekday().number_from_monday();
     let created = app
         .clone()
         .oneshot(
@@ -705,7 +706,7 @@ async fn scheduler_creates_one_due_audit_record_per_plan_and_utc_day() {
                         "symbol": "VOO",
                         "base_contribution": "100.00",
                         "currency": "USD",
-                        "schedule_kind": "monthly",
+                        "schedule_kind": "weekly",
                         "schedule_day": day,
                         "max_single_execution": "100.00"
                     })

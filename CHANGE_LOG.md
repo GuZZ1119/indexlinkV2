@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-08-31 CST — 不可变技术历史夹具 Push 2：因果 `as_of` 技术证据
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略运行时数据边界、离线研究因果性与 API 联调测试。
+- 涉及文件：`crates/{market-data,strategy-dsl,strategy-evaluation}/src/lib.rs`、`crates/api/src/routes/{market_data.rs,strategies.rs,decision_preview.rs}`、`crates/api/tests/{strategies.rs,decision_preview.rs,market_data.rs}`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`readme.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `TechnicalClose`、`TechnicalVix`、`TechnicalMarketSnapshot` 与 `DslEvidence::from_as_of_market_snapshot`。快照构造拒绝晚于 `as_of` 的价格/VIX、重复或倒序日线、非正收盘价和负 VIX；Close、SMA、EMA、RSI、Drawdown、VIX 继续由同一纯 Decimal 公式计算。`MarketSignalInput` 新增由 Cboe CSV 最后有效交易日解析的 `vix_as_of`，自动审计来源与市场输入 API 也公开该日期，避免将股票 `as_of` 误写为 VIX 时间。实时 Strategy Simulation 与自动 Decision Preview 已改用该入口，离线 `technical-v1` 测试在 t 日生成证据且只允许首个严格更晚交易日作为成交点。补强两条 scheduler/API 测试：月末日期不再构造非法月度第 29–31 日计划，改为等价的当日周度计划。固定样本准入范围仍为 RSI(14)/VIX；本次不改变生产策略、收益结论、订单行为或激活范围。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p market-data --locked`、`cargo test -p strategy-dsl --locked`、`cargo test -p strategy-evaluation --locked`、`cargo test -p indexlink-api --locked`、`cargo clippy -p market-data -p strategy-dsl -p strategy-evaluation -p indexlink-api --all-targets --all-features --locked -- -D warnings`、`git diff --check`。
+
 ### 2026-08-31 CST — 不可变技术历史夹具 Push 1：原始数据谱系与完整性
 
 - 执行模型：GPT-5 Codex。

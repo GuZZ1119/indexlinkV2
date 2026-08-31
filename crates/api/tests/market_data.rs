@@ -43,6 +43,7 @@ impl MarketSignalProvider for StaticMarketData {
             rsi_current: 1.0,
             vix_history: values,
             vix_current: 1.0,
+            vix_as_of: "2026-07-17".to_owned(),
         })
     }
 

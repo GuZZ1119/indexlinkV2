@@ -41,6 +41,7 @@ impl MarketSignalProvider for StaticMarketData {
             rsi_current: 1.0,
             vix_history: values,
             vix_current: 1.0,
+            vix_as_of: "2026-08-25".to_owned(),
         })
     }
 
@@ -239,10 +240,10 @@ async fn activates_a_validated_strategy_and_uses_it_for_automatic_audit() {
     let app = build_router(
         ApiState::new(storage, "0.1.0").with_market_data(std::sync::Arc::new(StaticMarketData)),
     );
-    let day = chrono::Utc::now().day();
+    let day = chrono::Utc::now().weekday().number_from_monday();
     let plan = serde_json::json!({
         "name": "DSL holding", "symbol": "VOO", "base_contribution": "100.00", "currency": "USD",
-        "schedule_kind": "monthly", "schedule_day": day, "max_single_execution": "100.00",
+        "schedule_kind": "weekly", "schedule_day": day, "max_single_execution": "100.00",
         "bucket_allocation": {"core_ratio":"0.70", "opportunity_ratio":"0.30"}, "risk_mode": "autopilot"
     });
     let created = app

@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use core_domain::{Action, Multiplier};
 use rust_decimal::Decimal;
 use strategy_policy::{DecisionContext, InvestmentRecommendation, PolicyRef};
+use time::Date;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -532,6 +533,131 @@ impl Condition {
     }
 }
 
+/// 一根带市场可得日期的已验证收盘价。
+///
+/// 该类型只表达已收盘、可在决策时读取的价格；它不代表成交价格。历史评估器必须
+/// 另行选择严格晚于决策日的交易日完成模拟成交。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TechnicalClose {
+    as_of: Date,
+    close: Decimal,
+}
+
+impl TechnicalClose {
+    /// 构造一个正数收盘价观测。
+    pub fn new(as_of: Date, close: Decimal) -> Result<Self, StrategyDslRuntimeError> {
+        if close <= Decimal::ZERO {
+            return Err(StrategyDslRuntimeError::InvalidMarketObservation);
+        }
+        Ok(Self { as_of, close })
+    }
+
+    /// 返回该价格可被策略读取的日期。
+    #[must_use]
+    pub fn as_of(self) -> Date {
+        self.as_of
+    }
+
+    /// 返回已验证的收盘价。
+    #[must_use]
+    pub fn close(self) -> Decimal {
+        self.close
+    }
+}
+
+/// 一条带市场可得日期的已验证 VIX 观测。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TechnicalVix {
+    as_of: Date,
+    value: Decimal,
+}
+
+impl TechnicalVix {
+    /// 构造一个非负 VIX 观测。
+    pub fn new(as_of: Date, value: Decimal) -> Result<Self, StrategyDslRuntimeError> {
+        if value < Decimal::ZERO {
+            return Err(StrategyDslRuntimeError::InvalidMarketObservation);
+        }
+        Ok(Self { as_of, value })
+    }
+
+    /// 返回该 VIX 观测可被策略读取的日期。
+    #[must_use]
+    pub fn as_of(self) -> Date {
+        self.as_of
+    }
+
+    /// 返回已验证的 VIX 水平。
+    #[must_use]
+    pub fn value(self) -> Decimal {
+        self.value
+    }
+}
+
+/// 同一决策截止日可读取的技术市场快照。
+///
+/// 构造时会拒绝未来观测、非严格递增价格日期与非法价格。交易日之间可以有自然的
+/// 周末或节假日间隔；该类型不填补任何缺失价格。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TechnicalMarketSnapshot {
+    as_of: Date,
+    closes: Vec<TechnicalClose>,
+    vix: TechnicalVix,
+}
+
+impl TechnicalMarketSnapshot {
+    /// 用截至 `as_of` 的日线与 VIX 构造因果技术快照。
+    pub fn new(
+        as_of: Date,
+        closes: Vec<TechnicalClose>,
+        vix: TechnicalVix,
+    ) -> Result<Self, StrategyDslRuntimeError> {
+        if vix.as_of() > as_of
+            || closes.iter().any(|close| close.as_of() > as_of)
+            || closes
+                .windows(2)
+                .any(|pair| pair[0].as_of() >= pair[1].as_of())
+        {
+            return Err(StrategyDslRuntimeError::NonCausalMarketSnapshot);
+        }
+        if closes.is_empty() {
+            return Err(StrategyDslRuntimeError::MissingIndicator);
+        }
+        Ok(Self { as_of, closes, vix })
+    }
+
+    /// 返回策略决策截止日。
+    #[must_use]
+    pub fn as_of(&self) -> Date {
+        self.as_of
+    }
+
+    /// 返回日线观测；顺序严格递增且不包含未来值。
+    #[must_use]
+    pub fn closes(&self) -> &[TechnicalClose] {
+        &self.closes
+    }
+
+    /// 返回最后可得、且不晚于截止日的 VIX 观测。
+    #[must_use]
+    pub fn vix(&self) -> TechnicalVix {
+        self.vix
+    }
+
+    /// 使用 DSL 唯一的纯函数实现计算本快照所需证据。
+    pub fn evidence_for(
+        &self,
+        strategy: &StrategySpec,
+    ) -> Result<DslEvidence, StrategyDslRuntimeError> {
+        let closes = self
+            .closes
+            .iter()
+            .map(|observation| observation.close())
+            .collect::<Vec<_>>();
+        DslEvidence::from_market_snapshot(strategy, &closes, self.vix.value())
+    }
+}
+
 /// 一组与策略声明完全匹配的已解析指标数值。
 ///
 /// 证据必须由应用层或研究器在 `as_of` 时点之前准备。运行时只读取该快照，因此不会
@@ -602,6 +728,17 @@ impl DslEvidence {
             values.push((indicator, value));
         }
         Self::new(values)
+    }
+
+    /// 从带日期边界的因果技术快照构造策略证据。
+    ///
+    /// 线上实时读取和离线历史评估都应优先使用此入口。它会先验证所有观测都不晚于
+    /// 决策截止日，再复用与 [`Self::from_market_snapshot`] 相同的指标公式。
+    pub fn from_as_of_market_snapshot(
+        strategy: &StrategySpec,
+        snapshot: &TechnicalMarketSnapshot,
+    ) -> Result<Self, StrategyDslRuntimeError> {
+        snapshot.evidence_for(strategy)
     }
 }
 
@@ -848,6 +985,12 @@ pub enum StrategyDslRuntimeError {
     /// 有界 AST 的 Decimal 运算超出可表示范围。
     #[error("strategy expression arithmetic overflowed")]
     ArithmeticOverflow,
+    /// 一条技术市场观测的价格或 VIX 值违反非负/正数不变量。
+    #[error("market evidence contains an invalid observation")]
+    InvalidMarketObservation,
+    /// 市场快照包含未来日期或未按严格日期顺序排列的价格观测。
+    #[error("market evidence is not causal at the requested as-of date")]
+    NonCausalMarketSnapshot,
     /// 调用时的周期预算无法满足已保存 DSL 的固定金额约束。
     #[error(transparent)]
     Validation(#[from] StrategyDslValidationError),
@@ -1338,6 +1481,10 @@ mod tests {
         .unwrap()
     }
 
+    fn date(day: u8) -> Date {
+        Date::from_calendar_date(2026, Month::January, day).unwrap()
+    }
+
     /// Verify a bounded, white-listed rule can be saved and checked against a plan budget.
     #[test]
     fn accepts_a_safe_custom_strategy_and_budget() {
@@ -1638,6 +1785,73 @@ mod tests {
         assert_eq!(
             evidence.value(IndicatorSpec::Vix).unwrap(),
             Decimal::new(20, 0)
+        );
+    }
+
+    /// Verify a dated snapshot rejects any observation that would read beyond its decision cutoff.
+    #[test]
+    fn dated_market_snapshot_rejects_future_or_duplicate_observations() {
+        let close = TechnicalClose::new(date(2), Decimal::new(100, 0)).unwrap();
+        let vix = TechnicalVix::new(date(2), Decimal::new(20, 0)).unwrap();
+        assert_eq!(
+            TechnicalMarketSnapshot::new(date(1), vec![close], vix),
+            Err(StrategyDslRuntimeError::NonCausalMarketSnapshot)
+        );
+
+        let duplicate = vec![
+            TechnicalClose::new(date(1), Decimal::new(99, 0)).unwrap(),
+            TechnicalClose::new(date(1), Decimal::new(100, 0)).unwrap(),
+        ];
+        assert_eq!(
+            TechnicalMarketSnapshot::new(
+                date(1),
+                duplicate,
+                TechnicalVix::new(date(1), Decimal::new(20, 0)).unwrap(),
+            ),
+            Err(StrategyDslRuntimeError::NonCausalMarketSnapshot)
+        );
+    }
+
+    /// Verify dated evidence uses only closes at or before the requested cutoff.
+    #[test]
+    fn dated_market_snapshot_has_no_lookahead_and_requires_warmup() {
+        let sma = IndicatorSpec::SimpleMovingAverage(LookbackWindow::new(3).unwrap());
+        let strategy = StrategySpec::new(
+            policy(),
+            "Three day causal SMA",
+            vec![StrategyRule::new(
+                Condition::compare(
+                    ValueExpression::indicator(sma),
+                    ComparisonOperator::GreaterThan,
+                    Decimal::ZERO,
+                ),
+                PolicyAction::skip_opportunity(),
+            )],
+        )
+        .unwrap();
+        let closes = vec![
+            TechnicalClose::new(date(1), Decimal::new(100, 0)).unwrap(),
+            TechnicalClose::new(date(2), Decimal::new(110, 0)).unwrap(),
+            TechnicalClose::new(date(3), Decimal::new(120, 0)).unwrap(),
+        ];
+        let snapshot = TechnicalMarketSnapshot::new(
+            date(3),
+            closes.clone(),
+            TechnicalVix::new(date(2), Decimal::new(20, 0)).unwrap(),
+        )
+        .unwrap();
+        let evidence = DslEvidence::from_as_of_market_snapshot(&strategy, &snapshot).unwrap();
+        assert_eq!(evidence.value(sma).unwrap(), Decimal::new(110, 0));
+
+        let insufficient = TechnicalMarketSnapshot::new(
+            date(2),
+            closes[..2].to_vec(),
+            TechnicalVix::new(date(2), Decimal::new(20, 0)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            DslEvidence::from_as_of_market_snapshot(&strategy, &insufficient),
+            Err(StrategyDslRuntimeError::MissingIndicator)
         );
     }
 }

@@ -10,7 +10,9 @@ use chrono::{Datelike, NaiveDate};
 use indexlink_storage::StoredStrategySpec;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use strategy_dsl::{DslEvidence, StrategySpecDocument};
+use strategy_dsl::{
+    DslEvidence, StrategySpecDocument, TechnicalClose, TechnicalMarketSnapshot, TechnicalVix,
+};
 use strategy_policy::DecisionContext;
 use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
 use time::Date;
@@ -96,26 +98,18 @@ async fn simulate_strategy(
         return Err(ApiError::BadRequest);
     }
     let input = state.market_signal_input(&request.symbol).await?;
-    let closes = state
-        .market_price_history(&request.symbol, 366)
-        .await?
-        .into_iter()
-        .map(|point| Decimal::from_f64_retain(point.close).ok_or(ApiError::ServiceUnavailable))
-        .collect::<Result<Vec<_>, _>>()?;
+    let as_of = api_date(&input.as_of)?;
+    let closes = technical_closes(state.market_price_history(&request.symbol, 366).await?)?;
     let vix = Decimal::from_f64_retain(input.vix_current).ok_or(ApiError::ServiceUnavailable)?;
-    let evidence = DslEvidence::from_market_snapshot(&strategy, &closes, vix)
+    let snapshot = TechnicalMarketSnapshot::new(
+        as_of,
+        closes,
+        TechnicalVix::new(api_date(&input.vix_as_of)?, vix)
+            .map_err(|_| ApiError::ServiceUnavailable)?,
+    )
+    .map_err(|_| ApiError::ServiceUnavailable)?;
+    let evidence = DslEvidence::from_as_of_market_snapshot(&strategy, &snapshot)
         .map_err(|_| ApiError::BadRequest)?;
-    let as_of = NaiveDate::parse_from_str(&input.as_of, "%Y-%m-%d")
-        .ok()
-        .and_then(|date| {
-            Date::from_calendar_date(
-                date.year(),
-                time::Month::try_from(date.month() as u8).ok()?,
-                date.day() as u8,
-            )
-            .ok()
-        })
-        .ok_or(ApiError::ServiceUnavailable)?;
     let context = DecisionContext::new(as_of, Decimal::ONE, evidence.clone())
         .map_err(|_| ApiError::BadRequest)?;
     let result = strategy
@@ -135,6 +129,33 @@ async fn simulate_strategy(
             })
             .collect(),
     }))
+}
+
+/// Convert one ISO market-data cutoff to the shared causal evidence date.
+fn api_date(value: &str) -> Result<Date, ApiError> {
+    let date =
+        NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| ApiError::ServiceUnavailable)?;
+    Date::from_calendar_date(
+        date.year(),
+        time::Month::try_from(date.month() as u8).map_err(|_| ApiError::ServiceUnavailable)?,
+        date.day() as u8,
+    )
+    .map_err(|_| ApiError::ServiceUnavailable)
+}
+
+/// Convert trusted provider prices into the DSL's date-bounded technical observations.
+fn technical_closes(
+    prices: Vec<market_data::MarketPricePoint>,
+) -> Result<Vec<TechnicalClose>, ApiError> {
+    prices
+        .into_iter()
+        .map(|point| {
+            let date = api_date(&point.date)?;
+            let close =
+                Decimal::from_f64_retain(point.close).ok_or(ApiError::ServiceUnavailable)?;
+            TechnicalClose::new(date, close).map_err(|_| ApiError::ServiceUnavailable)
+        })
+        .collect()
 }
 
 fn policy_from_path(

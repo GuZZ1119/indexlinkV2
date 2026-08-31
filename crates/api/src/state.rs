@@ -1246,6 +1246,7 @@ mod tests {
                 rsi_current: 50.0,
                 vix_history: values,
                 vix_current: 20.0,
+                vix_as_of: "2026-08-27".to_owned(),
             })
         }
 

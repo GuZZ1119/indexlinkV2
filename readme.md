@@ -75,8 +75,8 @@ IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展�
 | 双桶预算、机会现金与周期约束 | 核心/机会桶受计划预算、可用现金、周期累计上限与 paper-only 边界共同约束。 |
 | Mock/OpenD paper trading | 仅连接 loopback OpenD 模拟账户；没有实盘交易能力。 |
 | 内置策略与统一执行入口 | 新计划使用 `fixed_dca@1`；既有 SQLite 计划迁移为 `core_opportunity_v1@1`；预览、scheduler、审计和 paper-only 订单使用同一 resolver。 |
-| 不可变技术研究夹具 | `technical-v1` 将 FRED S&P 500 / NASDAQ Composite 日线作为 SPY / QQQ 指数代理，并与 Cboe VIX 原始快照分开版本化；来源、适用条款说明、日期/缺失值规则、共同覆盖范围和 SHA-256 均被校验。它只读编译期嵌入文件，不联网、不前填、不插值。 |
-| 受限 DSL、确定性 runtime、Studio 与准入 | 仅表达白名单指标、有限表达式和机会桶动作；保存时重建领域不变量，激活前比较固定样本回测并检查预算/核心桶安全。当前准入仍只覆盖 RSI(14)/VIX；Close、SMA、EMA、回撤将在同一 `as_of` 技术证据完成后才开放激活，证据不足时拒绝而非伪造回测。 |
+| 不可变技术研究夹具 | `technical-v1` 将 FRED S&P 500 / NASDAQ Composite 日线作为 SPY / QQQ 指数代理，并与 Cboe VIX 原始快照分开版本化；来源、适用条款说明、日期/缺失值规则、共同覆盖范围和 SHA-256 均被校验。它只读编译期嵌入文件，不联网、不前填、不插值；带日期的技术快照只接受 `timestamp <= as_of` 的观察。 |
+| 受限 DSL、确定性 runtime、Studio 与准入 | 仅表达白名单指标、有限表达式和机会桶动作；保存时重建领域不变量，激活前比较固定样本回测并检查预算/核心桶安全。Close、SMA、EMA、RSI、回撤和 VIX 已通过同一因果 Decimal builder 供实时模拟与离线夹具测试使用；当前准入仍只覆盖 RSI(14)/VIX，完整历史证据接入前其余指标仍拒绝激活而非伪造回测。 |
 
 ## 架构与安全边界
 

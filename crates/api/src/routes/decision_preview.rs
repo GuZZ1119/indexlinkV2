@@ -35,7 +35,10 @@ use quant_engine::{
 use rust_decimal::{prelude::ToPrimitive, Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use strategy_dsl::{DslEvidence, DslRuntimeAction, StrategySpec};
+use strategy_dsl::{
+    DslEvidence, DslRuntimeAction, StrategySpec, TechnicalClose, TechnicalMarketSnapshot,
+    TechnicalVix,
+};
 use strategy_policy::DecisionContext;
 use time::{Date, Month};
 use tokio::time::timeout;
@@ -519,13 +522,38 @@ async fn dsl_evidence_for_live_runtime(
     symbol: &str,
     input: &MarketSignalInput,
 ) -> Result<DslEvidence, ApiError> {
+    let as_of = evidence_as_of(&input.as_of)?;
     let vix = Decimal::from_f64_retain(input.vix_current).ok_or(ApiError::ServiceUnavailable)?;
     let prices = state.market_price_history(symbol, 366).await?;
     let closes = prices
         .iter()
-        .map(|point| Decimal::from_f64_retain(point.close).ok_or(ApiError::ServiceUnavailable))
+        .map(|point| {
+            let close =
+                Decimal::from_f64_retain(point.close).ok_or(ApiError::ServiceUnavailable)?;
+            TechnicalClose::new(evidence_as_of(&point.date)?, close)
+                .map_err(|_| ApiError::ServiceUnavailable)
+        })
         .collect::<Result<Vec<_>, _>>()?;
-    DslEvidence::from_market_snapshot(strategy, &closes, vix).map_err(|_| ApiError::BadRequest)
+    let snapshot = TechnicalMarketSnapshot::new(
+        as_of,
+        closes,
+        TechnicalVix::new(evidence_as_of(&input.vix_as_of)?, vix)
+            .map_err(|_| ApiError::ServiceUnavailable)?,
+    )
+    .map_err(|_| ApiError::ServiceUnavailable)?;
+    DslEvidence::from_as_of_market_snapshot(strategy, &snapshot).map_err(|_| ApiError::BadRequest)
+}
+
+/// Parse a provider ISO date into the single DSL evidence cutoff type.
+fn evidence_as_of(value: &str) -> Result<Date, ApiError> {
+    let date =
+        NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| ApiError::ServiceUnavailable)?;
+    Date::from_calendar_date(
+        date.year(),
+        Month::try_from(date.month() as u8).map_err(|_| ApiError::ServiceUnavailable)?,
+        date.day() as u8,
+    )
+    .map_err(|_| ApiError::ServiceUnavailable)
 }
 
 /// Execute a resolved decision and create its audit record before any optional broker side effect.
@@ -1210,8 +1238,9 @@ fn automatic_source_snapshot(input: &MarketSignalInput) -> Value {
         "kind": "automatic_market_data",
         "symbol": input.symbol,
         "as_of": input.as_of,
+        "vix_as_of": input.vix_as_of,
         "fundamental": "Shiller CAPE monthly table; ERP proxy = 100 / CAPE - US Treasury 10-year yield",
-        "trend": "local OpenD daily close with locally computed MA200 and RSI; Cboe VIX monthly last observation",
+        "trend": "local OpenD daily close with locally computed MA200 and RSI; Cboe VIX last available observation",
     })
 }
 
