@@ -75,7 +75,8 @@ See [Strategy Calibration Baseline V1](./STRATEGY_CALIBRATION_BASELINE_V1.md) fo
 | Two-bucket budget, opportunity cash, and period constraints | Core/opportunity buckets are jointly constrained by the plan budget, available cash, cumulative period cap, and paper-only boundary. |
 | Mock/OpenD paper trading | Connects to local-loopback OpenD paper accounts only; no live-trading capability exists. |
 | Built-in policies and unified execution entry | New plans use `fixed_dca@1`; existing SQLite plans migrate to `core_opportunity_v1@1`; preview, scheduler, audit, and paper-only orders use the same resolver. |
-| Restricted DSL, deterministic runtime, Studio, and admission | Represents only allow-listed indicators, bounded expressions, and opportunity actions. Saving rebuilds domain invariants; activation compares a fixed-fixture backtest and checks budget/core-bucket safety. The fixed fixture covers RSI(14)/VIX only, so insufficient historical evidence rejects activation instead of fabricating a backtest. |
+| Immutable technical research fixture | `technical-v1` versions FRED S&P 500 / NASDAQ Composite daily closes as SPY / QQQ index proxies alongside raw Cboe VIX snapshots. Source, applicable-terms notice, date/gap rules, common coverage, and SHA-256 are verified. It reads compile-time embedded files only: no network, forward-fill, or interpolation. |
+| Restricted DSL, deterministic runtime, Studio, and admission | Represents only allow-listed indicators, bounded expressions, and opportunity actions. Saving rebuilds domain invariants; activation compares a fixed-fixture backtest and checks budget/core-bucket safety. Admission currently covers RSI(14)/VIX only; Close, SMA, EMA, and drawdown will open for activation only after the shared `as_of` technical evidence is complete, and insufficient evidence rejects activation instead of fabricating a backtest. |
 
 ## Architecture and Safety Boundaries
 

@@ -1,7 +1,7 @@
 # IndexLink 策略工作台迁移计划 / Strategy Studio Migration Plan
 
-> 状态：PR 1–6 与 PR 7a–7d 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime。下一项候选工作是受限 Qwen Strategy Copilot，或扩展版本化历史夹具以放开更多 DSL 指标的准入。
-> Status: PRs 1–6 and PRs 7a–7d are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation now use the unified runtime. The next candidate is a bounded Qwen Strategy Copilot or expanded versioned historical fixtures for additional DSL indicators.
+> 状态：PR 1–6、PR 7a–7d 与不可变技术夹具 Push 1 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验。下一项工作是 Push 2：让线上与离线共用带 `as_of` 的全部 DSL 技术证据。
+> Status: PRs 1–6, PRs 7a–7d, and immutable-technical-fixture Push 1 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation use the unified runtime; `technical-v1` validates raw daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity. The next work item is Push 2: shared `as_of` technical evidence for every DSL indicator online and offline.
 
 ## 1. 新定位 / New Positioning
 
@@ -163,6 +163,12 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 - `GET /strategies/:policy_id/:policy_version/admission` 对每个已保存版本执行固定、版本化 `calibration-v2` 回测，同时锁定核心桶只能由计划配置生成、DSL 动作只能影响机会桶，并以固定周期预算检验动作边界。
 - 策略与 `Fixed DCA` 必须在相同外部现金流、成本与“决策日后下一观察日成交”口径下展示期末净值、最大回撤、年化波动率和现金使用率；结果是准入信息，不构成收益承诺，也不以跑赢为激活条件。
 - 当前夹具仅含 RSI(14)/VIX 的版本化因果输入。依赖价格、SMA、EMA、回撤的策略可继续保存/当前数据模拟，但不能激活，直到其历史证据被纳入不可变夹具。
+
+### 不可变技术夹具 Push 1 — 原始数据谱系与完整性 / Raw Provenance and Integrity（已完成 / Complete）
+
+- 新增 `technical-v1` manifest，记录 FRED S&P 500 / NASDAQ Composite 日线作为 SPY / QQQ 的**指数代理**，以及 Cboe VIX 日线；manifest 固定来源 URL、适用条款说明、日期格式、缺失值规则、共同覆盖区间和 SHA-256。
+- `strategy-evaluation` 仅以编译期嵌入的原始快照运行完整性校验；拒绝篡改 hash、重复/倒序日期、非正价格、结构错误或不覆盖声明范围的数据。原始缺失行明确记作 source gap，绝不前填或插值。
+- 本阶段不将代理伪装为 ETF 总回报/成交价，不更改生产策略、DSL 准入范围或任何收益结论。Push 2 才会将 Close、SMA、EMA、RSI、Drawdown、VIX 的同一 `as_of` 证据接入线上与离线评估。
 
 ### PR 8 — Qwen Strategy Copilot / Qwen Strategy Copilot
 

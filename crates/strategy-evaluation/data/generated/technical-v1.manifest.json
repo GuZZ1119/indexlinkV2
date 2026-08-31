@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "dataset_version": "technical-v1",
+  "captured_on": "2026-08-21",
+  "coverage": {
+    "start": "2016-08-22",
+    "end": "2026-08-19"
+  },
+  "market_timezone": "America/New_York",
+  "frequency": "daily close",
+  "missing_value_rule": "Blank or '.' source close rows are explicit source gaps. They are excluded from indicator windows, never forward-filled or interpolated, and a later decision/execution fixture must fail when its required causal observation is unavailable.",
+  "network_rule": "offline-only; source files are embedded at compile time",
+  "series": [
+    {
+      "id": "sp500_index_proxy",
+      "source_symbol": "SP500",
+      "proxy_for": "SPY",
+      "file": "fred_sp500_daily.csv",
+      "source_url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500",
+      "source_terms": "FRED attribution and source-series terms apply. This committed snapshot is for reproducible research and is an S&P 500 index proxy, not SPY ETF execution or total-return data.",
+      "date_format": "%Y-%m-%d",
+      "date_column": "observation_date",
+      "close_column": "SP500",
+      "sha256": "94635e135f4aab22a7e77fd1c297ddf5a04cd28e592e4988e67bcf440b291416"
+    },
+    {
+      "id": "nasdaq_composite_index_proxy",
+      "source_symbol": "NASDAQCOM",
+      "proxy_for": "QQQ",
+      "file": "fred_nasdaqcom_daily.csv",
+      "source_url": "https://fred.stlouisfed.org/graph/fredgraph.csv?id=NASDAQCOM",
+      "source_terms": "FRED attribution and source-series terms apply. This committed snapshot is a NASDAQ Composite index proxy, not QQQ ETF execution or total-return data.",
+      "date_format": "%Y-%m-%d",
+      "date_column": "observation_date",
+      "close_column": "NASDAQCOM",
+      "sha256": "f02630a4521f16197510fa81ad3f8fab60c36f5dba993f4506c4f3c58a296ff6"
+    },
+    {
+      "id": "cboe_vix",
+      "source_symbol": "VIX",
+      "proxy_for": null,
+      "file": "cboe_vix_daily.csv",
+      "source_url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv",
+      "source_terms": "Cboe data terms and attribution apply. This committed daily-close snapshot is retained only for offline reproducibility and is not a live market-data feed.",
+      "date_format": "%m/%d/%Y",
+      "date_column": "DATE",
+      "close_column": "CLOSE",
+      "sha256": "b057ca2243f0fb022062a03258a9e68afca7708e19a564ceedf32735c4314dc0"
+    }
+  ]
+}

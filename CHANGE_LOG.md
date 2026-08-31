@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-08-31 CST — 不可变技术历史夹具 Push 1：原始数据谱系与完整性
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：离线研究数据完整性、安全准入基础与文档。
+- 涉及文件：`Cargo.toml`、`Cargo.lock`、`crates/strategy-evaluation/{Cargo.toml,src/lib.rs,data/generated/technical-v1.manifest.json}`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`README.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `technical-v1` 不可变 manifest，独立记录已提交 FRED S&P 500 / NASDAQ Composite 日线作为 SPY / QQQ 的指数代理及 Cboe VIX 日线的来源、适用条款说明、日期格式、缺失行处理、共同覆盖范围与 SHA-256。`strategy-evaluation` 新增仅用 `include_str!` 嵌入快照的完整性校验：拒绝 manifest/hash 篡改、未覆盖声明区间、重复或倒序日期、非正价格和 CSV 结构错误；空值/`.` 明确计为 source gap，绝不填充或插值。此 Push 不修改生产策略、指标公式、策略准入范围或收益结论；下一个 Push 将建立全部 DSL 指标共享的 `as_of` 证据。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p strategy-evaluation --locked`、`cargo test -p core-domain --locked`、`cargo clippy -p strategy-evaluation --all-targets --all-features --locked -- -D warnings`、`git diff --check`。
+
 ### 2026-08-28 CST — V2 文档口径修正与 70/20/10 可复现基线披露
 
 - 执行模型：GPT-5 Codex。

@@ -2042,6 +2042,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "sha2",
  "strategy-dsl",
  "strategy-policy",
  "thiserror",

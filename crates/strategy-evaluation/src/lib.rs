@@ -7,7 +7,7 @@
 //! reads only committed fixture data, invokes the real quant, decision, and
 //! two-bucket domain functions, and never performs network or broker IO.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use ai_client::Sentiment;
 use chrono::{Datelike, NaiveDate};
@@ -28,6 +28,7 @@ use rust_decimal::{
     Decimal,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use strategy_dsl::{
     ComparisonOperator, Condition, DslEvidence, IndicatorSpec, LookbackWindow, PolicyAction,
     StrategyDslRuntimeError, StrategyDslValidationError, StrategyRule, StrategySpec,
@@ -53,6 +54,11 @@ const C4_FUNDAMENTAL_FLOOR: f64 = 0.85;
 const C4_ADDITION_CEILING: f64 = 1.15;
 const C4_FUNDAMENTAL_LOOKBACK_MONTHS: usize = 12;
 const C4_OPPORTUNITY_CARRY_PERIODS: usize = 3;
+const TECHNICAL_FIXTURE_MANIFEST: &str =
+    include_str!("../data/generated/technical-v1.manifest.json");
+const FRED_SP500_DAILY: &str = include_str!("../data/raw/fred_sp500_daily.csv");
+const FRED_NASDAQCOM_DAILY: &str = include_str!("../data/raw/fred_nasdaqcom_daily.csv");
+const CBOE_VIX_DAILY: &str = include_str!("../data/raw/cboe_vix_daily.csv");
 
 /// Errors returned while reading or evaluating the committed calibration fixture.
 #[derive(Debug, Error)]
@@ -84,6 +90,66 @@ pub enum EvaluationError {
     /// A fixture number cannot be represented by the Decimal-based DSL evidence.
     #[error("calibration fixture contains an unsupported decimal value")]
     InvalidDecimal,
+    /// The committed technical-fixture manifest cannot be parsed or violates its schema.
+    #[error("technical fixture manifest is invalid")]
+    TechnicalFixtureManifest,
+    /// One committed technical-fixture source violates its recorded integrity contract.
+    #[error("technical fixture integrity check failed")]
+    TechnicalFixtureIntegrity,
+}
+
+/// Summary produced after validating the committed technical historical fixture.
+///
+/// Validation reads compile-time embedded files only. It deliberately performs
+/// no network I/O, so repeated tests use exactly the snapshot reviewed in Git.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TechnicalFixtureSummary {
+    /// Immutable fixture version declared by its manifest.
+    pub dataset_version: String,
+    /// Calendar date on which all listed raw snapshots were captured.
+    pub captured_on: String,
+    /// Inclusive common date range guaranteed by every validated series.
+    pub coverage_start: String,
+    /// Inclusive common date range guaranteed by every validated series.
+    pub coverage_end: String,
+    /// Per-series validated observation and source-gap counts.
+    pub series: Vec<TechnicalFixtureSeriesSummary>,
+}
+
+/// Validation summary for one committed raw technical series.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TechnicalFixtureSeriesSummary {
+    /// Stable manifest identifier for the series.
+    pub id: String,
+    /// Source series identifier, such as `SP500`, `NASDAQCOM`, or `VIX`.
+    pub source_symbol: String,
+    /// Optional ETF name for which an index series is used only as a proxy.
+    pub proxy_for: Option<String>,
+    /// Number of valid positive close observations retained from the raw snapshot.
+    pub observations: usize,
+    /// Number of source rows with an explicit blank or `.` close that were excluded without fill.
+    pub source_gap_rows: usize,
+    /// First valid observation date in the source snapshot.
+    pub first_observation: String,
+    /// Last valid observation date in the source snapshot.
+    pub last_observation: String,
+}
+
+/// Validate the immutable daily US-equity-proxy and VIX research inputs.
+///
+/// The fixture contains FRED S&P 500 and NASDAQ Composite **index proxies**
+/// for SPY and QQQ, not ETF total-return execution prices. Every raw file is
+/// embedded with [`include_str!`], checked against its manifest SHA-256, and
+/// parsed without silently filling source gaps or reading the network.
+pub fn validate_technical_fixture() -> Result<TechnicalFixtureSummary, EvaluationError> {
+    validate_technical_fixture_contents(
+        TECHNICAL_FIXTURE_MANIFEST,
+        &[
+            ("fred_sp500_daily.csv", FRED_SP500_DAILY),
+            ("fred_nasdaqcom_daily.csv", FRED_NASDAQCOM_DAILY),
+            ("cboe_vix_daily.csv", CBOE_VIX_DAILY),
+        ],
+    )
 }
 
 /// A complete machine-readable result for calibration-v2.
@@ -289,6 +355,184 @@ fn admission_metrics(metrics: PerformanceMetrics) -> StrategyAdmissionMetrics {
         annualized_volatility_percent: metrics.annualized_volatility_percent,
         cash_utilisation_percent: metrics.cash_utilisation_percent,
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct TechnicalFixtureManifest {
+    schema_version: u8,
+    dataset_version: String,
+    captured_on: String,
+    coverage: TechnicalFixtureCoverage,
+    market_timezone: String,
+    frequency: String,
+    missing_value_rule: String,
+    network_rule: String,
+    series: Vec<TechnicalFixtureSeries>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TechnicalFixtureCoverage {
+    start: String,
+    end: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TechnicalFixtureSeries {
+    id: String,
+    source_symbol: String,
+    proxy_for: Option<String>,
+    file: String,
+    source_url: String,
+    source_terms: String,
+    date_format: String,
+    date_column: String,
+    close_column: String,
+    sha256: String,
+}
+
+fn validate_technical_fixture_contents(
+    manifest_source: &str,
+    raw_sources: &[(&str, &str)],
+) -> Result<TechnicalFixtureSummary, EvaluationError> {
+    let manifest: TechnicalFixtureManifest = serde_json::from_str(manifest_source)
+        .map_err(|_| EvaluationError::TechnicalFixtureManifest)?;
+    if manifest.schema_version != 1
+        || manifest.dataset_version.trim().is_empty()
+        || manifest.market_timezone != "America/New_York"
+        || manifest.frequency != "daily close"
+        || manifest.missing_value_rule.trim().is_empty()
+        || manifest.network_rule != "offline-only; source files are embedded at compile time"
+        || manifest.series.is_empty()
+        || manifest.series.len() != raw_sources.len()
+    {
+        return Err(EvaluationError::TechnicalFixtureManifest);
+    }
+
+    let captured_on = parse_technical_date(&manifest.captured_on, "%Y-%m-%d")?;
+    let coverage_start = parse_technical_date(&manifest.coverage.start, "%Y-%m-%d")?;
+    let coverage_end = parse_technical_date(&manifest.coverage.end, "%Y-%m-%d")?;
+    if captured_on < coverage_end || coverage_start > coverage_end {
+        return Err(EvaluationError::TechnicalFixtureManifest);
+    }
+
+    let mut ids = BTreeSet::new();
+    let mut files = BTreeSet::new();
+    let mut summaries = Vec::with_capacity(manifest.series.len());
+    for series in &manifest.series {
+        if series.id.trim().is_empty()
+            || series.source_symbol.trim().is_empty()
+            || series.source_url.trim().is_empty()
+            || series.source_terms.trim().is_empty()
+            || series.sha256.len() != 64
+            || !ids.insert(&series.id)
+            || !files.insert(&series.file)
+        {
+            return Err(EvaluationError::TechnicalFixtureManifest);
+        }
+        let source = raw_sources
+            .iter()
+            .find(|(file, _)| *file == series.file)
+            .map(|(_, contents)| *contents)
+            .ok_or(EvaluationError::TechnicalFixtureManifest)?;
+        let actual_hash = format!("{:x}", Sha256::digest(source.as_bytes()));
+        if actual_hash != series.sha256 {
+            return Err(EvaluationError::TechnicalFixtureIntegrity);
+        }
+        let parsed = parse_technical_series(series, source)?;
+        if parsed.first_observation > coverage_start || parsed.last_observation < coverage_end {
+            return Err(EvaluationError::TechnicalFixtureIntegrity);
+        }
+        summaries.push(TechnicalFixtureSeriesSummary {
+            id: series.id.clone(),
+            source_symbol: series.source_symbol.clone(),
+            proxy_for: series.proxy_for.clone(),
+            observations: parsed.observations,
+            source_gap_rows: parsed.source_gap_rows,
+            first_observation: parsed.first_observation.to_string(),
+            last_observation: parsed.last_observation.to_string(),
+        });
+    }
+    if files.len() != raw_sources.len() {
+        return Err(EvaluationError::TechnicalFixtureManifest);
+    }
+
+    Ok(TechnicalFixtureSummary {
+        dataset_version: manifest.dataset_version,
+        captured_on: manifest.captured_on,
+        coverage_start: manifest.coverage.start,
+        coverage_end: manifest.coverage.end,
+        series: summaries,
+    })
+}
+
+struct ParsedTechnicalSeries {
+    observations: usize,
+    source_gap_rows: usize,
+    first_observation: NaiveDate,
+    last_observation: NaiveDate,
+}
+
+fn parse_technical_series(
+    series: &TechnicalFixtureSeries,
+    source: &str,
+) -> Result<ParsedTechnicalSeries, EvaluationError> {
+    let mut rows = source.lines();
+    let header = rows
+        .next()
+        .ok_or(EvaluationError::TechnicalFixtureIntegrity)?;
+    let columns = header.split(',').collect::<Vec<_>>();
+    let date_index = columns
+        .iter()
+        .position(|column| *column == series.date_column)
+        .ok_or(EvaluationError::TechnicalFixtureIntegrity)?;
+    let close_index = columns
+        .iter()
+        .position(|column| *column == series.close_column)
+        .ok_or(EvaluationError::TechnicalFixtureIntegrity)?;
+
+    let mut observations = 0;
+    let mut source_gap_rows = 0;
+    let mut first_observation = None;
+    let mut last_valid_observation = None;
+    let mut last_source_observation = None;
+    for row in rows.filter(|row| !row.trim().is_empty()) {
+        let values = row.split(',').collect::<Vec<_>>();
+        if values.len() != columns.len() {
+            return Err(EvaluationError::TechnicalFixtureIntegrity);
+        }
+        let observed = parse_technical_date(values[date_index].trim(), &series.date_format)?;
+        if last_source_observation.is_some_and(|previous| observed <= previous) {
+            return Err(EvaluationError::TechnicalFixtureIntegrity);
+        }
+        last_source_observation = Some(observed);
+
+        let close = values[close_index].trim();
+        if close.is_empty() || close == "." {
+            source_gap_rows += 1;
+            continue;
+        }
+        let close = close
+            .parse::<f64>()
+            .map_err(|_| EvaluationError::TechnicalFixtureIntegrity)?;
+        if !close.is_finite() || close <= 0.0 {
+            return Err(EvaluationError::TechnicalFixtureIntegrity);
+        }
+        first_observation.get_or_insert(observed);
+        last_valid_observation = Some(observed);
+        observations += 1;
+    }
+
+    Ok(ParsedTechnicalSeries {
+        observations,
+        source_gap_rows,
+        first_observation: first_observation.ok_or(EvaluationError::TechnicalFixtureIntegrity)?,
+        last_observation: last_valid_observation
+            .ok_or(EvaluationError::TechnicalFixtureIntegrity)?,
+    })
+}
+
+fn parse_technical_date(value: &str, format: &str) -> Result<NaiveDate, EvaluationError> {
+    NaiveDate::parse_from_str(value, format).map_err(|_| EvaluationError::TechnicalFixtureIntegrity)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1610,6 +1854,74 @@ mod tests {
         assert!(first.contains("calibration-v2"));
         assert!(first.contains("sp500_index_proxy"));
         assert!(first.contains("nasdaq_composite_proxy"));
+    }
+
+    /// Verify the versioned technical inputs are embedded, hashed, ordered, and offline-only.
+    #[test]
+    fn technical_fixture_validates_daily_proxy_and_vix_snapshots() {
+        let summary = validate_technical_fixture().unwrap();
+
+        assert_eq!(summary.dataset_version, "technical-v1");
+        assert_eq!(summary.captured_on, "2026-08-21");
+        assert_eq!(summary.coverage_start, "2016-08-22");
+        assert_eq!(summary.coverage_end, "2026-08-19");
+        assert_eq!(summary.series.len(), 3);
+        assert_eq!(summary.series[0].proxy_for.as_deref(), Some("SPY"));
+        assert_eq!(summary.series[1].proxy_for.as_deref(), Some("QQQ"));
+        assert_eq!(summary.series[2].source_symbol, "VIX");
+        assert_eq!(summary.series[0].source_gap_rows, 96);
+        assert_eq!(summary.series[1].source_gap_rows, 487);
+        assert_eq!(summary.series[2].source_gap_rows, 0);
+        assert!(summary
+            .series
+            .iter()
+            .all(|series| series.observations > 2_000));
+    }
+
+    /// Verify changing a committed raw hash blocks use of the technical fixture.
+    #[test]
+    fn technical_fixture_rejects_manifest_hash_tampering() {
+        let tampered = TECHNICAL_FIXTURE_MANIFEST.replace(
+            "94635e135f4aab22a7e77fd1c297ddf5a04cd28e592e4988e67bcf440b291416",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+        );
+
+        assert!(matches!(
+            validate_technical_fixture_contents(
+                &tampered,
+                &[
+                    ("fred_sp500_daily.csv", FRED_SP500_DAILY),
+                    ("fred_nasdaqcom_daily.csv", FRED_NASDAQCOM_DAILY),
+                    ("cboe_vix_daily.csv", CBOE_VIX_DAILY),
+                ],
+            ),
+            Err(EvaluationError::TechnicalFixtureIntegrity)
+        ));
+    }
+
+    /// Verify a malformed, non-positive, or non-monotonic source row is rejected instead of filled.
+    #[test]
+    fn technical_fixture_rejects_invalid_daily_observations() {
+        let series = TechnicalFixtureSeries {
+            id: "test_price".to_owned(),
+            source_symbol: "TEST".to_owned(),
+            proxy_for: None,
+            file: "test.csv".to_owned(),
+            source_url: "https://example.invalid/test.csv".to_owned(),
+            source_terms: "test-only".to_owned(),
+            date_format: "%Y-%m-%d".to_owned(),
+            date_column: "date".to_owned(),
+            close_column: "close".to_owned(),
+            sha256: "0".repeat(64),
+        };
+        assert!(matches!(
+            parse_technical_series(&series, "date,close\n2026-01-02,100\n2026-01-01,99\n",),
+            Err(EvaluationError::TechnicalFixtureIntegrity)
+        ));
+        assert!(matches!(
+            parse_technical_series(&series, "date,close\n2026-01-02,0\n"),
+            Err(EvaluationError::TechnicalFixtureIntegrity)
+        ));
     }
 
     /// Verify every decision uses prior history and a strictly later execution price.

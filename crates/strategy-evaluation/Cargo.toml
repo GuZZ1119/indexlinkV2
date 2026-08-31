@@ -13,6 +13,7 @@ quant-engine.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 strategy-dsl.workspace = true
 strategy-policy.workspace = true
 thiserror.workspace = true
