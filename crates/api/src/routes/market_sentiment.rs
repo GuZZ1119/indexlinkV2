@@ -1,28 +1,60 @@
 //! Market-sentiment preview HTTP route.
 
-use ai_client::MarketSentimentReport;
-use axum::{extract::State, routing::post, Json, Router};
-use serde::Serialize;
+use ai_client::{AiEvidence, AiProviderProfile};
+use axum::{
+    extract::{Query, State},
+    routing::{get, post},
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::{ApiError, ApiState};
 
 /// Build market-sentiment preview routes.
 pub(crate) fn router() -> Router<ApiState> {
-    Router::new().route("/market-sentiment/preview", post(preview_market_sentiment))
+    Router::new()
+        .route("/ai/providers", get(list_ai_providers))
+        .route("/market-sentiment/preview", post(preview_market_sentiment))
 }
 
-/// Fetch current market news and derive one Qwen sentiment score.
+/// Query parameters accepted by the direct, non-trading AI evidence preview.
+#[derive(Debug, Deserialize)]
+struct MarketSentimentPreviewQuery {
+    /// Optional server-deployed profile ID; an unknown ID is rejected safely.
+    profile_id: Option<String>,
+}
+
+/// Credential-free list of profiles that this server has actually deployed.
+#[derive(Debug, Serialize)]
+struct AiProviderListResponse {
+    /// Profiles selectable by direct AI evidence preview.
+    providers: Vec<AiProviderProfile>,
+}
+
+/// Return deployed AI profiles without probing them or exposing credentials.
+async fn list_ai_providers(State(state): State<ApiState>) -> Json<AiProviderListResponse> {
+    Json(AiProviderListResponse {
+        providers: state.ai_provider_profiles(),
+    })
+}
+
+/// Fetch current market news and derive generic AI evidence through a deployed profile.
 async fn preview_market_sentiment(
     State(state): State<ApiState>,
+    Query(query): Query<MarketSentimentPreviewQuery>,
 ) -> Result<Json<MarketSentimentResponse>, ApiError> {
-    let sentiment = state.market_sentiment().await?;
-    Ok(Json(MarketSentimentResponse::from(&sentiment)))
+    let evidence = state
+        .ai_evidence_for_profile(query.profile_id.as_deref())
+        .await?;
+    Ok(Json(MarketSentimentResponse::from(&evidence)))
 }
 
 /// API response for one market-sentiment preview.
 #[derive(Debug, Serialize)]
 pub(crate) struct MarketSentimentResponse {
-    /// Bounded Qwen sentiment score in `[-1.0, 1.0]`.
+    /// Credential-free profile that produced this evidence.
+    provider: AiProviderProfile,
+    /// Bounded AI evidence score in `[-1.0, 1.0]`.
     score: f64,
     /// Stable presentation label derived from the score sign.
     label: MarketSentimentLabel,
@@ -57,8 +89,8 @@ pub(crate) struct MarketSentimentHeadlineResponse {
     published_at: String,
 }
 
-impl From<&MarketSentimentReport> for MarketSentimentResponse {
-    fn from(report: &MarketSentimentReport) -> Self {
+impl From<&AiEvidence> for MarketSentimentResponse {
+    fn from(report: &AiEvidence) -> Self {
         let score = report.analysis.sentiment().value();
         let label = if score > 0.0 {
             MarketSentimentLabel::Positive
@@ -69,6 +101,7 @@ impl From<&MarketSentimentReport> for MarketSentimentResponse {
         };
 
         Self {
+            provider: report.provider.clone(),
             score,
             label,
             rationale: report.analysis.rationale().to_owned(),

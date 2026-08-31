@@ -222,7 +222,7 @@ Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应
 
 #### `POST /investment-plans/:id/automatic-decision-preview`
 
-Dashboard 与最小 Scheduler 使用的默认入口。请求体**不接受**人工填写的 fundamental 或 trend 字段；后端为计划标的读取 OpenD/CAPE/国债/VIX 输入并计算 70/20，再读取 Qwen 情绪作为 10% 输入。双桶比例始终读取已持久化计划配置；请求体只允许经操作者确认的 `paper_order`：
+Dashboard 与最小 Scheduler 使用的默认入口。请求体**不接受**人工填写的 fundamental 或 trend 字段；后端为计划标的读取 OpenD/CAPE/国债/VIX 输入并计算 70/20。仅当计划绑定旧 `CoreOpportunityV1` 时，服务器默认 AI Evidence profile 的有界情绪分数才会兼容映射为旧 10% 输入；Fixed DCA 与 DSL Runtime 不读取 AI Evidence。双桶比例始终读取已持久化计划配置；请求体只允许经操作者确认的 `paper_order`：
 
 ```json
 {
@@ -247,8 +247,8 @@ server 默认启用周期 Scheduler：每 `SCHEDULER_TICK_SECONDS`（默认 60�
 investment plan
 -> execution preview
 -> bucket split
--> Qwen market sentiment (with safe fallback)
--> 70/20/10 decision engine
+-> generic AI Evidence (legacy policy compatibility only)
+-> selected policy runtime
 -> optional configured paper order
 -> local decision record
 -> summary
@@ -284,11 +284,11 @@ investment plan
 
 - `execution`：执行预览与持久化双桶配置产生的核心金额、机会预算、实际建议金额、未分配机会预算、滚存意图和审批要求。
 - `decision`：`final_score`、`multiplier`、`action`、`weight_mode` 和分层 score。
-- `market_sentiment`：Qwen 返回的 `score`、受长度限制的 `rationale`、最多五条 `warnings`，以及实际送入模型的 RSS `headlines`（标题、链接、UTC 发布时间）。Qwen 不负责生成来源链接。
+- `market_sentiment`：为 HTTP 兼容保留的 AI Evidence 字段，包含无密钥 `provider` profile、`score`、受长度限制的 `rationale`、最多五条 `warnings`，以及实际送入模型的 RSS `headlines`（标题、链接、UTC 发布时间）。Provider 不负责生成来源链接。
 - `paper_order_ack`：只有 due 且 action 可执行时才出现。
 - `summary`：演示级摘要。
 
-`sentiment` 不是请求字段。后端会在决策前自动拉取 CNBC RSS 并调用已配置的 Qwen provider；成功时使用 `70/20/10`，并将分数、依据、风险提示和实际新闻来源写入本地 decision record。未配置 Key 或新闻/AI provider 暂时不可用时，接口仍会安全完成 preview，但 `decision.weight_mode` 为 `sentiment_unavailable`，引擎使用 `90/10/0` 降级权重且不提交任何伪造的情绪快照。手工 `sentiment` 字段会返回 `400 bad_request`，不能绕过该链路。
+`sentiment` 不是请求字段。后端会为旧 `CoreOpportunityV1` 自动拉取 CNBC RSS 并调用服务器默认的已部署 AI Evidence provider；成功时将分数、依据、风险提示、新闻来源和无密钥 Provider profile 写入本地 decision record。未配置 Key 或新闻/AI provider 暂时不可用时，旧引擎使用 `90/10/0` 降级权重且不提交伪造情绪快照。Fixed DCA 与 DSL 不会因 AI 不可用而改变推荐。手工 `sentiment` 字段会返回 `400 bad_request`，不能绕过该链路。
 
 `decision.action` 可选值：
 
@@ -345,16 +345,27 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 订单意图会先原子写入该 decision record，再调用 paper-only broker；重复确认会返回 `400 bad_request`，避免同一存证重复下单。网络超时返回 `409 order_outcome_unknown`，客户端不得自动重试。
 
-## Market Sentiment API
+## AI Evidence API
 
-### 阿里云 Qwen Market Sentiment API
+### 已部署 Provider Profile
+
+#### `GET /ai/providers`
+
+返回服务器实际部署、可由用户选择的 AI profile 列表。每项只包含 `id`、`provider`、显示名、模型名与无授权能力声明；不会返回 Key、base URL、账户、secret manager 引用或内部错误。当前 production composition root 仅在配置 DashScope Key 时注册 `qwen-default`；未来 OpenAI-compatible provider 也必须由服务器显式注册后才会出现在本列表。
+
+`restricted_policy_drafts` 目前固定为 `false`：本阶段尚无 Copilot 保存接口，AI 不具备创建、激活或下单权限。
+
+### 阿里云 Qwen Evidence Profile
 
 #### `POST /market-sentiment/preview`
 
-后端拉取 CNBC RSS 新闻并调用 DashScope/OpenAI-compatible Qwen，返回有界情绪值及受控解释。设置 `DASHSCOPE_API_KEY` 后由 server 在启动时构造并注入真实 provider；未设置 Key 时 server 仍可启动，但本路由返回统一的 `503 service_unavailable`，不暴露 provider、URL 或凭据细节。`Decision Preview` 会自动复用同一条 pipeline：成功时将情绪作为 10% 输入，失败时显式降级为 `90/10/0`。
+后端拉取 CNBC RSS 新闻并调用所选、已部署的 DashScope/OpenAI-compatible Evidence provider，返回有界情绪值及受控解释。设置 `DASHSCOPE_API_KEY` 后 server 在启动时构造并注册 Qwen profile；未设置 Key 时 server 仍可启动，但本路由返回统一的 `503 service_unavailable`，不暴露 provider URL 或凭据细节。可选查询参数 `profile_id` 必须匹配 `GET /ai/providers` 返回的 profile；缺省时使用服务器默认 profile，未知或格式不安全的 ID 返回统一 `400 bad_request`。
+
+AI Evidence 独立于策略 Registry：`CoreOpportunityV1` 才会将其 `score` 映射为旧 10% 情绪输入；Fixed DCA 与 DSL Runtime 只可展示或审计该证据，不会让 AI 改写策略推荐。
 
 响应字段：
 
+- `provider`：无密钥的已部署 profile（`id`、provider、显示名、模型和能力声明）。
 - `score`：`[-1.0, 1.0]` 内的情绪分数。
 - `label`：`positive`、`neutral` 或 `negative`，由分数正负确定。
 - `rationale`：Qwen 基于本次输入 headlines 给出的短依据；空白、过长或非结构化输出会被拒绝并触发安全降级。
@@ -374,7 +385,7 @@ cargo test -p ai-client --test news real_cnbc_with_qwen -- --ignored --nocapture
 HTTP smoke：在同一终端环境启动 `cargo run -p indexlink-server` 后，执行：
 
 ```bash
-curl -X POST http://127.0.0.1:8080/market-sentiment/preview
+curl -X POST 'http://127.0.0.1:8080/market-sentiment/preview?profile_id=qwen-default'
 ```
 
 ## Quant Signal APIs

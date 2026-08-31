@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::{AiClientError, AiConfig, AiProvider, Sentiment, SentimentAnalysis};
+use crate::{AiClientError, AiConfig, AiProvider, AiProviderProfile, Sentiment, SentimentAnalysis};
 
 // ─── System Prompt ───────────────────────────────────────────────────────────
 
@@ -280,6 +280,10 @@ fn extract_json_object(text: &str) -> Option<String> {
 
 #[async_trait]
 impl AiProvider for QwenClient {
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::qwen(self.config.model.clone())
+    }
+
     async fn analyze(&self, prompt: &str) -> Result<Sentiment, AiClientError> {
         Ok(self.call_api(prompt).await?.sentiment())
     }

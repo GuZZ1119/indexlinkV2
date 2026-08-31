@@ -3,7 +3,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use ai_client::{fetch_market_sentiment_report, AiProvider, MarketSentimentReport, NewsSource};
+use ai_client::{
+    fetch_market_sentiment_report, AiEvidence, AiProvider, AiProviderProfile,
+    AiProviderProfileError, AiProviderProfileId, AiProviderRegistry, NewsSource,
+};
 use async_trait::async_trait;
 use broker::{
     BrokerClient, BrokerOrderAck, BrokerOrderRequest, MockBroker, PaperPortfolioSnapshot,
@@ -113,6 +116,8 @@ pub(crate) struct RuntimeCapabilities {
     pub market_data_configured: bool,
     /// Whether a Qwen/news provider has been composed from local configuration.
     pub qwen_configured: bool,
+    /// Credential-free AI profiles registered by the server operator.
+    pub ai_provider_profiles: Vec<AiProviderProfile>,
     /// Whether the production OpenD paper broker replaced the local mock broker.
     pub paper_broker_configured: bool,
     /// Current in-process scheduler counters and timestamps.
@@ -126,7 +131,9 @@ enum ReadinessBackend {
 
 struct MarketSentimentDependencies {
     news_source: Arc<dyn NewsSource>,
-    provider: Arc<dyn AiProvider>,
+    registry: AiProviderRegistry,
+    providers: BTreeMap<AiProviderProfileId, Arc<dyn AiProvider>>,
+    default_profile_id: AiProviderProfileId,
 }
 
 /// One real local-paper series belonging to a configured recurring holding.
@@ -353,15 +360,44 @@ impl ApiState {
     /// provider 的凭据必须只由 server 配置层持有，不能进入 HTTP 请求、响应或审计快照。
     #[must_use]
     pub fn with_market_sentiment(
-        mut self,
+        self,
         news_source: Arc<dyn NewsSource>,
         provider: Arc<dyn AiProvider>,
     ) -> Self {
+        let default_profile_id = provider.profile().id().clone();
+        self.with_ai_evidence_providers(news_source, vec![provider], default_profile_id)
+            .expect("one provider profile must register exactly once")
+    }
+
+    /// Inject server-deployed AI profiles for generic evidence generation.
+    ///
+    /// The registry accepts clients supplied only by the composition root. Its
+    /// HTTP representation is credential-free metadata, and a user can select
+    /// only a profile present in this exact registry.
+    pub fn with_ai_evidence_providers(
+        mut self,
+        news_source: Arc<dyn NewsSource>,
+        providers: Vec<Arc<dyn AiProvider>>,
+        default_profile_id: AiProviderProfileId,
+    ) -> Result<Self, AiProviderProfileError> {
+        let mut registry = AiProviderRegistry::default();
+        let mut configured_providers = BTreeMap::new();
+        for provider in providers {
+            let profile = provider.profile();
+            let profile_id = profile.id().clone();
+            registry.register(profile)?;
+            configured_providers.insert(profile_id, provider);
+        }
+        if registry.get(&default_profile_id).is_none() {
+            return Err(AiProviderProfileError::UnregisteredProfile);
+        }
         self.market_sentiment = Some(Arc::new(MarketSentimentDependencies {
             news_source,
-            provider,
+            registry,
+            providers: configured_providers,
+            default_profile_id,
         }));
-        self
+        Ok(self)
     }
 
     /// 注入只读市场信号 provider，启用自动数据刷新。
@@ -397,6 +433,7 @@ impl ApiState {
         RuntimeCapabilities {
             market_data_configured: self.market_data.is_some(),
             qwen_configured: self.market_sentiment.is_some(),
+            ai_provider_profiles: self.ai_provider_profiles(),
             paper_broker_configured: self.paper_broker_configured,
             scheduler: self.scheduler_status.snapshot(),
         }
@@ -843,18 +880,48 @@ impl ApiState {
         &self.decision_records
     }
 
-    /// 拉取新闻并调用已配置的 AI provider 生成市场情绪。
-    pub(crate) async fn market_sentiment(&self) -> Result<MarketSentimentReport, ApiError> {
+    /// List only credential-free AI profiles deployed by this server.
+    #[must_use]
+    pub(crate) fn ai_provider_profiles(&self) -> Vec<AiProviderProfile> {
+        self.market_sentiment
+            .as_ref()
+            .map_or_else(Vec::new, |dependencies| dependencies.registry.profiles())
+    }
+
+    /// 拉取新闻并调用默认已部署 AI profile 生成通用 AI 证据。
+    pub(crate) async fn ai_evidence(&self) -> Result<AiEvidence, ApiError> {
+        self.ai_evidence_for_profile(None).await
+    }
+
+    /// Generate generic evidence through one explicitly deployed profile only.
+    ///
+    /// An unknown profile is rejected before any network call. A profile choice
+    /// changes only which evidence adapter is used; it does not authorize a
+    /// policy, change a budget, or submit an order.
+    pub(crate) async fn ai_evidence_for_profile(
+        &self,
+        requested_profile: Option<&str>,
+    ) -> Result<AiEvidence, ApiError> {
         let dependencies = self
             .market_sentiment
             .as_ref()
             .ok_or(ApiError::ServiceUnavailable)?;
+        let profile_id = match requested_profile {
+            Some(value) => {
+                AiProviderProfileId::new(value.to_owned()).map_err(|_| ApiError::BadRequest)?
+            }
+            None => dependencies.default_profile_id.clone(),
+        };
+        let provider = dependencies
+            .providers
+            .get(&profile_id)
+            .ok_or(ApiError::BadRequest)?;
         fetch_market_sentiment_report(
             dependencies.news_source.as_ref(),
-            dependencies.provider.as_ref(),
+            provider.as_ref(),
         )
         .await
-        .inspect_err(|error| tracing::error!(%error, "market sentiment pipeline failed"))
+        .inspect_err(|error| tracing::error!(%error, profile_id = %profile_id, "AI evidence pipeline failed"))
         .map_err(Into::into)
     }
 
@@ -1377,7 +1444,7 @@ mod tests {
             Err(ApiError::ServiceUnavailable)
         ));
         assert!(matches!(
-            state.market_sentiment().await,
+            state.ai_evidence().await,
             Err(ApiError::ServiceUnavailable)
         ));
         assert!(matches!(

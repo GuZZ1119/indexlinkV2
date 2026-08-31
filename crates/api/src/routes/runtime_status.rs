@@ -1,5 +1,6 @@
 //! Display-safe server runtime status route.
 
+use ai_client::AiProviderProfile;
 use axum::{extract::State, Json};
 use serde::Serialize;
 
@@ -16,6 +17,8 @@ pub(crate) struct RuntimeStatusResponse {
     market_data: &'static str,
     /// Whether the server composed Qwen/news dependencies from local settings.
     qwen: &'static str,
+    /// Credential-free AI profiles available to direct evidence preview.
+    ai_provider_profiles: Vec<AiProviderProfile>,
     /// Whether the server composed the real paper broker instead of the in-memory fallback.
     paper_broker: &'static str,
     /// The scheduler's safe counters and timestamps.
@@ -43,6 +46,7 @@ pub(crate) async fn runtime_status(State(state): State<ApiState>) -> Json<Runtim
         } else {
             "not_configured"
         },
+        ai_provider_profiles: capabilities.ai_provider_profiles,
         paper_broker: if capabilities.paper_broker_configured {
             "configured"
         } else {

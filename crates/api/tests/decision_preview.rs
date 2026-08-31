@@ -608,7 +608,11 @@ async fn decision_preview_submits_mock_paper_order_when_due() {
         json!("neutral")
     );
     let sentiment_snapshot = persisted[0].sentiment_snapshot.as_ref().unwrap();
-    assert_eq!(sentiment_snapshot["source"], json!("market_sentiment"));
+    assert_eq!(sentiment_snapshot["source"], json!("ai_evidence"));
+    assert_eq!(
+        sentiment_snapshot["provider"]["id"],
+        json!("external-default")
+    );
     assert_eq!(sentiment_snapshot["score"], json!(0.4));
     assert_eq!(
         sentiment_snapshot["rationale"],

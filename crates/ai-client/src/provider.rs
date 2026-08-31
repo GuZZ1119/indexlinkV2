@@ -5,11 +5,243 @@
 //!
 //! [`ReadinessCheck`]: indexlink_api::state::ReadinessCheck
 
-use std::{fmt, time::Duration};
+use std::{collections::BTreeMap, fmt, time::Duration};
 
 use async_trait::async_trait;
+use serde::Serialize;
 
 use crate::{AiClientError, Sentiment, SentimentAnalysis};
+
+/// Stable identifier for one deployed AI provider implementation.
+///
+/// It is intentionally unrelated to an API key, URL, or account. A provider
+/// ID describes an implementation such as `qwen`; users select only a server
+/// registered profile that refers to such an ID.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct AiProviderId(String);
+
+impl AiProviderId {
+    /// Construct a normalized provider identifier from a safe ASCII slug.
+    pub fn new(value: impl Into<String>) -> Result<Self, AiProviderProfileError> {
+        let value = value.into().trim().to_ascii_lowercase();
+        if value.is_empty()
+            || value.len() > 64
+            || !value.is_ascii()
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err(AiProviderProfileError::InvalidIdentifier);
+        }
+        Ok(Self(value))
+    }
+
+    /// Return the stable provider slug.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AiProviderId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// Stable identifier for one server-deployed, user-selectable AI profile.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct AiProviderProfileId(String);
+
+impl AiProviderProfileId {
+    /// Construct a normalized profile identifier from a safe ASCII slug.
+    pub fn new(value: impl Into<String>) -> Result<Self, AiProviderProfileError> {
+        AiProviderId::new(value).map(|identifier| Self(identifier.0))
+    }
+
+    /// Return the stable profile slug.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for AiProviderProfileId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// Explicit, non-authorising capabilities advertised by an AI provider profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct AiProviderCapabilities {
+    /// Whether the profile can return structured news-grounded AI evidence.
+    pub market_evidence: bool,
+    /// Whether the profile may later propose a restricted DSL draft.
+    ///
+    /// This describes output shape only. It never grants save, activation, or order authority.
+    pub restricted_policy_drafts: bool,
+}
+
+impl AiProviderCapabilities {
+    /// Declare a profile that can provide structured market evidence only.
+    #[must_use]
+    pub const fn market_evidence_only() -> Self {
+        Self {
+            market_evidence: true,
+            restricted_policy_drafts: false,
+        }
+    }
+}
+
+/// Credential-free metadata for one deployed AI profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AiProviderProfile {
+    id: AiProviderProfileId,
+    provider: AiProviderId,
+    display_name: String,
+    model: String,
+    capabilities: AiProviderCapabilities,
+}
+
+impl AiProviderProfile {
+    /// Create one display-safe server profile.
+    ///
+    /// The constructor deliberately does not accept credentials, endpoint URLs,
+    /// account identifiers, or secret-manager references.
+    pub fn new(
+        id: AiProviderProfileId,
+        provider: AiProviderId,
+        display_name: String,
+        model: String,
+        capabilities: AiProviderCapabilities,
+    ) -> Result<Self, AiProviderProfileError> {
+        let display_name = normalize_profile_text(display_name)?;
+        let model = normalize_profile_text(model)?;
+        Ok(Self {
+            id,
+            provider,
+            display_name,
+            model,
+            capabilities,
+        })
+    }
+
+    /// Return the user-selectable deployed profile identifier.
+    #[must_use]
+    pub fn id(&self) -> &AiProviderProfileId {
+        &self.id
+    }
+
+    /// Return the provider implementation identifier.
+    #[must_use]
+    pub fn provider(&self) -> &AiProviderId {
+        &self.provider
+    }
+
+    /// Return the safe display name.
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    /// Return the configured public model name.
+    #[must_use]
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Return declared non-authorising capabilities.
+    #[must_use]
+    pub const fn capabilities(&self) -> AiProviderCapabilities {
+        self.capabilities
+    }
+
+    /// Build the default Qwen profile for a configured compatible model.
+    #[must_use]
+    pub fn qwen(model: String) -> Self {
+        Self::new(
+            AiProviderProfileId::new("qwen-default").expect("static profile ID is valid"),
+            AiProviderId::new("qwen").expect("static provider ID is valid"),
+            "Qwen".to_owned(),
+            model,
+            AiProviderCapabilities::market_evidence_only(),
+        )
+        .expect("static Qwen profile is valid")
+    }
+
+    fn external_default() -> Self {
+        Self::new(
+            AiProviderProfileId::new("external-default").expect("static profile ID is valid"),
+            AiProviderId::new("external").expect("static provider ID is valid"),
+            "External AI provider".to_owned(),
+            "unspecified".to_owned(),
+            AiProviderCapabilities::market_evidence_only(),
+        )
+        .expect("static external profile is valid")
+    }
+}
+
+/// Error returned when profile metadata would be unsafe or ambiguous to display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AiProviderProfileError {
+    /// An identifier is blank, oversized, non-ASCII, or not a lowercase slug.
+    #[error("AI provider identifier is invalid")]
+    InvalidIdentifier,
+    /// A display name or model is blank, oversized, or contains a control character.
+    #[error("AI provider profile text is invalid")]
+    InvalidText,
+    /// A profile ID was registered more than once.
+    #[error("AI provider profile is already registered")]
+    DuplicateProfile,
+    /// The requested default profile was not among the deployed registrations.
+    #[error("AI provider profile is not registered")]
+    UnregisteredProfile,
+}
+
+fn normalize_profile_text(value: String) -> Result<String, AiProviderProfileError> {
+    let value = value.trim();
+    if value.is_empty() || value.chars().count() > 120 || value.chars().any(char::is_control) {
+        Err(AiProviderProfileError::InvalidText)
+    } else {
+        Ok(value.to_owned())
+    }
+}
+
+/// Credential-free registry of AI profiles deployed by the server operator.
+///
+/// This type contains metadata only. The API state separately retains the
+/// matching provider clients, so listing a registry can never reveal a key or
+/// connection URL.
+#[derive(Debug, Clone, Default)]
+pub struct AiProviderRegistry {
+    profiles: BTreeMap<AiProviderProfileId, AiProviderProfile>,
+}
+
+impl AiProviderRegistry {
+    /// Register one unique server-deployed profile.
+    pub fn register(&mut self, profile: AiProviderProfile) -> Result<(), AiProviderProfileError> {
+        if self.profiles.contains_key(profile.id()) {
+            return Err(AiProviderProfileError::DuplicateProfile);
+        }
+        self.profiles.insert(profile.id().clone(), profile);
+        Ok(())
+    }
+
+    /// Return deployed profiles in stable identifier order.
+    #[must_use]
+    pub fn profiles(&self) -> Vec<AiProviderProfile> {
+        self.profiles.values().cloned().collect()
+    }
+
+    /// Return a deployed profile by its stable identifier.
+    #[must_use]
+    pub fn get(&self, id: &AiProviderProfileId) -> Option<&AiProviderProfile> {
+        self.profiles.get(id)
+    }
+}
 
 /// LLM 后端的可替换抽象。
 ///
@@ -20,6 +252,15 @@ use crate::{AiClientError, Sentiment, SentimentAnalysis};
 /// [`QwenClient`]: crate::QwenClient
 #[async_trait]
 pub trait AiProvider: Send + Sync {
+    /// Return credential-free metadata for this server-deployed profile.
+    ///
+    /// Third-party test adapters retain a safe generic profile until they
+    /// choose to override this method. Production adapters should always
+    /// return their concrete profile.
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::external_default()
+    }
+
     /// 分析新闻/财报文本，返回有界情绪得分。
     ///
     /// # 错误
@@ -181,5 +422,35 @@ mod tests {
         assert!(debug.contains("<redacted>"), "应有 redact 标记");
         // api_key 同样被 redact
         assert!(!debug.contains("sk-abc"));
+    }
+
+    #[test]
+    fn registry_keeps_only_credential_free_qwen_metadata() {
+        let profile = AiProviderProfile::qwen("qwen-plus".to_owned());
+        let mut registry = AiProviderRegistry::default();
+        registry.register(profile).unwrap();
+
+        let listed = registry.profiles();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id().as_str(), "qwen-default");
+        assert_eq!(listed[0].provider().as_str(), "qwen");
+        assert_eq!(listed[0].model(), "qwen-plus");
+        assert!(listed[0].capabilities().market_evidence);
+        assert!(!listed[0].capabilities().restricted_policy_drafts);
+        assert!(!format!("{listed:?}").contains("sk-"));
+    }
+
+    #[test]
+    fn registry_rejects_duplicate_profile_ids() {
+        let mut registry = AiProviderRegistry::default();
+        registry
+            .register(AiProviderProfile::qwen("qwen-plus".to_owned()))
+            .unwrap();
+        assert_eq!(
+            registry
+                .register(AiProviderProfile::qwen("qwen-max".to_owned()))
+                .unwrap_err(),
+            AiProviderProfileError::DuplicateProfile
+        );
     }
 }

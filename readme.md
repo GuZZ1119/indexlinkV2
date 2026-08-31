@@ -69,8 +69,8 @@ IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展�
 | 实现 | 细节与边界 |
 | :--- | :--- |
 | 计划管理、周期规则与本地 SQLite | 单用户本地持久化；已有计划保持既有行为与兼容读取。 |
-| 70/20 市场输入与 Qwen 证据 | 基本面/趋势输入与受限 Qwen 解释均保留来源和时间语义；外部源失败时明确降级或拒绝自动决策，不伪造输入。 |
-| 决策存证与历史查询 | 记录策略 ID/版本、通用推荐、输入、结果、Qwen 理由/新闻/警告及可选订单回执；旧记录保持可读。 |
+| 70/20 市场输入与 AI Evidence | 基本面/趋势输入与带 Provider 身份的受限 AI Evidence 均保留来源和时间语义；仅 `CoreOpportunityV1` 将分数兼容映射为旧 10% 输入，Fixed DCA/DSL 仅展示或审计；外部源失败时明确降级或拒绝自动决策，不伪造输入。 |
+| 决策存证与历史查询 | 记录策略 ID/版本、通用推荐、输入、结果、无密钥 AI profile、理由/新闻/警告及可选订单回执；旧记录保持可读。 |
 | 最小 scheduler | 到期时幂等生成存证；**从不自动下单**。 |
 | 双桶预算、机会现金与周期约束 | 核心/机会桶受计划预算、可用现金、周期累计上限与 paper-only 边界共同约束。 |
 | Mock/OpenD paper trading | 仅连接 loopback OpenD 模拟账户；没有实盘交易能力。 |
@@ -189,7 +189,7 @@ curl http://127.0.0.1:8080/ready
 5. **统一历史评估**：已完成；`strategy-evaluation` 直接调用同一 DSL 解释器，全部白名单技术指标仅使用决策日及此前原始证据，并固定在下一交易日成交。
 6. **策略存储、Studio 与准入**：已完成不可变版本存储、受控创建/验证、当前数据模拟和计划激活。DSL 版本激活前必须在固定样本中与 Fixed DCA 对照 XIRR、期末净值、回撤、波动、Sortino、现金使用率和滚动窗口，并通过证据完整性、预算/核心桶安全门槛；结果不构成收益承诺。
 7. **运行可观测性与前端联调**：已完成；Web 通过 `/health`、`/ready`、`/runtime-status` 区分 API、SQLite、Qwen、OpenD 与 scheduler 状态，并使用 React Query 管理服务端数据缓存。
-8. **Qwen Copilot 与研究数据扩展**：后续生成候选策略草案和更完整的历史证据；始终经确定性校验、回测和人工审阅，且不会获得下单权限。
+8. **AI Evidence Registry 与 Copilot**：已完成 Qwen 的通用、无密钥 Profile Registry；用户只能选择服务器已部署的 profile，密钥仅留在服务端环境或 secret manager。后续 Copilot 只能生成候选策略草案，仍须经确定性校验、回测和人工审阅，且永不获得下单权限。
 
 详见 [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md)。
 

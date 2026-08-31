@@ -99,7 +99,7 @@ async fn preview_returns_sentiment_from_injected_provider() {
         .oneshot(
             Request::builder()
                 .method("POST")
-                .uri("/market-sentiment/preview")
+                .uri("/market-sentiment/preview?profile_id=external-default")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -109,6 +109,12 @@ async fn preview_returns_sentiment_from_injected_provider() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_json(response).await;
     assert_eq!(body["score"], json!(0.4));
+    assert_eq!(body["provider"]["id"], json!("external-default"));
+    assert_eq!(body["provider"]["provider"], json!("external"));
+    assert_eq!(
+        body["provider"]["capabilities"]["market_evidence"],
+        json!(true)
+    );
     assert_eq!(body["label"], json!("positive"));
     assert_eq!(
         body["rationale"],
@@ -123,6 +129,44 @@ async fn preview_returns_sentiment_from_injected_provider() {
         body["headlines"][0]["url"],
         json!("https://example.com/inflation")
     );
+}
+
+/// Verify the registry exposes only deployed credential-free profiles.
+#[tokio::test]
+async fn lists_only_deployed_ai_profiles() {
+    let response = app(Some(Arc::new(PositiveAi)))
+        .oneshot(
+            Request::builder()
+                .uri("/ai/providers")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["providers"].as_array().unwrap().len(), 1);
+    assert_eq!(body["providers"][0]["id"], json!("external-default"));
+    assert!(body.to_string().contains("External AI provider"));
+    assert!(!body.to_string().contains("secret"));
+}
+
+/// Verify an unknown selected profile is rejected before the evidence pipeline runs.
+#[tokio::test]
+async fn preview_rejects_an_unknown_ai_profile() {
+    let response = app(Some(Arc::new(PositiveAi)))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/market-sentiment/preview?profile_id=not-deployed")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 /// Verify a missing provider follows the standard unavailable JSON contract.

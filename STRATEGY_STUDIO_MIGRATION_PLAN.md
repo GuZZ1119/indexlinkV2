@@ -33,7 +33,7 @@ Create Strategy → Validate → Backtest → Review → Save Version → Activa
 2. **确定性运行时优先。** 相同的策略版本、完整上下文和执行时点必须产生相同推荐；策略运行时不得发起网络请求、读取环境变量或直接下单。
 3. **策略与基础设施解耦。** API、scheduler、broker、SQLite 和 OpenD 不应理解 CAPE、ERP、RSI、VIX、70/20/10 或 `TacticalDelay` 的内部含义。
 4. **固定 DCA 是公平基准。** `FixedDcaPolicy` 是后续新计划的默认候选，并是所有策略研究的匹配对照；已有计划不会被静默改变。
-5. **AI 不是交易授权者。** Qwen 只能生成策略候选、解释、风险提示和变化摘要；它不能改变已经验证的策略逻辑，不能绕过金额/环境/人工确认边界，也不能直接发单。
+5. **AI 不是交易授权者。** 通用 AI Evidence 仅生成解释、风险提示和变化摘要；未来 Copilot 才能生成受限策略候选。它们都不能改变已验证策略逻辑，不能绕过金额/环境/人工确认边界，也不能直接发单。
 6. **限定表达能力。** 自定义策略仅允许受限 DSL/AST、白名单指标和白名单动作；不执行用户代码，不支持任意脚本、实盘自动交易或云端多用户同步。
 
 ## 3. 目标领域边界 / Target Domain Boundaries
@@ -182,10 +182,16 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 - 准入会跳过预热不足的早期日期，并将实际证据覆盖起止日、匹配观察数和滚动 24 期样本外窗口随结果返回。若某策略在任一资产没有完整因果证据，则拒绝激活；不联网、不填补缺失值，也不把指数代理表述为 ETF 总回报。
 - 每个资产以完全相同的外部现金流、成交日和成本假设对比策略与 Fixed DCA，报告 XIRR、期末净值、最大回撤、年化波动、Sortino、现金使用率及滚动窗口结果。跑赢不是准入条件；准入只检查证据充分性与核心桶/预算安全。
 
-### PR 8 — Qwen Strategy Copilot / Qwen Strategy Copilot
+### PR 8a — AI Evidence Registry / AI Evidence Registry（已完成 / Complete）
 
-- Qwen 根据受限 schema 生成“候选策略草案”、解释与警告。
-- 候选必须经确定性 validator、回测和用户审阅后才能保存；AI 输出永不直接激活或下单。
+- `AiProviderId`、`AiProviderProfileId`、能力声明和 credential-free Provider Registry 将 Qwen 的通用输出从策略 Registry 中解耦。生产环境先注册 `qwen-default`；后续 OpenAI-compatible provider 必须由服务端显式部署、注册后才可被用户选择。
+- 密钥、endpoint、账户和 secret-manager 引用永不进入 profile、HTTP 列表、日志或审计快照。`GET /ai/providers` 仅公开安全元数据；`POST /market-sentiment/preview` 只接受已部署 profile。
+- `CoreOpportunityV1` 保持旧 10% 情绪输入的兼容适配；Fixed DCA 和 DSL Runtime 只展示/审计 AI Evidence，不受 AI 改写推荐。
+
+### PR 8b — Restricted Strategy Copilot / Restricted Strategy Copilot（后续 / Next）
+
+- AI 仅根据受限 schema 生成“候选策略草案”、解释与警告，不直接保存、激活或下单。
+- 候选必须经确定性 validator、固定样本准入回测和用户审阅后才能保存。
 
 ## 7. 验收门槛 / Acceptance Gates
 
@@ -197,6 +203,6 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 
 ## 8. 当前结论 / Current Decision
 
-策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、runtime-backed 历史候选、不可变版本存储、Studio 与全指标固定样本准入均已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL 候选升级为默认生产策略。下一项可执行工作是 **PR 8：Qwen Strategy Copilot**，或扩展更长、更广的版本化历史夹具。
+策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、runtime-backed 历史候选、不可变版本存储、Studio、全指标固定样本准入和 AI Evidence Registry 均已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL 候选升级为默认生产策略。下一项可执行工作是 **PR 8b：Restricted Strategy Copilot**，或扩展更长、更广的版本化历史夹具。
 
-With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is **PR 8: Qwen Strategy Copilot**, or a longer and broader versioned historical fixture.
+With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is **PR 8b: Restricted Strategy Copilot**, or a longer and broader versioned historical fixture.

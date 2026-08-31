@@ -187,6 +187,7 @@ async fn runtime_status_distinguishes_ready_database_from_optional_unconfigured_
             "database": "ready",
             "market_data": "not_configured",
             "qwen": "not_configured",
+            "ai_provider_profiles": [],
             "paper_broker": "not_configured",
             "scheduler": {
                 "enabled": false,

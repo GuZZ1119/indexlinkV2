@@ -22,7 +22,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use tracing::{debug, warn};
 
-use crate::{AiClientError, AiProvider, Sentiment, SentimentAnalysis};
+use crate::{AiClientError, AiProvider, AiProviderProfile, Sentiment, SentimentAnalysis};
 
 /// CNBC US Top News RSS 地址。
 pub const CNBC_TOP_NEWS_RSS: &str =
@@ -440,14 +440,23 @@ pub struct MarketSentimentHeadline {
     pub published_at: DateTime<Utc>,
 }
 
-/// 一次市场情绪管线的完整可审计结果。
+/// 一次通用 AI 证据管线的完整可审计结果。
+///
+/// 该类型不属于某个投资策略，也不授予模型任何策略或订单权限。
+/// `CoreOpportunityV1` 可选择把其中的有界情绪作为其历史 10% 兼容输入；
+/// Fixed DCA 和 DSL Runtime 则可以只展示或存档同一份证据。
 #[derive(Debug, Clone, PartialEq)]
-pub struct MarketSentimentReport {
+pub struct AiEvidence {
+    /// Credential-free profile that produced this evidence.
+    pub provider: AiProviderProfile,
     /// AI 返回的有界分数、依据与风险提示。
     pub analysis: SentimentAnalysis,
     /// 实际提供给模型的 RSS 新闻来源。
     pub headlines: Vec<MarketSentimentHeadline>,
 }
+
+/// Backward-compatible name for a market-news-specific [`AiEvidence`] value.
+pub type MarketSentimentReport = AiEvidence;
 
 /// 一站式获取市场情绪的便捷函数。
 ///
@@ -473,7 +482,7 @@ pub async fn fetch_market_sentiment(
 pub async fn fetch_market_sentiment_report(
     source: &(impl NewsSource + ?Sized),
     provider: &(impl AiProvider + ?Sized),
-) -> Result<MarketSentimentReport, PipelineError> {
+) -> Result<AiEvidence, PipelineError> {
     let news = source.fetch().await?;
     debug!(count = news.len(), "fetched news for sentiment analysis");
     let prompt = format_sentiment_prompt(&news);
@@ -486,7 +495,8 @@ pub async fn fetch_market_sentiment_report(
             published_at: item.pub_date,
         })
         .collect();
-    Ok(MarketSentimentReport {
+    Ok(AiEvidence {
+        provider: provider.profile(),
         analysis,
         headlines,
     })

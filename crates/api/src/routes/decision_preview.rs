@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use ai_client::MarketSentimentReport;
+use ai_client::AiEvidence;
 use axum::{
     extract::{
         rejection::{JsonRejection, PathRejection},
@@ -579,20 +579,16 @@ async fn preview_decision_input(
     }
     let is_legacy_core = state.policy_resolver().evidence_kind(&plan.policy).ok()
         == Some(BuiltinPolicyEvidenceKind::CoreOpportunity);
-    let market_sentiment = if is_legacy_core {
-        market_sentiment_for_decision(state).await
+    // AI evidence is generic and independently auditable. Only the legacy
+    // CoreOpportunityV1 compatibility adapter may map its score into 10% input.
+    let ai_evidence = if is_legacy_core {
+        ai_evidence_for_legacy_core_opportunity(state).await
     } else {
         None
     };
-    let market_sentiment_response = market_sentiment.as_ref().map(MarketSentimentResponse::from);
-    let decision = resolve_policy_decision(
-        state,
-        &plan,
-        execution_date,
-        &input,
-        market_sentiment.as_ref(),
-    )
-    .await?;
+    let market_sentiment_response = ai_evidence.as_ref().map(MarketSentimentResponse::from);
+    let decision =
+        resolve_policy_decision(state, &plan, execution_date, &input, ai_evidence.as_ref()).await?;
     let carried_opportunity_cash = state.opportunity_cash_balance(id).await?;
     let execution = state
         .plans()
@@ -643,7 +639,7 @@ async fn preview_decision_input(
             execution: &execution,
             policy: &plan.policy,
             decision: &decision,
-            market_sentiment: market_sentiment.as_ref(),
+            ai_evidence: ai_evidence.as_ref(),
             trigger,
             paper_order: paper_order.as_ref(),
             paper_order_ack: None,
@@ -759,7 +755,7 @@ async fn resolve_policy_decision(
     plan: &InvestmentPlan,
     execution_date: NaiveDate,
     input: &DecisionPreviewRequest,
-    market_sentiment: Option<&MarketSentimentReport>,
+    ai_evidence: Option<&AiEvidence>,
 ) -> Result<BuiltinPolicyDecision, ApiError> {
     let date = Date::from_calendar_date(
         execution_date.year(),
@@ -813,8 +809,10 @@ async fn resolve_policy_decision(
             BuiltinPolicyEvidence::CoreOpportunity(CoreOpportunityEvidence::new(DecisionInput {
                 fundamental,
                 trend,
-                sentiment: market_sentiment.map_or(DecisionSentiment::Unavailable, |report| {
-                    DecisionSentiment::Available(report.analysis.sentiment())
+                // The historical 70/20/10 policy is the only policy allowed
+                // to interpret generic AI evidence as a numeric input.
+                sentiment: ai_evidence.map_or(DecisionSentiment::Unavailable, |evidence| {
+                    DecisionSentiment::Available(evidence.analysis.sentiment())
                 }),
             }))
         }
@@ -1115,16 +1113,18 @@ async fn submit_paper_order(
     .map_err(Into::into)
 }
 
-/// Fetch Qwen market sentiment and safely fall back to the engine's 90/10/0 mode.
-async fn market_sentiment_for_decision(state: &ApiState) -> Option<MarketSentimentReport> {
-    match state.market_sentiment().await {
-        Ok(sentiment) => Some(sentiment),
+/// Adapt generic AI evidence into the legacy CoreOpportunityV1 10% input only.
+async fn ai_evidence_for_legacy_core_opportunity(state: &ApiState) -> Option<AiEvidence> {
+    match state.ai_evidence().await {
+        Ok(evidence) => Some(evidence),
         Err(ApiError::ServiceUnavailable) => {
-            tracing::warn!("market sentiment unavailable; decision preview uses fallback weights");
+            tracing::warn!(
+                "AI evidence unavailable; legacy CoreOpportunityV1 uses 90/10/0 fallback"
+            );
             None
         }
         Err(error) => {
-            tracing::error!(error = %error, "unexpected market sentiment error; decision preview uses fallback weights");
+            tracing::error!(error = %error, "unexpected AI evidence error; legacy CoreOpportunityV1 uses fallback weights");
             None
         }
     }
@@ -1137,7 +1137,7 @@ struct DecisionRecordContext<'a> {
     execution: &'a InvestmentPlanExecutionPreview,
     policy: &'a strategy_policy::PolicyRef,
     decision: &'a BuiltinPolicyDecision,
-    market_sentiment: Option<&'a MarketSentimentReport>,
+    ai_evidence: Option<&'a AiEvidence>,
     trigger: DecisionTrigger,
     paper_order: Option<&'a BrokerOrderRequest>,
     paper_order_ack: Option<&'a BrokerOrderAck>,
@@ -1175,7 +1175,7 @@ fn record_input(context: DecisionRecordContext<'_>) -> Result<CreateDecisionReco
             context.input.input_source.as_ref(),
             context.policy,
         )?,
-        sentiment_snapshot: context.market_sentiment.map(market_sentiment_snapshot),
+        sentiment_snapshot: context.ai_evidence.map(ai_evidence_snapshot),
         decision_snapshot: decision_snapshot(context.decision),
         policy_evidence: Some(DecisionPolicyEvidence {
             policy: context.policy.clone(),
@@ -1253,10 +1253,14 @@ fn trigger_label(trigger: DecisionTrigger) -> &'static str {
     }
 }
 
-/// Return a stable audit snapshot for an automatically retrieved market sentiment.
-fn market_sentiment_snapshot(report: &MarketSentimentReport) -> Value {
+/// Return a stable audit snapshot for generic AI evidence.
+///
+/// The legacy column name is retained for SQLite compatibility, while this JSON
+/// explicitly records that the payload is provider-neutral evidence.
+fn ai_evidence_snapshot(report: &AiEvidence) -> Value {
     json!({
-        "source": "market_sentiment",
+        "source": "ai_evidence",
+        "provider": report.provider,
         "score": report.analysis.sentiment().value(),
         "rationale": report.analysis.rationale(),
         "warnings": report.analysis.warnings(),

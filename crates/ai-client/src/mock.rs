@@ -6,7 +6,10 @@
 use async_trait::async_trait;
 use tracing::debug;
 
-use crate::{AiClientError, AiProvider, Sentiment};
+use crate::{
+    AiClientError, AiProvider, AiProviderCapabilities, AiProviderId, AiProviderProfile,
+    AiProviderProfileId, Sentiment,
+};
 
 /// 开发期 mock，基于关键词匹配返回情绪值。
 ///
@@ -108,6 +111,17 @@ impl Default for MockAiProvider {
 
 #[async_trait]
 impl AiProvider for MockAiProvider {
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::new(
+            AiProviderProfileId::new("mock-default").expect("static profile ID is valid"),
+            AiProviderId::new("mock").expect("static provider ID is valid"),
+            "Mock AI".to_owned(),
+            "keyword-matcher".to_owned(),
+            AiProviderCapabilities::market_evidence_only(),
+        )
+        .expect("static mock profile is valid")
+    }
+
     async fn analyze(&self, prompt: &str) -> Result<Sentiment, AiClientError> {
         let raw = Self::match_keywords(prompt).unwrap_or(self.default_sentiment);
         debug!(raw, prompt, "MockAiProvider returned sentiment");

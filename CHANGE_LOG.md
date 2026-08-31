@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-08-31 CST — AI Evidence 解耦与已部署 Provider Registry
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI 适配器边界、策略兼容、HTTP 契约、审计快照与双语文档。
+- 涉及文件：`crates/ai-client/src/{client,lib,mock,news,provider}.rs`、`crates/api/src/{state.rs,routes/{decision_preview,market_sentiment,runtime_status}.rs}`、`crates/api/tests/{decision_preview,health,market_sentiment}.rs`、`API_MANAGEMENT.md`、`readme.md`、`readme.en.md`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `AiProviderId`、`AiProviderProfileId`、无授权能力声明和仅保存无密钥元信息的 `AiProviderRegistry`。Qwen 注册为 `qwen-default` profile；key、endpoint、账户和 secret-manager 引用仍只允许位于 server 环境变量或部署侧 secret manager，永不进入 HTTP、日志或审计。新增只读 `GET /ai/providers` 与可选 `profile_id` 的 `POST /market-sentiment/preview`，仅允许服务器已注册 profile，未知 profile 安全返回 `400`。通用 `AiEvidence` 现携带 profile、结构化分析和原始 RSS headline；仅 `CoreOpportunityV1` 将其中 score 兼容映射为旧 10% 情绪输入，Fixed DCA 与 DSL Runtime 不读取它来改变推荐。Decision Record 的兼容 `sentiment_snapshot` 列继续使用，但 JSON 内明确存为 `ai_evidence` 与无密钥 provider 快照。当前能力仅为解释/警告，不提供 Copilot 保存、激活或下单权限。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p ai-client --locked`、`cargo test -p indexlink-api --locked`、`cargo test -p indexlink-server --locked`、`cargo test -p core-domain --locked`、`cargo check --workspace --locked`、`cargo clippy -p ai-client -p indexlink-api -p indexlink-server --all-targets --all-features --locked -- -D warnings`、`git diff --check`。
+
 ### 2026-08-31 CST — 不可变技术历史夹具 Push 3：全指标策略准入与公平对照
 
 - 执行模型：GPT-5 Codex。
