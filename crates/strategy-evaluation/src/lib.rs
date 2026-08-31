@@ -32,10 +32,8 @@ use sha2::{Digest, Sha256};
 use strategy_dsl::{
     ComparisonOperator, Condition, DslEvidence, IndicatorSpec, LookbackWindow, PolicyAction,
     StrategyDslRuntimeError, StrategyDslValidationError, StrategyRule, StrategySpec,
-    ValueExpression,
+    TechnicalClose, TechnicalMarketSnapshot, TechnicalVix, ValueExpression,
 };
-#[cfg(test)]
-use strategy_dsl::{TechnicalClose, TechnicalMarketSnapshot, TechnicalVix};
 use strategy_policy::{DecisionContext, PolicyId, PolicyRef, PolicyValidationError, PolicyVersion};
 use thiserror::Error;
 use time::{Date, Month};
@@ -220,32 +218,59 @@ pub struct StrategyAdmissionReport {
 pub struct StrategyAdmissionAsset {
     /// Fixture symbol.
     pub symbol: String,
-    /// Number of matched contribution observations.
+    /// Number of matched, fully warmed-up contribution observations.
     pub observations: usize,
+    /// First decision cutoff whose required technical evidence was complete.
+    pub evidence_start_as_of: String,
+    /// Last decision cutoff whose required technical evidence was complete.
+    pub evidence_end_as_of: String,
     /// Candidate metrics under the same contribution schedule as Fixed DCA.
     pub strategy: StrategyAdmissionMetrics,
     /// Fixed DCA reference metrics.
     pub fixed_dca: StrategyAdmissionMetrics,
+    /// Fixed-size rolling windows using the same causal evidence and execution prices.
+    pub rolling_out_of_sample: Vec<StrategyAdmissionRollingWindow>,
 }
 
 /// Public subset of comparable, non-promotional admission metrics.
 #[derive(Debug, Serialize)]
 pub struct StrategyAdmissionMetrics {
+    /// Money-weighted annual return across matched cash flows, when solvable.
+    pub xirr_percent: Option<f64>,
     /// Terminal wealth after all fixed fixture observations.
     pub terminal_wealth_usd: f64,
     /// Maximum peak-to-trough drawdown percentage.
     pub maximum_drawdown_percent: f64,
     /// Annualized monthly-return volatility when observable.
     pub annualized_volatility_percent: Option<f64>,
+    /// Downside-risk-adjusted return ratio, when enough negative/positive periods exist.
+    pub sortino_ratio: Option<f64>,
     /// Share of external cash invested by the evaluated strategy.
     pub cash_utilisation_percent: f64,
 }
 
-/// Evaluate one restricted strategy against the committed calibration fixture for activation.
+/// One rolling fixed-sample comparison exposed for strategy-admission review.
+#[derive(Debug, Serialize)]
+pub struct StrategyAdmissionRollingWindow {
+    /// First decision cutoff included in this window.
+    pub start_as_of: String,
+    /// Last decision cutoff included in this window.
+    pub end_as_of: String,
+    /// Number of matched contribution observations in the window.
+    pub observations: usize,
+    /// Candidate metrics under the same inputs as the reference.
+    pub strategy: StrategyAdmissionMetrics,
+    /// Fixed DCA metrics under the same inputs as the candidate.
+    pub fixed_dca: StrategyAdmissionMetrics,
+}
+
+/// Evaluate one restricted strategy against complete causal technical evidence for activation.
 ///
-/// The fixture only includes causal RSI-14 and VIX inputs.  A strategy that requires other
-/// indicators remains valid for online simulation but is intentionally ineligible until an
-/// equally versioned historical fixture is added; no synthetic backtest is substituted.
+/// The plan calendar comes from committed `calibration-v2`; each DSL input and execution price
+/// comes from the immutable `technical-v1` raw snapshots. A decision only sees observations at
+/// or before its cutoff and both the candidate and Fixed DCA execute at the first strictly later
+/// price. Missing warm-up history excludes the same early period from both sides rather than
+/// filling an indicator or executing at the decision close.
 pub fn evaluate_strategy_admission(
     strategy: &StrategySpec,
 ) -> Result<StrategyAdmissionReport, EvaluationError> {
@@ -255,18 +280,11 @@ pub fn evaluate_strategy_admission(
         .all(|rule| rule.action().is_opportunity_only());
     let budget = Decimal::new(PERIOD_BUDGET, 0);
     let budget_safe = strategy.validate_for_budget(budget).is_ok();
-    let rsi = IndicatorSpec::RelativeStrengthIndex(LookbackWindow::new(14)?);
-    let fixture_supported = strategy
-        .required_indicators()
-        .iter()
-        .all(|indicator| *indicator == rsi || matches!(indicator, IndicatorSpec::Vix));
-    if !core_bucket_safe || !budget_safe || !fixture_supported {
+    if !core_bucket_safe || !budget_safe {
         let reason = if !core_bucket_safe {
             "the strategy is not opportunity-bucket-only and would be able to affect the fixed core contribution"
-        } else if !budget_safe {
-            "the strategy can recommend an opportunity amount above the fixed-sample period budget"
         } else {
-            "fixed calibration fixture currently supports only RSI(14) and VIX; add versioned historical inputs before activating this strategy"
+            "the strategy can recommend an opportunity amount above the fixed-sample period budget"
         };
         return Ok(StrategyAdmissionReport {
             eligible: false,
@@ -276,19 +294,36 @@ pub fn evaluate_strategy_admission(
             assets: Vec::new(),
         });
     }
+    validate_technical_fixture()?;
     let dataset: FixtureDataset =
         serde_json::from_str(include_str!("../data/generated/calibration-v2.json"))?;
     let configuration = execution_configuration(Decimal::new(CORE_RATIO, 1))?;
     let mut assets = Vec::new();
     for asset in &dataset.assets {
-        let samples = evaluate_asset(asset)?;
+        let samples = admission_samples(asset, strategy)?;
+        let Some(first) = samples.first() else {
+            return Ok(StrategyAdmissionReport {
+                eligible: false,
+                reason: Some(format!(
+                    "technical-v1 lacks complete causal evidence for every required indicator on {}",
+                    asset.source_symbol
+                )),
+                core_bucket_safe,
+                budget_safe,
+                assets: Vec::new(),
+            });
+        };
+        let last = samples.last().ok_or(EvaluationError::InsufficientHistory)?;
         let strategy_metrics = simulate_admission_dsl(&samples, configuration, strategy)?;
-        let dca = simulate(&samples, configuration, ExecutionMode::FixedDca)?;
+        let dca = simulate_admission_fixed_dca(&samples)?;
         assets.push(StrategyAdmissionAsset {
             symbol: asset.source_symbol.clone(),
             observations: samples.len(),
+            evidence_start_as_of: first.decision_date.to_string(),
+            evidence_end_as_of: last.decision_date.to_string(),
             strategy: admission_metrics(strategy_metrics),
             fixed_dca: admission_metrics(dca),
+            rolling_out_of_sample: admission_rolling_windows(&samples, configuration, strategy)?,
         });
     }
     Ok(StrategyAdmissionReport {
@@ -300,32 +335,67 @@ pub fn evaluate_strategy_admission(
     })
 }
 
+#[derive(Debug, Clone)]
+struct AdmissionSample {
+    decision_date: NaiveDate,
+    execution_date: NaiveDate,
+    execution_close: f64,
+    evidence: DslEvidence,
+}
+
+fn admission_samples(
+    asset: &FixtureAsset,
+    strategy: &StrategySpec,
+) -> Result<Vec<AdmissionSample>, EvaluationError> {
+    let price_file = match asset.source_symbol.as_str() {
+        "SP500" => "fred_sp500_daily.csv",
+        "NASDAQCOM" => "fred_nasdaqcom_daily.csv",
+        _ => return Err(EvaluationError::TechnicalFixtureManifest),
+    };
+    let calendar_samples = evaluate_asset(asset)?;
+    let (prices, vix) = technical_series_for_file(price_file)?;
+    let mut samples = Vec::new();
+    for calendar in calendar_samples {
+        let snapshot = technical_snapshot_from_series(&prices, &vix, calendar.decision_date)?;
+        let evidence = match DslEvidence::from_as_of_market_snapshot(strategy, &snapshot) {
+            Ok(evidence) => evidence,
+            Err(StrategyDslRuntimeError::MissingIndicator) => continue,
+            Err(error) => return Err(EvaluationError::DslRuntime(error)),
+        };
+        let Some((execution_date, execution_close)) = prices
+            .values
+            .iter()
+            .find(|(date, _)| *date > calendar.decision_date)
+        else {
+            continue;
+        };
+        samples.push(AdmissionSample {
+            decision_date: calendar.decision_date,
+            execution_date: *execution_date,
+            execution_close: execution_close
+                .to_f64()
+                .ok_or(EvaluationError::InvalidDecimal)?,
+            evidence,
+        });
+    }
+    Ok(samples)
+}
+
 fn simulate_admission_dsl(
-    samples: &[DecisionMonth],
+    samples: &[AdmissionSample],
     configuration: PlanExecutionConfiguration,
     strategy: &StrategySpec,
 ) -> Result<PerformanceMetrics, EvaluationError> {
     let budget = Decimal::new(PERIOD_BUDGET, 0);
     let maximum = Decimal::new(MAX_SINGLE_EXECUTION, 0);
-    let rsi = IndicatorSpec::RelativeStrengthIndex(LookbackWindow::new(14)?);
     let mut cash = Decimal::ZERO;
     let mut state = PortfolioState::default();
     for row in samples {
         state.deposit(row.decision_date, PERIOD_BUDGET as f64);
-        let evidence = DslEvidence::new([
-            (
-                rsi,
-                Decimal::from_f64(row.rsi14).ok_or(EvaluationError::InvalidDecimal)?,
-            ),
-            (
-                IndicatorSpec::Vix,
-                Decimal::from_f64(row.vix).ok_or(EvaluationError::InvalidDecimal)?,
-            ),
-        ])?;
         let evaluation = strategy.evaluate(&DecisionContext::new(
             fixture_date(row.decision_date)?,
             budget,
-            evidence,
+            row.evidence.clone(),
         )?)?;
         let split = TwoBucketContributionSplit::from_decision_with_carry(
             budget,
@@ -350,11 +420,51 @@ fn simulate_admission_dsl(
     Ok(state.metrics(cash.to_f64().unwrap_or_default()))
 }
 
+fn simulate_admission_fixed_dca(
+    samples: &[AdmissionSample],
+) -> Result<PerformanceMetrics, EvaluationError> {
+    let mut state = PortfolioState::default();
+    for row in samples {
+        state.deposit(row.decision_date, PERIOD_BUDGET as f64);
+        state.buy(
+            row.execution_date,
+            PERIOD_BUDGET as f64,
+            row.execution_close,
+        );
+        state.mark_to_market(row.execution_date, row.execution_close);
+    }
+    Ok(state.metrics(0.0))
+}
+
+fn admission_rolling_windows(
+    samples: &[AdmissionSample],
+    configuration: PlanExecutionConfiguration,
+    strategy: &StrategySpec,
+) -> Result<Vec<StrategyAdmissionRollingWindow>, EvaluationError> {
+    (0..samples.len())
+        .step_by(OOS_STEP_MONTHS)
+        .filter_map(|start| samples.get(start..start + OOS_WINDOW_MONTHS))
+        .map(|window| {
+            let strategy_metrics = simulate_admission_dsl(window, configuration, strategy)?;
+            let fixed_dca = simulate_admission_fixed_dca(window)?;
+            Ok(StrategyAdmissionRollingWindow {
+                start_as_of: window[0].decision_date.to_string(),
+                end_as_of: window[window.len() - 1].decision_date.to_string(),
+                observations: window.len(),
+                strategy: admission_metrics(strategy_metrics),
+                fixed_dca: admission_metrics(fixed_dca),
+            })
+        })
+        .collect()
+}
+
 fn admission_metrics(metrics: PerformanceMetrics) -> StrategyAdmissionMetrics {
     StrategyAdmissionMetrics {
+        xirr_percent: metrics.xirr_percent,
         terminal_wealth_usd: metrics.terminal_wealth_usd,
         maximum_drawdown_percent: metrics.maximum_drawdown_percent,
         annualized_volatility_percent: metrics.annualized_volatility_percent,
+        sortino_ratio: metrics.sortino_ratio,
         cash_utilisation_percent: metrics.cash_utilisation_percent,
     }
 }
@@ -472,7 +582,6 @@ struct ParsedTechnicalSeries {
     source_gap_rows: usize,
     first_observation: NaiveDate,
     last_observation: NaiveDate,
-    #[cfg(test)]
     values: Vec<(NaiveDate, Decimal)>,
 }
 
@@ -499,7 +608,6 @@ fn parse_technical_series(
     let mut first_observation = None;
     let mut last_valid_observation = None;
     let mut last_source_observation = None;
-    #[cfg(test)]
     let mut parsed_values = Vec::new();
     for row in rows.filter(|row| !row.trim().is_empty()) {
         let values = row.split(',').collect::<Vec<_>>();
@@ -523,12 +631,10 @@ fn parse_technical_series(
         if !close.is_finite() || close <= 0.0 {
             return Err(EvaluationError::TechnicalFixtureIntegrity);
         }
-        #[cfg(test)]
         let close = Decimal::from_f64(close).ok_or(EvaluationError::InvalidDecimal)?;
         first_observation.get_or_insert(observed);
         last_valid_observation = Some(observed);
         observations += 1;
-        #[cfg(test)]
         parsed_values.push((observed, close));
     }
 
@@ -538,7 +644,6 @@ fn parse_technical_series(
         first_observation: first_observation.ok_or(EvaluationError::TechnicalFixtureIntegrity)?,
         last_observation: last_valid_observation
             .ok_or(EvaluationError::TechnicalFixtureIntegrity)?,
-        #[cfg(test)]
         values: parsed_values,
     })
 }
@@ -552,6 +657,15 @@ fn technical_snapshot_at(
     price_file: &str,
     as_of: NaiveDate,
 ) -> Result<(TechnicalMarketSnapshot, Vec<(NaiveDate, Decimal)>), EvaluationError> {
+    let (prices, vix) = technical_series_for_file(price_file)?;
+    let snapshot = technical_snapshot_from_series(&prices, &vix, as_of)?;
+    Ok((snapshot, prices.values))
+}
+
+/// Load one immutable price proxy and the accompanying VIX series once.
+fn technical_series_for_file(
+    price_file: &str,
+) -> Result<(ParsedTechnicalSeries, ParsedTechnicalSeries), EvaluationError> {
     let manifest: TechnicalFixtureManifest = serde_json::from_str(TECHNICAL_FIXTURE_MANIFEST)
         .map_err(|_| EvaluationError::TechnicalFixtureManifest)?;
     let price_series = manifest
@@ -566,6 +680,15 @@ fn technical_snapshot_at(
         .ok_or(EvaluationError::TechnicalFixtureManifest)?;
     let prices = parse_technical_series(price_series, technical_raw_source(price_file)?)?;
     let vix = parse_technical_series(vix_series, CBOE_VIX_DAILY)?;
+    Ok((prices, vix))
+}
+
+/// Build one causal `as_of` snapshot from already validated immutable series.
+fn technical_snapshot_from_series(
+    prices: &ParsedTechnicalSeries,
+    vix: &ParsedTechnicalSeries,
+    as_of: NaiveDate,
+) -> Result<TechnicalMarketSnapshot, EvaluationError> {
     let cutoff = fixture_date(as_of)?;
     let closes = prices
         .values
@@ -577,7 +700,7 @@ fn technical_snapshot_at(
         .collect::<Result<Vec<_>, _>>()?;
     let vix = vix
         .values
-        .into_iter()
+        .iter()
         .rev()
         .find(|(date, _)| *date <= as_of)
         .ok_or(EvaluationError::InsufficientHistory)?;
@@ -587,10 +710,9 @@ fn technical_snapshot_at(
         TechnicalVix::new(fixture_date(vix.0)?, vix.1).map_err(EvaluationError::from)?,
     )
     .map_err(EvaluationError::from)?;
-    Ok((snapshot, prices.values))
+    Ok(snapshot)
 }
 
-#[cfg(test)]
 fn technical_raw_source(file: &str) -> Result<&'static str, EvaluationError> {
     match file {
         "fred_sp500_daily.csv" => Ok(FRED_SP500_DAILY),
@@ -784,7 +906,6 @@ struct DecisionMonth {
     execution_date: NaiveDate,
     execution_close: f64,
     rsi14: f64,
-    vix: f64,
     fundamental: FundamentalSignal,
     trend: TrendSignal,
     fallback: DecisionSignal,
@@ -901,7 +1022,6 @@ fn evaluate_asset(asset: &FixtureAsset) -> Result<Vec<DecisionMonth>, Evaluation
                 .map_err(|_| EvaluationError::InvalidDate)?,
             execution_close: current.execution_close,
             rsi14: current.rsi14,
-            vix: current.vix,
             fundamental,
             trend,
             fallback,
@@ -2290,31 +2410,73 @@ mod tests {
             .all(|asset| asset.observations > 0 && asset.fixed_dca.terminal_wealth_usd > 0.0));
     }
 
-    /// Verify a policy needing unsupported historical evidence stays saved but cannot activate.
+    /// Verify every allow-listed technical indicator can pass causal fixed-fixture admission.
     #[test]
-    fn admission_rejects_indicators_missing_from_the_versioned_fixture() {
-        let close = IndicatorSpec::ClosePrice;
+    fn admission_accepts_complete_historical_technical_evidence() {
+        let window = LookbackWindow::new(200).unwrap();
         let strategy = StrategySpec::new(
             PolicyRef::new(
-                PolicyId::new("dsl_close_not_yet_calibrated").unwrap(),
+                PolicyId::new("dsl_complete_technical_evidence").unwrap(),
                 PolicyVersion::new(1).unwrap(),
             ),
-            "Close-price strategy awaiting fixture support",
+            "Complete technical evidence strategy",
             vec![StrategyRule::new(
-                Condition::compare(
-                    ValueExpression::indicator(close),
-                    ComparisonOperator::GreaterThan,
-                    Decimal::ONE,
-                ),
+                Condition::all(vec![
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::ClosePrice),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ONE,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::SimpleMovingAverage(window)),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ONE,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::ExponentialMovingAverage(window)),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ONE,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::RelativeStrengthIndex(window)),
+                        ComparisonOperator::GreaterThanOrEqual,
+                        Decimal::ZERO,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::Drawdown(window)),
+                        ComparisonOperator::LessThanOrEqual,
+                        Decimal::ZERO,
+                    ),
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::Vix),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                ])
+                .unwrap(),
                 PolicyAction::set_opportunity_multiplier(Multiplier::new_clamped(1.0)),
             )],
         )
         .unwrap();
 
         let report = evaluate_strategy_admission(&strategy).unwrap();
-        assert!(!report.eligible);
-        assert!(report.assets.is_empty());
-        assert!(report.reason.unwrap().contains("RSI(14) and VIX"));
+        assert!(report.eligible);
+        assert!(report.assets.iter().all(|asset| {
+            asset.observations >= 24
+                && asset.strategy.xirr_percent.is_some()
+                && asset.fixed_dca.sortino_ratio.is_some()
+                && !asset.rolling_out_of_sample.is_empty()
+                && asset
+                    .rolling_out_of_sample
+                    .iter()
+                    .all(|window| window.observations == OOS_WINDOW_MONTHS)
+        }));
+        for asset in &report.assets {
+            assert!(
+                (asset.strategy.terminal_wealth_usd - asset.fixed_dca.terminal_wealth_usd).abs()
+                    < 0.000_001
+            );
+        }
     }
 
     /// Verify the core/opportunity simulation treats retained money as terminal cash.

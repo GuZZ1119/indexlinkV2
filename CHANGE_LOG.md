@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-08-31 CST — 不可变技术历史夹具 Push 3：全指标策略准入与公平对照
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略准入回测、因果数据口径、Web Studio 展示与双语文档。
+- 涉及文件：`crates/strategy-evaluation/src/lib.rs`、`crates/api/tests/strategies.rs`、`apps/web/src/{api/types.ts,pages/strategies/index.tsx,i18n/locales/{zh.ts,en.ts}}`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`readme.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：`GET /strategies/:policy_id/:policy_version/admission` 现在会依据策略实际引用的 Close、SMA、EMA、RSI、Drawdown、VIX，从已校验、编译期嵌入的 `technical-v1` 原始快照构造完整 `as_of` 证据；预热不足的早期观察被排除，任一资产无完整证据时拒绝激活。计划日期与预算仍来自版本化 `calibration-v2`，但策略与 Fixed DCA 都在 t+1 首个可用交易日、相同外部现金流和成本下成交。准入返回每资产的证据覆盖范围、XIRR、期末净值、最大回撤、年化波动、Sortino、现金使用率以及滚动 24 期/12 期步长样本外窗口；这些是透明比较信息而非收益承诺，跑赢 DCA 不是激活条件。补充全白名单指标准入与固定 1.0 倍机会桶等价 Fixed DCA 的回归测试；Studio 同步展示证据覆盖、滚动窗口、XIRR 和 Sortino，并补齐中英文翻译。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p strategy-evaluation --locked`、`cargo test -p indexlink-api --locked`、`cargo test -p core-domain --locked`、`cargo clippy -p strategy-evaluation -p indexlink-api -p strategy-dsl --all-targets --all-features --locked -- -D warnings`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`、`pnpm --dir apps/web build`、`git diff --check`。
+
 ### 2026-08-31 CST — 不可变技术历史夹具 Push 2：因果 `as_of` 技术证据
 
 - 执行模型：GPT-5 Codex。

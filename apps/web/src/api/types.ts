@@ -76,16 +76,30 @@ export interface StrategyAdmissionReport {
 export interface StrategyAdmissionAsset {
   symbol: string
   observations: number
+  evidence_start_as_of: string
+  evidence_end_as_of: string
   strategy: StrategyAdmissionMetrics
   fixed_dca: StrategyAdmissionMetrics
+  rolling_out_of_sample: StrategyAdmissionRollingWindow[]
 }
 
 /** Comparable non-promotional metrics under one identical contribution schedule. */
 export interface StrategyAdmissionMetrics {
+  xirr_percent?: number
   terminal_wealth_usd: number
   maximum_drawdown_percent: number
   annualized_volatility_percent?: number
+  sortino_ratio?: number
   cash_utilisation_percent: number
+}
+
+/** One fixed-size causal rolling comparison included in strategy admission. */
+export interface StrategyAdmissionRollingWindow {
+  start_as_of: string
+  end_as_of: string
+  observations: number
+  strategy: StrategyAdmissionMetrics
+  fixed_dca: StrategyAdmissionMetrics
 }
 
 /** A server-side investment plan. Decimal values remain JSON strings. */

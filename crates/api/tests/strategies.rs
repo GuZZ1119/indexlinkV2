@@ -82,21 +82,21 @@ fn strategy() -> StrategySpec {
     .unwrap()
 }
 
-/// Build a structurally valid version whose required historical fixture is intentionally absent.
-fn unsupported_historical_strategy() -> StrategySpec {
+/// Build a structurally valid version that exceeds the fixed-sample period budget.
+fn over_budget_strategy() -> StrategySpec {
     StrategySpec::new(
         PolicyRef::new(
-            PolicyId::new("dsl_close_requires_fixture").unwrap(),
+            PolicyId::new("dsl_over_budget_rejected").unwrap(),
             PolicyVersion::new(1).unwrap(),
         ),
-        "Close price requires a calibrated fixture",
+        "Over-budget admission rejection",
         vec![StrategyRule::new(
             Condition::compare(
                 ValueExpression::indicator(IndicatorSpec::ClosePrice),
                 ComparisonOperator::GreaterThan,
                 Decimal::ONE,
             ),
-            PolicyAction::set_opportunity_multiplier(Multiplier::new_clamped(1.0)),
+            PolicyAction::set_opportunity_fixed_amount(Decimal::new(1_001, 0)).unwrap(),
         )],
     )
     .unwrap()
@@ -342,15 +342,15 @@ async fn activates_a_validated_strategy_and_uses_it_for_automatic_audit() {
     assert_eq!(preview["decision"]["action"], "standard");
 }
 
-/// Verify structural validity alone cannot bind a strategy lacking a versioned fixed-sample replay.
+/// Verify structural validity alone cannot bind a strategy exceeding its fixed-sample budget.
 #[tokio::test]
-async fn refuses_activation_when_fixed_sample_admission_is_ineligible() {
+async fn refuses_activation_when_fixed_sample_budget_is_ineligible() {
     let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
         .await
         .unwrap();
     storage.migrate().await.unwrap();
     SqliteStrategySpecRepository::new(storage.pool().clone())
-        .save(&unsupported_historical_strategy())
+        .save(&over_budget_strategy())
         .await
         .unwrap();
     let app = build_router(ApiState::new(storage, "0.1.0"));
@@ -381,7 +381,7 @@ async fn refuses_activation_when_fixed_sample_admission_is_ineligible() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/strategies/dsl_close_requires_fixture/1/admission")
+                .uri("/strategies/dsl_over_budget_rejected/1/admission")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -397,7 +397,7 @@ async fn refuses_activation_when_fixed_sample_admission_is_ineligible() {
                 .uri(format!("/investment-plans/{plan_id}/activate-policy"))
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::json!({"policy":{"id":"dsl_close_requires_fixture","version":1}})
+                    serde_json::json!({"policy":{"id":"dsl_over_budget_rejected","version":1}})
                         .to_string(),
                 ))
                 .unwrap(),

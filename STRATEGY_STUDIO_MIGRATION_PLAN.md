@@ -1,7 +1,7 @@
 # IndexLink 策略工作台迁移计划 / Strategy Studio Migration Plan
 
-> 状态：PR 1–6、PR 7a–7d 与不可变技术夹具 Push 1–2 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验，且 DSL 技术证据现已在截止日 `as_of` 下因果计算。下一项工作是 Push 3：将完整历史证据接入策略准入回测。
-> Status: PRs 1–6, PRs 7a–7d, and immutable-technical-fixture Pushes 1–2 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation use the unified runtime; `technical-v1` validates raw daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity, and DSL technical evidence is now calculated causally at an `as_of` cutoff. The next work item is Push 3: admit complete historical evidence into strategy-admission backtests.
+> 状态：PR 1–6、PR 7a–7d 与不可变技术夹具 Push 1–3 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验。准入现在按策略实际引用的白名单指标构造截止日 `as_of` 证据，并以 t+1 首个交易日成交，和 Fixed DCA 在相同现金流与成本下公平对照。
+> Status: PRs 1–6, PRs 7a–7d, and immutable-technical-fixture Pushes 1–3 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation use the unified runtime. `technical-v1` validates daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity. Admission now builds `as_of` evidence for the allow-listed indicators actually referenced by a policy, executes at the first t+1 trading day, and compares fairly with Fixed DCA under matched cash flows and costs.
 
 ## 1. 新定位 / New Positioning
 
@@ -147,9 +147,9 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 ### PR 7b — 策略验证、激活与 Web Studio / Strategy Validation, Activation and Web Studio（已完成 / Complete）
 
 - `POST /strategies/validate` 返回可读、无内部细节的 DSL 校验结果；`POST /strategies` 只保存已验证的不可变版本，策略不支持更新或任意脚本。
-- Strategy Studio 提供版本列表、只读规则详情、RSI(14)/VIX 白名单表单、验证错误与明确的计划激活确认。
+- Strategy Studio 提供版本列表、只读规则详情、全部白名单指标表单、验证错误与明确的计划激活确认。
 - 已激活 DSL 会由自动 Decision Preview、scheduler 与审计共用同一 Runtime；仅允许机会桶倍率或跳过机会桶，核心桶不可否决，审批模式不会自动下单，仍为 paper-only。
-- 当前线上 evidence profile 仅支持 RSI(14) 与 VIX；其余 DSL AST 指标保留给离线研究，不能被激活。
+- 策略准入按策略实际引用的 Close、SMA、EMA、RSI、回撤与 VIX 检查版本化历史证据；预热不足或证据缺失时拒绝激活，而不伪造回测。
 
 ### PR 7c — DSL Runtime V2 / Shared Technical Evidence（已完成 / Complete）
 
@@ -162,7 +162,7 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 - 保存前重走 DSL 文档到领域构造器的完整校验；保存本身不等同于可执行或可激活。
 - `GET /strategies/:policy_id/:policy_version/admission` 对每个已保存版本执行固定、版本化 `calibration-v2` 回测，同时锁定核心桶只能由计划配置生成、DSL 动作只能影响机会桶，并以固定周期预算检验动作边界。
 - 策略与 `Fixed DCA` 必须在相同外部现金流、成本与“决策日后下一观察日成交”口径下展示期末净值、最大回撤、年化波动率和现金使用率；结果是准入信息，不构成收益承诺，也不以跑赢为激活条件。
-- 当前夹具仅含 RSI(14)/VIX 的版本化因果输入。依赖价格、SMA、EMA、回撤的策略可继续保存/当前数据模拟，但不能激活，直到其历史证据被纳入不可变夹具。
+- 当前夹具的完整技术证据由 Push 3 接入；策略可使用 Close、SMA、EMA、RSI、回撤和 VIX，但仍必须在每个采样决策日拥有足够预热且满足核心桶/预算安全门槛。
 
 ### 不可变技术夹具 Push 1 — 原始数据谱系与完整性 / Raw Provenance and Integrity（已完成 / Complete）
 
@@ -174,7 +174,13 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 
 - 新增带日期的 `TechnicalClose`、`TechnicalVix` 与 `TechnicalMarketSnapshot`；快照只接受 `timestamp <= as_of` 的严格递增日线与最后可得 VIX，拒绝未来值、重复/倒序日期、非正收盘价和负 VIX，不填补交易日缺口。
 - DSL 的 Close、SMA、EMA、RSI、Drawdown、VIX 继续由同一纯 Decimal builder 计算；实时 Strategy Simulation、自动 Decision Preview 及离线 `technical-v1` 夹具测试均通过这个有因果边界的入口。历史测试明确检查“t 日生成证据，首个严格更晚交易日才可成交”。
-- 这一步只建立可验证的指标证据契约；固定样本策略准入仍仅覆盖已有的 RSI(14)/VIX 输入。Push 3 才会将 Close、SMA、EMA、回撤与 VIX 的完整历史证据实际接入准入回测和激活门槛。
+- 这一步建立可验证的指标证据契约；Push 3 已将 Close、SMA、EMA、RSI、回撤与 VIX 的完整历史证据实际接入准入回测和激活门槛。
+
+### 不可变技术夹具 Push 3 — 全指标策略准入 / Full-indicator Policy Admission（已完成 / Complete）
+
+- 固定样本准入继续使用版本化 `calibration-v2` 的计划日期与预算，但每个 DSL 策略的技术证据和成交价均来自 `technical-v1` 原始快照。策略只能读 `as_of` 当日及以前的 Close、SMA、EMA、RSI、回撤与 VIX；成交严格使用 t+1 首个可用交易日的同一原始价格。
+- 准入会跳过预热不足的早期日期，并将实际证据覆盖起止日、匹配观察数和滚动 24 期样本外窗口随结果返回。若某策略在任一资产没有完整因果证据，则拒绝激活；不联网、不填补缺失值，也不把指数代理表述为 ETF 总回报。
+- 每个资产以完全相同的外部现金流、成交日和成本假设对比策略与 Fixed DCA，报告 XIRR、期末净值、最大回撤、年化波动、Sortino、现金使用率及滚动窗口结果。跑赢不是准入条件；准入只检查证据充分性与核心桶/预算安全。
 
 ### PR 8 — Qwen Strategy Copilot / Qwen Strategy Copilot
 
@@ -191,6 +197,6 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 
 ## 8. 当前结论 / Current Decision
 
-策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、首个 runtime-backed 历史候选、不可变版本存储、Studio 与固定样本准入已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL RSI 候选升级为默认生产策略。下一项可执行工作是 **PR 8：Qwen Strategy Copilot**，或先扩展版本化历史夹具以放开更多 DSL 指标的准入。
+策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、runtime-backed 历史候选、不可变版本存储、Studio 与全指标固定样本准入均已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL 候选升级为默认生产策略。下一项可执行工作是 **PR 8：Qwen Strategy Copilot**，或扩展更长、更广的版本化历史夹具。
 
-With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is **PR 8: Qwen Strategy Copilot**, or versioned historical-fixture expansion for additional DSL indicators.
+With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is **PR 8: Qwen Strategy Copilot**, or a longer and broader versioned historical fixture.
