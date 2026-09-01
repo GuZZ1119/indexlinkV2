@@ -63,6 +63,49 @@ export interface StrategyValidationResponse {
   document?: StrategySpecDocument
 }
 
+/** Credential-free capabilities advertised by one server-deployed AI profile. */
+export interface AiProviderCapabilities {
+  market_evidence: boolean
+  restricted_policy_drafts: boolean
+}
+
+/** One AI profile that the server explicitly permits the user to select. */
+export interface AiProviderProfile {
+  id: string
+  provider: string
+  display_name: string
+  model: string
+  capabilities: AiProviderCapabilities
+}
+
+/** Response envelope for the server-side, credential-free provider registry. */
+export interface AiProviderListResponse {
+  providers: AiProviderProfile[]
+}
+
+/** Input accepted by the read-only restricted DSL Copilot endpoint. */
+export interface CopilotDraftRequest {
+  profile_id: string
+  policy_id: string
+  policy_version: number
+  objective: string
+}
+
+/** One server-supplied evidence reference the model may cite in a draft. */
+export interface CopilotEvidenceReference {
+  id: string
+  label: string
+}
+
+/** Unpersisted, domain-validated DSL candidate produced by a deployed AI profile. */
+export interface CopilotDraftResponse {
+  provider: AiProviderProfile
+  document: StrategySpecDocument
+  explanation: string
+  warnings: string[]
+  evidence: CopilotEvidenceReference[]
+}
+
 /** Fixed-fixture safety and comparison report required before activating a DSL strategy. */
 export interface StrategyAdmissionReport {
   eligible: boolean

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-01 CST — Copilot Studio Interaction：草案到人工准入工作流
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：Web Strategy Studio、React Query 服务端缓存、双语交互与文档。
+- 涉及文件：`apps/web/src/{api/{queries,types}.ts,pages/strategies/index.tsx,i18n/locales/{zh,en}.ts}`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`CHANGE_LOG.md`。
+- 变更内容：Studio 读取无密钥 `/ai/providers` registry，仅显示声明 `restricted_policy_drafts` 的服务器已部署 profile。用户填写有界策略目标后可调用只读 `/strategies/copilot-draft`，界面展示生成 profile、解释、风险提示与可信引用，并把规范化 DSL 文档回填表单。生成操作不使策略列表失效、不保存 SQLite、不准入、不激活、不绑定计划或下单；用户仍需明确执行编辑 → 校验 → 固定样本准入 → 保存 → 绑定计划。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`、`pnpm --dir apps/web build`、`git diff --check`。
+
 ### 2026-09-01 CST — Restricted Copilot Draft：只读 DSL 候选边界
 
 - 执行模型：GPT-5 Codex。

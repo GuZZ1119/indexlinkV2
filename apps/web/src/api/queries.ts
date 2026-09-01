@@ -22,6 +22,9 @@ import type {
   StrategySpecDocument,
   StrategyAdmissionReport,
   StrategyValidationResponse,
+  AiProviderListResponse,
+  CopilotDraftRequest,
+  CopilotDraftResponse,
   UpdateInvestmentPlanRequest,
   HealthStatus,
   ReadyStatus,
@@ -117,6 +120,16 @@ export function validateStrategy(input: StrategySpecDocument): Promise<StrategyV
 /** Persist one validated immutable DSL strategy version. */
 export function createStrategy(input: StrategySpecDocument): Promise<StoredStrategySpec> {
   return request('/strategies', { method: 'POST', body: JSON.stringify(input) })
+}
+
+/** List only credential-free AI profiles deployed by the current server. */
+export function fetchAiProviders(): Promise<AiProviderListResponse> {
+  return request('/ai/providers')
+}
+
+/** Ask a deployed AI profile for an unpersisted, restricted DSL candidate. */
+export function generateCopilotDraft(input: CopilotDraftRequest): Promise<CopilotDraftResponse> {
+  return request('/strategies/copilot-draft', { method: 'POST', body: JSON.stringify(input) })
 }
 
 /** Run the committed fixed-fixture safety and Fixed-DCA comparison for one stored version. */
@@ -318,6 +331,16 @@ export function useHoldingPriceHistory(period: '3m' | '6m' | '1y' | '3y') {
 /** React Query hook for Strategy Studio discovery data. */
 export function useStrategies() {
   return useQuery({ queryKey: ['strategies'], queryFn: fetchStrategies })
+}
+
+/** Cache the safe server-side provider registry for the Copilot selector. */
+export function useAiProviders() {
+  return useQuery({ queryKey: ['ai-providers'], queryFn: fetchAiProviders })
+}
+
+/** Generate a candidate only; this mutation deliberately does not invalidate persisted strategies. */
+export function useCopilotDraft() {
+  return useMutation({ mutationFn: generateCopilotDraft })
 }
 
 /** Validate without mutation so form failures remain readable and local. */

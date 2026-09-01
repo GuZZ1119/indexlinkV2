@@ -1,7 +1,7 @@
 # IndexLink 策略工作台迁移计划 / Strategy Studio Migration Plan
 
-> 状态：PR 1–6、PR 7a–7d、PR 8a–8b Draft 与不可变技术夹具 Push 1–3 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入、计划激活、AI Evidence Registry 与只读 Copilot Draft 已接入；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验。准入现在按策略实际引用的白名单指标构造截止日 `as_of` 证据，并以 t+1 首个交易日成交，和 Fixed DCA 在相同现金流与成本下公平对照。
-> Status: PRs 1–6, PRs 7a–7d, and immutable-technical-fixture Pushes 1–3 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation use the unified runtime. `technical-v1` validates daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity. Admission now builds `as_of` evidence for the allow-listed indicators actually referenced by a policy, executes at the first t+1 trading day, and compares fairly with Fixed DCA under matched cash flows and costs.
+> 状态：PR 1–6、PR 7a–7d、PR 8a–8c 与不可变技术夹具 Push 1–3 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入、计划激活、AI Evidence Registry、只读 Copilot Draft 与 Studio 草案交互均已接入；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验。准入现在按策略实际引用的白名单指标构造截止日 `as_of` 证据，并以 t+1 首个交易日成交，和 Fixed DCA 在相同现金流与成本下公平对照。
+> Status: PRs 1–6, PRs 7a–7d, PRs 8a–8c, and immutable-technical-fixture Pushes 1–3 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, plan activation, AI Evidence Registry, read-only Copilot Draft, and Studio draft interaction use the unified runtime. `technical-v1` validates daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity. Admission now builds `as_of` evidence for the allow-listed indicators actually referenced by a policy, executes at the first t+1 trading day, and compares fairly with Fixed DCA under matched cash flows and costs.
 
 ## 1. 新定位 / New Positioning
 
@@ -194,9 +194,10 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 - 响应只包含规范化文档、简短解释、风险提示与从服务端封闭列表中选择的证据引用。未知 profile、非 DSL 引用、无能力 profile、非法文档、版本不一致或伪造证据都安全拒绝。
 - Draft 不写 SQLite、不创建 decision record、不进行准入、不保存、不激活、不下单。用户仍须明确执行 validate → admission → save → activate。
 
-### PR 8c — Copilot Studio Interaction / Copilot Studio Interaction（后续 / Next）
+### PR 8c — Copilot Studio Interaction / Copilot Studio Interaction（已完成 / Complete）
 
-- 将只读 Draft 接到 Studio 表单，以人工编辑、校验、固定样本准入、保存和激活为唯一后续动作；不会提供自由代码编辑或自动保存。
+- Studio 只读取服务器已部署且声明 draft capability 的 profile；用户填写目标后才会请求只读 draft，并在界面展示 provider、解释、警告与服务器封闭的可信引用。
+- 返回的规范化 `StrategySpecDocument` 只回填表单，不保存或更改任何计划；用户必须继续人工编辑、校验、固定样本准入、保存和激活。不会提供自由代码编辑、自动保存、自动激活或订单能力。
 
 ## 7. 验收门槛 / Acceptance Gates
 
@@ -208,6 +209,6 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 
 ## 8. 当前结论 / Current Decision
 
-策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、runtime-backed 历史候选、不可变版本存储、Studio、全指标固定样本准入、AI Evidence Registry 与只读 Copilot Draft 均已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL 候选升级为默认生产策略。下一项可执行工作是 **PR 8c：Copilot Studio Interaction**，或扩展更长、更广的版本化历史夹具。
+策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、runtime-backed 历史候选、不可变版本存储、Studio、全指标固定样本准入、AI Evidence Registry 与只读 Copilot Draft/Studio 交互均已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL 候选升级为默认生产策略。下一项可执行工作是扩展更长、更广的版本化历史夹具，或增加用户明确确认后的策略版本审阅体验。
 
-With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is **PR 8c: Copilot Studio Interaction**, or a longer and broader versioned historical fixture.
+With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is a longer and broader versioned historical fixture, or an explicitly user-confirmed strategy-version review experience.
