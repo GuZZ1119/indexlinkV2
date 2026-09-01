@@ -78,6 +78,17 @@ IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展�
 | 不可变技术研究夹具 | `technical-v1` 将 FRED S&P 500 / NASDAQ Composite 日线作为 SPY / QQQ 指数代理，并与 Cboe VIX 原始快照分开版本化；来源、适用条款说明、日期/缺失值规则、共同覆盖范围和 SHA-256 均被校验。它只读编译期嵌入文件，不联网、不前填、不插值；带日期的技术快照只接受 `timestamp <= as_of` 的观察。 |
 | 受限 DSL、确定性 runtime、Studio 与准入 | 仅表达白名单指标、有限表达式和机会桶动作；保存时重建领域不变量，激活前比较固定样本回测并检查预算/核心桶安全。Close、SMA、EMA、RSI、回撤和 VIX 均从 `technical-v1` 的截止日因果证据生成；历史成交固定为决策日后的首个交易日。准入以同一现金流、成交时点和成本对照 Fixed DCA，展示 XIRR、期末净值、最大回撤、年化波动、Sortino、现金使用率与滚动窗口；跑赢不是激活条件，预热/证据不足时拒绝激活。 |
 
+### 使用 Strategy Studio 与受限 Copilot
+
+1. 在“定投标的”创建计划；新计划默认绑定 `fixed_dca@1`，不会因 AI 或市场信号而改写核心预算。
+2. 打开“策略 Studio”，先选择服务器实际部署、且具备 `restricted_policy_drafts` 能力的 AI Profile，再用自然语言说明希望约束的**机会桶**行为。
+3. Copilot 只会把规范化 DSL 草案回填为可编辑表单，同时显示 provider、简短解释、风险提示与服务端提供的可信引用；它不会保存、回测、激活、绑定计划或下单。
+4. 使用者审阅并编辑白名单指标、条件和机会桶动作后，手动“验证并保存不可变版本”。任意脚本、用户代码、核心桶否决和未被白名单允许的动作均会被拒绝。
+5. 对保存版本运行固定样本准入。页面会如实展示与 Fixed DCA 的 XIRR、期末净值、最大回撤、波动、Sortino、现金使用率和滚动窗口；这不是收益预测。
+6. 仅当准入通过后，使用者才能显式将该版本绑定到计划。后续 Decision Preview、scheduler 和审计才使用同一版本；审批模式仍要对已保存的决策记录单独确认 paper order。
+
+若没有配置 `DASHSCOPE_API_KEY` 或其他服务器部署的兼容 Provider，Profile 列表为空，Studio 会禁用草案生成；手工 DSL 编辑、校验和固定样本准入不依赖 AI Key。Key 仅可存放在服务端环境变量或 secret manager，绝不可提交到仓库、浏览器或决策存证中。
+
 ## 架构与安全边界
 
 IndexLink 采用 **Hexagonal Architecture + Modular Monolith**。领域策略保持纯函数；网络、数据库、Qwen、市场数据和 Broker 均在适配器边界之外。
@@ -167,6 +178,8 @@ indexlink/
    ```
 
 本地 `.env` 已被 Git 忽略。可选的 `DASHSCOPE_API_KEY` 只用于 Qwen 证据；`OPEND_PROVIDER`、`OPEND_HOST`、`OPEND_PORT` 与 `OPEND_ACCOUNT_ID` 只用于本机 loopback OpenD 模拟账户，均不得提交或写入日志。
+
+启动后在浏览器访问 Vite 输出的本地地址（通常为 `http://localhost:5173`）。如需使用受限 Copilot，先确认状态栏显示“Qwen 已配置”；没有配置时其余 Studio 流程仍可正常使用。
 
 ### Docker / Alibaba Cloud ECS
 
