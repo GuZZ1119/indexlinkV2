@@ -9,7 +9,7 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
   <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-V2%20demo%20MVP-blue" alt="V2 Demo MVP"></a>
-  <a href="./STRATEGY_STUDIO_MIGRATION_PLAN.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
+  <a href="./docs/architecture/strategy-studio-migration-plan.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
 </p>
 
 # IndexLink V2
@@ -22,9 +22,9 @@ IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展�
 
 ## 项目演示
 
-观看当前版本的演示视频：[IndexLink V2 Demo（YouTube）](https://www.youtube.com/watch?v=t8TCjlqE7D0)。
+观看历史演示视频：[IndexLink V1 固定策略演示（YouTube）](https://www.youtube.com/watch?v=t8TCjlqE7D0)。
 
-视频展示的是受控的本地/模拟账户演示链路，不代表真实投资建议、实盘下单能力或收益承诺。
+该视频记录的是 **V1 固定化策略** 的本地/模拟账户演示，不展示当前 V2 的 Strategy Studio、多 Provider AI Profile、受限 Copilot 草案或策略准入流程。它不代表真实投资建议、实盘下单能力或收益承诺；当前 V2 功能以本仓库和 [文档索引](./docs/README.md) 为准。
 
 ## 产品目标
 
@@ -43,7 +43,7 @@ IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展�
 | **可扩展** | 内置策略、固定 DCA 和后续受限 DSL 策略共享同一执行与审计边界。 |
 | **安全** | 仅支持 paper trading；scheduler 只生成审计，不能自动下单；AI 不拥有交易授权。 |
 
-完整迁移设计、兼容策略和 PR 拆分见 [策略工作台迁移计划](./STRATEGY_STUDIO_MIGRATION_PLAN.md)。
+完整迁移设计、兼容策略和 PR 拆分见 [策略工作台迁移计划](./docs/architecture/strategy-studio-migration-plan.md)。
 
 ## 实现与策略研究
 
@@ -64,7 +64,7 @@ IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展�
 
 两组样本确实观察到较低的最大回撤和年化波动，但它们同时伴随约 17% 的未部署现金与更低期末净值；这**不能**被表述为无条件的“稳定性提升”或策略优势。V2 的可验证价值是把该取舍完整暴露出来：策略版本、`as_of`、数据来源、输入快照、推荐、预算约束、订单意图与回执都可追溯、复跑和审查。
 
-完整数据口径、分数/动作分布、滚动样本外窗口与冻结 Qwen 敏感性见 [策略校准基线 V1](./STRATEGY_CALIBRATION_BASELINE_V1.md)；C1–C4 研究及其未升级为默认策略的理由见 [C4 研究 V1](./STRATEGY_C4_RESEARCH_V1.md)。
+完整数据口径、分数/动作分布、滚动样本外窗口与冻结 Qwen 敏感性见 [策略校准基线 V1](./docs/research/calibration/STRATEGY_CALIBRATION_BASELINE_V1.md)；C1–C4 研究及其未升级为默认策略的理由见 [C4 研究 V1](./docs/research/calibration/STRATEGY_C4_RESEARCH_V1.md)。
 
 | 实现 | 细节与边界 |
 | :--- | :--- |
@@ -147,7 +147,7 @@ indexlink/
 ├─ apps/
 │  ├─ server/               # 组合根与 scheduler
 │  └─ web/                  # Vite + React Dashboard
-├─ STRATEGY_STUDIO_MIGRATION_PLAN.md
+├─ docs/                    # API、架构计划、策略研究与历史实验
 └─ deployment/aliyun/       # ECS Docker Compose 部署脚本
 ```
 
@@ -204,7 +204,7 @@ curl http://127.0.0.1:8080/ready
 7. **运行可观测性与前端联调**：已完成；Web 通过 `/health`、`/ready`、`/runtime-status` 区分 API、SQLite、Qwen、OpenD 与 scheduler 状态，并使用 React Query 管理服务端数据缓存。
 8. **AI Evidence Registry 与 Copilot Draft**：已完成多 Profile 的 OpenAI-compatible 无密钥 Registry、只读 DSL 草案接口与 Studio 草案交互；Qwen 是默认样本，用户只能选择服务器已部署的 profile，密钥仅留在服务端环境或 secret manager。草案只会回填可编辑表单，仍须经确定性校验、回测、人工保存与激活，且永不获得下单权限。
 
-详见 [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md)。
+详见 [策略工作台迁移计划](./docs/architecture/strategy-studio-migration-plan.md) 与 [文档索引](./docs/README.md)。
 
 ## 免责声明
 

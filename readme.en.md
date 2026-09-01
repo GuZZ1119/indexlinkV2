@@ -9,7 +9,7 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
   <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-V2%20demo%20MVP-blue" alt="V2 Demo MVP"></a>
-  <a href="./STRATEGY_STUDIO_MIGRATION_PLAN.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
+  <a href="./docs/architecture/strategy-studio-migration-plan.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
 </p>
 
 # IndexLink V2
@@ -22,9 +22,9 @@ The current release is a demonstrable V2 MVP. It runs locally with SQLite or on 
 
 ## Project Demo
 
-Watch the current demo: [IndexLink V2 Demo on YouTube](https://www.youtube.com/watch?v=t8TCjlqE7D0).
+Watch the historical demo: [IndexLink V1 fixed-policy demo on YouTube](https://www.youtube.com/watch?v=t8TCjlqE7D0).
 
-The video shows a controlled local/paper-account flow. It is not investment advice, live-trading capability, or a return promise.
+This video records the **V1 fixed-policy** local/paper-account flow. It does not demonstrate the current V2 Strategy Studio, multi-provider AI profiles, restricted Copilot drafts, or policy admission workflow. It is not investment advice, live-trading capability, or a return promise. The repository and [documentation index](./docs/README.md) are the source of truth for V2.
 
 ## Product Goal
 
@@ -43,7 +43,7 @@ Create Strategy → Validate → Backtest → Review → Save Version → Activa
 | **Extensible** | Built-in policies, fixed DCA, and later restricted DSL policies share one execution and audit boundary. |
 | **Safe** | Paper trading only; the scheduler creates audit records but never submits orders; AI has no trading authority. |
 
-See the [Strategy Studio Migration Plan](./STRATEGY_STUDIO_MIGRATION_PLAN.md) for the complete target design, compatibility rules, and PR sequence.
+See the [Strategy Studio Migration Plan](./docs/architecture/strategy-studio-migration-plan.md) for the complete target design, compatibility rules, and PR sequence.
 
 ## Implementation and Policy Research
 
@@ -64,7 +64,7 @@ The baseline uses versioned `calibration-v1` data, matched monthly USD 1,000 ext
 
 Both samples do show lower observed maximum drawdown and annualised volatility, but alongside roughly 17% undeployed cash and lower terminal wealth. That **must not** be presented as unconditional “stability improvement” or policy superiority. V2's verifiable value is exposing the trade-off: policy version, `as_of`, sources, input snapshots, recommendation, budget constraints, order intent, and acknowledgement are traceable, reproducible, and reviewable.
 
-See [Strategy Calibration Baseline V1](./STRATEGY_CALIBRATION_BASELINE_V1.md) for the full data protocol, score/action distributions, rolling out-of-sample windows, and frozen-Qwen sensitivity. See [C4 Research V1](./STRATEGY_C4_RESEARCH_V1.md) for C1–C4 research and why none was promoted as the default policy.
+See [Strategy Calibration Baseline V1](./docs/research/calibration/STRATEGY_CALIBRATION_BASELINE_V1.md) for the full data protocol, score/action distributions, rolling out-of-sample windows, and frozen-Qwen sensitivity. See [C4 Research V1](./docs/research/calibration/STRATEGY_C4_RESEARCH_V1.md) for C1–C4 research and why none was promoted as the default policy.
 
 | Implementation | Detail and boundary |
 | :--- | :--- |
@@ -147,7 +147,7 @@ indexlink/
 ├─ apps/
 │  ├─ server/               # Composition root and scheduler
 │  └─ web/                  # Vite + React dashboard
-├─ STRATEGY_STUDIO_MIGRATION_PLAN.md
+├─ docs/                    # API, architecture plans, policy research, historical experiments
 └─ deployment/aliyun/       # ECS Docker Compose deployment scripts
 ```
 
@@ -204,7 +204,7 @@ See [deployment/aliyun/README.md](./deployment/aliyun/README.md) for deployment 
 7. **Runtime observability and Web integration:** complete; the Web app uses `/health`, `/ready`, and `/runtime-status` to distinguish API, SQLite, Qwen, OpenD, and scheduler state, with React Query managing server-data caching.
 8. **AI Evidence Registry and Copilot Draft:** complete for a credential-free multi-profile OpenAI-compatible registry, a read-only DSL-draft endpoint, and Studio draft interaction. Qwen is the default example; users can select only server-deployed profiles while keys remain in server environment or secret management. A candidate only populates an editable form and remains subject to deterministic validation, backtesting, explicit user save/activation, and review; it never receives order authority.
 
-See [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md) for details.
+See the [Strategy Studio Migration Plan](./docs/architecture/strategy-studio-migration-plan.md) and [documentation index](./docs/README.md) for details.
 
 ## Disclaimer
 

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-01 CST — V2 文档归档与历史演示口径澄清
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：文档信息架构、双语 README 演示说明与链接维护。
+- 涉及文件：`docs/{README.md,architecture/strategy-studio-migration-plan.md,plans/v1_1_plan.md,reference/api-management.md,research/{calibration/**,experiments/**}}`、`readme.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：将根目录中的 API 契约、Strategy Studio 迁移计划、V1.1 计划、策略校准报告和历史实验按用途归档至 `docs/`，新增双语文档索引；使用 `git mv` 保留历史。双语 README 同步修复所有活跃链接，并将 YouTube 链接明确标注为 **V1 固定策略** 的历史本地/模拟账户演示，不代表当前 V2 Strategy Studio、多 Provider AI Profile、受限 Copilot 草案、策略准入、真实投资建议、实盘能力或收益承诺。
+- 验证：`git diff --check`、活跃 Markdown 链接引用扫描。
+
 ### 2026-09-01 CST — Multi-Profile AI Deployment 与可测启动编排
 
 - 执行模型：GPT-5 Codex。
