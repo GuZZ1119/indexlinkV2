@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-01 CST — V2 README：Copilot Studio 操作与密钥边界
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：双语使用文档与安全边界说明。
+- 涉及文件：`README.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：补充从选择已部署 Provider、生成只读草案、人工编辑、校验、固定样本准入、保存到绑定计划的完整 Studio 操作流程；明确草案不会保存/激活/下单，未配置 Qwen/兼容 Provider 时仅禁用草案生成，手工 DSL 流程仍可用；新增本地 Web 地址和仅服务端保存 Key 的说明。
+- 验证：`git diff --check`。
+
 ### 2026-09-01 CST — Copilot Studio Interaction：草案到人工准入工作流
 
 - 执行模型：GPT-5 Codex。

@@ -78,6 +78,17 @@ See [Strategy Calibration Baseline V1](./STRATEGY_CALIBRATION_BASELINE_V1.md) fo
 | Immutable technical research fixture | `technical-v1` versions FRED S&P 500 / NASDAQ Composite daily closes as SPY / QQQ index proxies alongside raw Cboe VIX snapshots. Source, applicable-terms notice, date/gap rules, common coverage, and SHA-256 are verified. It reads compile-time embedded files only: no network, forward-fill, or interpolation; dated technical snapshots accept observations only when `timestamp <= as_of`. |
 | Restricted DSL, deterministic runtime, Studio, and admission | Represents only allow-listed indicators, bounded expressions, and opportunity actions. Saving rebuilds domain invariants; activation compares a fixed-fixture backtest and checks budget/core-bucket safety. Close, SMA, EMA, RSI, drawdown, and VIX all use causal `technical-v1` evidence as of the decision date, with execution on the first later trading day. Admission compares matched cash flows, execution timing, and costs with Fixed DCA; it reports XIRR, terminal wealth, maximum drawdown, annualised volatility, Sortino, cash utilisation, and rolling windows. Outperformance is not an activation condition; insufficient warm-up or evidence rejects activation. |
 
+### Using Strategy Studio and the restricted Copilot
+
+1. Create a plan in “Recurring holdings”. A new plan defaults to `fixed_dca@1`; AI and market signals never rewrite its core budget.
+2. Open “Strategy Studio”, choose an actually server-deployed AI profile with `restricted_policy_drafts` capability, then describe the desired **opportunity-bucket** constraint in natural language.
+3. Copilot only returns a canonical DSL draft into the editable form, together with its provider, concise explanation, warnings, and server-supplied trusted references. It does not save, backtest, activate, bind a plan, or submit an order.
+4. Review and edit the allow-listed indicators, conditions, and opportunity actions, then explicitly validate and save an immutable version. Scripts, user code, core-bucket vetoes, and actions outside the allowlist are rejected.
+5. Run fixed-sample admission for the saved version. The page truthfully reports XIRR, terminal wealth, maximum drawdown, volatility, Sortino, cash utilisation, and rolling windows against Fixed DCA; none is a return forecast.
+6. Only an eligible version can be explicitly bound to a plan. Decision Preview, the scheduler, and audit then use that same version; approval mode still requires a separate confirmation of the persisted decision record before a paper order.
+
+Without `DASHSCOPE_API_KEY` or another compatible provider deployed by the server, the profile list is empty and Studio disables draft generation. Manual DSL editing, validation, and fixed-sample admission do not require an AI key. Keys belong only in server environment variables or a secret manager and must never enter the repository, browser, or decision evidence.
+
 ## Architecture and Safety Boundaries
 
 IndexLink uses **Hexagonal Architecture + Modular Monolith**. Domain policies remain pure functions; network, database, Qwen, market data, and brokers remain outside the adapter boundary.
@@ -167,6 +178,8 @@ indexlink/
    ```
 
 The local `.env` is Git-ignored. `DASHSCOPE_API_KEY` is optional Qwen evidence configuration; `OPEND_PROVIDER`, `OPEND_HOST`, `OPEND_PORT`, and `OPEND_ACCOUNT_ID` are only for a local-loopback OpenD paper account. None may be committed or logged.
+
+After startup, open the local Vite address (normally `http://localhost:5173`). For restricted Copilot, first confirm that the status strip shows “Qwen configured”; without it, all non-AI Studio steps still work.
 
 ### Docker / Alibaba Cloud ECS
 
