@@ -10,7 +10,7 @@ use std::{collections::BTreeMap, fmt, time::Duration};
 use async_trait::async_trait;
 use serde::Serialize;
 
-use crate::{AiClientError, Sentiment, SentimentAnalysis};
+use crate::{AiClientError, AiCopilotDraft, AiCopilotDraftRequest, Sentiment, SentimentAnalysis};
 
 /// Stable identifier for one deployed AI provider implementation.
 ///
@@ -94,6 +94,15 @@ impl AiProviderCapabilities {
             restricted_policy_drafts: false,
         }
     }
+
+    /// Declare a profile that can additionally return read-only restricted DSL drafts.
+    #[must_use]
+    pub const fn market_evidence_and_restricted_policy_drafts() -> Self {
+        Self {
+            market_evidence: true,
+            restricted_policy_drafts: true,
+        }
+    }
 }
 
 /// Credential-free metadata for one deployed AI profile.
@@ -167,7 +176,7 @@ impl AiProviderProfile {
             AiProviderId::new("qwen").expect("static provider ID is valid"),
             "Qwen".to_owned(),
             model,
-            AiProviderCapabilities::market_evidence_only(),
+            AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
         )
         .expect("static Qwen profile is valid")
     }
@@ -286,6 +295,18 @@ pub trait AiProvider: Send + Sync {
             Vec::new(),
         )
         .map_err(|_| AiClientError::ParseFailure)
+    }
+
+    /// Generate a read-only restricted policy-draft DTO.
+    ///
+    /// The default explicitly refuses the capability. A successful result remains
+    /// untrusted JSON until the caller reconstructs it through `strategy-dsl`.
+    /// This method never persists, activates, evaluates, or submits an order.
+    async fn generate_policy_draft(
+        &self,
+        _request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
     }
 }
 
@@ -436,7 +457,7 @@ mod tests {
         assert_eq!(listed[0].provider().as_str(), "qwen");
         assert_eq!(listed[0].model(), "qwen-plus");
         assert!(listed[0].capabilities().market_evidence);
-        assert!(!listed[0].capabilities().restricted_policy_drafts);
+        assert!(listed[0].capabilities().restricted_policy_drafts);
         assert!(!format!("{listed:?}").contains("sk-"));
     }
 

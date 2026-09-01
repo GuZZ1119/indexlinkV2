@@ -45,6 +45,10 @@ pub enum AiClientError {
     /// 模型返回了空内容。
     #[error("AI service returned empty content")]
     EmptyResponse,
+
+    /// 当前已部署的 provider 未声明所请求的受限能力。
+    #[error("AI service does not support this capability")]
+    UnsupportedCapability,
 }
 
 #[cfg(test)]
@@ -110,6 +114,7 @@ mod tests {
             AiClientError::UnexpectedStructure,
             AiClientError::ParseFailure,
             AiClientError::EmptyResponse,
+            AiClientError::UnsupportedCapability,
         ];
 
         for error in errors {
@@ -123,5 +128,13 @@ mod tests {
                 assert!(!text.contains("key="));
             }
         }
+    }
+
+    #[test]
+    fn unsupported_capability_display_is_safe() {
+        assert_eq!(
+            AiClientError::UnsupportedCapability.to_string(),
+            "AI service does not support this capability"
+        );
     }
 }

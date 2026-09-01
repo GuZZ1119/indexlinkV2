@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-01 CST — Restricted Copilot Draft：只读 DSL 候选边界
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI Provider 能力、受限策略草案 API、边界校验、测试与双语文档。
+- 涉及文件：`crates/ai-client/src/{client,copilot,error,lib,mock,provider}.rs`、`crates/api/src/{state.rs,routes/strategies.rs}`、`crates/api/tests/strategies.rs`、`API_MANAGEMENT.md`、`readme.md`、`readme.en.md`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `AiCopilotDraftRequest`、`AiCopilotDraft` 与封闭证据引用 DTO；Qwen/Mock profile 声明 `restricted_policy_drafts` 后才可提供此能力。Qwen 使用独立的 JSON-only Copilot system prompt，只允许白名单指标、条件、机会桶动作和服务器给定的证据 ID。新增 `POST /strategies/copilot-draft`：输入已部署 profile、`dsl_` policy ID/version 与有界目标；输出仅为经 `StrategySpecDocument -> StrategySpec` 重建校验后的规范化文档、解释、警告、无密钥 profile 和可信证据引用。该接口不会写 SQLite、创建决策存证、运行准入、保存/激活策略或提交订单；模型产生非法 DSL、错版本或未知证据 ID 时安全返回 `503`。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p ai-client --locked`、`cargo test -p indexlink-api --test strategies --locked`、`cargo test -p core-domain --locked`、`cargo check --workspace --locked`、`cargo clippy -p ai-client -p indexlink-api -p indexlink-server --all-targets --all-features --locked -- -D warnings`、`git diff --check`。
+
 ### 2026-08-31 CST — AI Evidence 解耦与已部署 Provider Registry
 
 - 执行模型：GPT-5 Codex。

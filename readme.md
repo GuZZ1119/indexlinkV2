@@ -16,7 +16,7 @@
 
 IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展的量化定投策略工作台与 paper-trading 执行平台**。它帮助资金有限、希望长期坚持纪律的学生和上班族，把“计划为什么这样建议、是否执行、实际发生了什么”保留为可追溯记录，而不是把黑箱判断包装成投资建议。
 
-当前版本为可演示的 V2 MVP：可在本地 SQLite 或 Alibaba Cloud ECS 上运行，创建定投计划、配置/激活版本化策略、拉取市场输入、获得受限 Qwen 解释、生成决策存证、查看模拟账户，并在操作者明确确认后向 MockBroker 或本机 Futu/Moomoo OpenD **模拟账户**提交 paper order。策略 Studio、统一策略运行时、固定样本准入和 Web 运行状态提示均已接入；系统仍只支持单用户、paper-only 演示。
+当前版本为可演示的 V2 MVP：可在本地 SQLite 或 Alibaba Cloud ECS 上运行，创建定投计划、配置/激活版本化策略、拉取市场输入、获得受限 Qwen 解释，并由已部署 AI profile 生成**只读** DSL 候选草案；随后可生成决策存证、查看模拟账户，并在操作者明确确认后向 MockBroker 或本机 Futu/Moomoo OpenD **模拟账户**提交 paper order。策略 Studio、统一策略运行时、固定样本准入和 Web 运行状态提示均已接入；系统仍只支持单用户、paper-only 演示。
 
 > **不承诺跑赢。** IndexLink 不预测市场，不判断“真实价值”，不保证收益。固定 DCA 是必须保留的公平基准；任何策略都必须在匹配的资金流、成本、数据和执行时点下接受验证。
 
@@ -69,7 +69,7 @@ IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展�
 | 实现 | 细节与边界 |
 | :--- | :--- |
 | 计划管理、周期规则与本地 SQLite | 单用户本地持久化；已有计划保持既有行为与兼容读取。 |
-| 70/20 市场输入与 AI Evidence | 基本面/趋势输入与带 Provider 身份的受限 AI Evidence 均保留来源和时间语义；仅 `CoreOpportunityV1` 将分数兼容映射为旧 10% 输入，Fixed DCA/DSL 仅展示或审计；外部源失败时明确降级或拒绝自动决策，不伪造输入。 |
+| 70/20 市场输入、AI Evidence 与 Copilot Draft | 基本面/趋势输入与带 Provider 身份的受限 AI Evidence 均保留来源和时间语义；仅 `CoreOpportunityV1` 将分数兼容映射为旧 10% 输入。已部署 profile 可将用户目标转换为只读 `StrategySpecDocument` 草案，但 API 会重做领域校验；Fixed DCA/DSL 不受 AI 改写，外部源失败时明确降级或拒绝自动决策。 |
 | 决策存证与历史查询 | 记录策略 ID/版本、通用推荐、输入、结果、无密钥 AI profile、理由/新闻/警告及可选订单回执；旧记录保持可读。 |
 | 最小 scheduler | 到期时幂等生成存证；**从不自动下单**。 |
 | 双桶预算、机会现金与周期约束 | 核心/机会桶受计划预算、可用现金、周期累计上限与 paper-only 边界共同约束。 |
@@ -112,7 +112,7 @@ graph TD
 关键约束：
 
 - **策略运行时无 IO**：策略只接收已解析的上下文，不能直接读数据库、调用网络、读取密钥或下单。
-- **AI 受限**：Qwen 输出解释、风险提示和候选草案；不能越过验证、预算、人工确认或 paper-only 限制。
+- **AI 受限**：已部署 Provider 仅输出解释、风险提示与只读候选草案；草案必须经 DSL 校验、固定样本准入和用户显式保存/激活，不能越过预算、人工确认或 paper-only 限制。
 - **订单安全**：只有操作者显式请求的、到期且已验证的 paper order 才能提交；不支持实盘、自动撤单或 scheduler 自动下单。
 - **审计优先**：记录输入而非只记录结论；新记录保存策略 ID、版本与通用推荐快照，旧记录保持可读。
 
@@ -189,7 +189,7 @@ curl http://127.0.0.1:8080/ready
 5. **统一历史评估**：已完成；`strategy-evaluation` 直接调用同一 DSL 解释器，全部白名单技术指标仅使用决策日及此前原始证据，并固定在下一交易日成交。
 6. **策略存储、Studio 与准入**：已完成不可变版本存储、受控创建/验证、当前数据模拟和计划激活。DSL 版本激活前必须在固定样本中与 Fixed DCA 对照 XIRR、期末净值、回撤、波动、Sortino、现金使用率和滚动窗口，并通过证据完整性、预算/核心桶安全门槛；结果不构成收益承诺。
 7. **运行可观测性与前端联调**：已完成；Web 通过 `/health`、`/ready`、`/runtime-status` 区分 API、SQLite、Qwen、OpenD 与 scheduler 状态，并使用 React Query 管理服务端数据缓存。
-8. **AI Evidence Registry 与 Copilot**：已完成 Qwen 的通用、无密钥 Profile Registry；用户只能选择服务器已部署的 profile，密钥仅留在服务端环境或 secret manager。后续 Copilot 只能生成候选策略草案，仍须经确定性校验、回测和人工审阅，且永不获得下单权限。
+8. **AI Evidence Registry 与 Copilot Draft**：已完成 Qwen 的通用、无密钥 Profile Registry 与只读 DSL 草案接口；用户只能选择服务器已部署的 profile，密钥仅留在服务端环境或 secret manager。草案仍须经确定性校验、回测、人工保存与激活，且永不获得下单权限；后续才考虑 Studio 内的草案交互体验。
 
 详见 [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md)。
 

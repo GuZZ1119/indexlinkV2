@@ -37,6 +37,7 @@
 //! ```
 
 mod client;
+mod copilot;
 mod error;
 mod mock;
 pub mod news;
@@ -44,6 +45,9 @@ mod provider;
 mod sentiment;
 
 pub use client::QwenClient;
+pub use copilot::{
+    AiCopilotDraft, AiCopilotDraftError, AiCopilotDraftRequest, AiCopilotEvidenceReference,
+};
 pub use error::AiClientError;
 pub use mock::MockAiProvider;
 pub use news::{

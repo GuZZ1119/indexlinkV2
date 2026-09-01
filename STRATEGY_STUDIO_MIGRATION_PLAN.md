@@ -1,6 +1,6 @@
 # IndexLink 策略工作台迁移计划 / Strategy Studio Migration Plan
 
-> 状态：PR 1–6、PR 7a–7d 与不可变技术夹具 Push 1–3 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入与计划激活已接入统一 Runtime；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验。准入现在按策略实际引用的白名单指标构造截止日 `as_of` 证据，并以 t+1 首个交易日成交，和 Fixed DCA 在相同现金流与成本下公平对照。
+> 状态：PR 1–6、PR 7a–7d、PR 8a–8b Draft 与不可变技术夹具 Push 1–3 均已完成：不可变版本存储、策略校验/保存、Strategy Studio、当前数据模拟、固定样本准入、计划激活、AI Evidence Registry 与只读 Copilot Draft 已接入；`technical-v1` 已对日线指数代理与 VIX 原始快照执行哈希、时间序列与离线完整性校验。准入现在按策略实际引用的白名单指标构造截止日 `as_of` 证据，并以 t+1 首个交易日成交，和 Fixed DCA 在相同现金流与成本下公平对照。
 > Status: PRs 1–6, PRs 7a–7d, and immutable-technical-fixture Pushes 1–3 are complete: immutable version storage, policy validation/saving, Strategy Studio, current-data simulation, fixed-fixture admission, and plan activation use the unified runtime. `technical-v1` validates daily index-proxy and VIX snapshots for hashes, time ordering, and offline integrity. Admission now builds `as_of` evidence for the allow-listed indicators actually referenced by a policy, executes at the first t+1 trading day, and compares fairly with Fixed DCA under matched cash flows and costs.
 
 ## 1. 新定位 / New Positioning
@@ -33,7 +33,7 @@ Create Strategy → Validate → Backtest → Review → Save Version → Activa
 2. **确定性运行时优先。** 相同的策略版本、完整上下文和执行时点必须产生相同推荐；策略运行时不得发起网络请求、读取环境变量或直接下单。
 3. **策略与基础设施解耦。** API、scheduler、broker、SQLite 和 OpenD 不应理解 CAPE、ERP、RSI、VIX、70/20/10 或 `TacticalDelay` 的内部含义。
 4. **固定 DCA 是公平基准。** `FixedDcaPolicy` 是后续新计划的默认候选，并是所有策略研究的匹配对照；已有计划不会被静默改变。
-5. **AI 不是交易授权者。** 通用 AI Evidence 仅生成解释、风险提示和变化摘要；未来 Copilot 才能生成受限策略候选。它们都不能改变已验证策略逻辑，不能绕过金额/环境/人工确认边界，也不能直接发单。
+5. **AI 不是交易授权者。** 通用 AI Evidence 仅生成解释、风险提示和变化摘要；Copilot Draft 只能生成受限且只读的策略候选。它们都不能改变已验证策略逻辑，不能绕过金额/环境/人工确认边界，也不能直接发单。
 6. **限定表达能力。** 自定义策略仅允许受限 DSL/AST、白名单指标和白名单动作；不执行用户代码，不支持任意脚本、实盘自动交易或云端多用户同步。
 
 ## 3. 目标领域边界 / Target Domain Boundaries
@@ -188,10 +188,15 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 - 密钥、endpoint、账户和 secret-manager 引用永不进入 profile、HTTP 列表、日志或审计快照。`GET /ai/providers` 仅公开安全元数据；`POST /market-sentiment/preview` 只接受已部署 profile。
 - `CoreOpportunityV1` 保持旧 10% 情绪输入的兼容适配；Fixed DCA 和 DSL Runtime 只展示/审计 AI Evidence，不受 AI 改写推荐。
 
-### PR 8b — Restricted Strategy Copilot / Restricted Strategy Copilot（后续 / Next）
+### PR 8b — Restricted Strategy Copilot Draft / Restricted Strategy Copilot Draft（已完成 / Complete）
 
-- AI 仅根据受限 schema 生成“候选策略草案”、解释与警告，不直接保存、激活或下单。
-- 候选必须经确定性 validator、固定样本准入回测和用户审阅后才能保存。
+- `POST /strategies/copilot-draft` 只接收已部署且声明 draft capability 的 profile、`dsl_` 策略引用和有界目标；模型原始 JSON 必须重建为 `StrategySpecDocument`，再走完整领域校验。
+- 响应只包含规范化文档、简短解释、风险提示与从服务端封闭列表中选择的证据引用。未知 profile、非 DSL 引用、无能力 profile、非法文档、版本不一致或伪造证据都安全拒绝。
+- Draft 不写 SQLite、不创建 decision record、不进行准入、不保存、不激活、不下单。用户仍须明确执行 validate → admission → save → activate。
+
+### PR 8c — Copilot Studio Interaction / Copilot Studio Interaction（后续 / Next）
+
+- 将只读 Draft 接到 Studio 表单，以人工编辑、校验、固定样本准入、保存和激活为唯一后续动作；不会提供自由代码编辑或自动保存。
 
 ## 7. 验收门槛 / Acceptance Gates
 
@@ -203,6 +208,6 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 
 ## 8. 当前结论 / Current Decision
 
-策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、runtime-backed 历史候选、不可变版本存储、Studio、全指标固定样本准入和 AI Evidence Registry 均已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL 候选升级为默认生产策略。下一项可执行工作是 **PR 8b：Restricted Strategy Copilot**，或扩展更长、更广的版本化历史夹具。
+策略契约、Legacy 包装、Fixed DCA、统一 resolver、最小策略版本审计、受限 DSL 定义/校验、runtime-backed 历史候选、不可变版本存储、Studio、全指标固定样本准入、AI Evidence Registry 与只读 Copilot Draft 均已建立；不继续以 C5/C6/C7 方式搜索 70/20/10 权重，也不把 C1–C4 或 DSL 候选升级为默认生产策略。下一项可执行工作是 **PR 8c：Copilot Studio Interaction**，或扩展更长、更广的版本化历史夹具。
 
-With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is **PR 8b: Restricted Strategy Copilot**, or a longer and broader versioned historical fixture.
+With this foundation in place, no further C5/C6/C7 weight search will be promoted to production. The next executable work item is **PR 8c: Copilot Studio Interaction**, or a longer and broader versioned historical fixture.

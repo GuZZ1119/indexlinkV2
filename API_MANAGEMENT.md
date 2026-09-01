@@ -137,6 +137,23 @@
 
 Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应会返回 `valid`、可读校验错误或规范化文档。校验通过后才可 `POST /strategies` 保存为不可变版本。线上 Runtime 支持收盘价、SMA、EMA、RSI、回撤与 VIX；每次运行保存 `as_of`、本机 OpenD 日线/Cboe VIX 来源及所用窗口。没有自由代码、任意脚本或核心桶否决。
 
+#### `POST /strategies/copilot-draft`
+
+读取一个用户目标并生成**候选**受限 DSL 文档；它不是策略保存、策略激活、回测、审计或下单入口。请求只接受已部署且在 `GET /ai/providers` 中声明 `restricted_policy_drafts: true` 的 profile。当前 Qwen 的 `qwen-default` profile 支持此能力；未来 OpenAI-compatible provider 必须由服务端显式部署后才可被选择。
+
+```json
+{
+  "profile_id": "qwen-default",
+  "policy_id": "dsl_copilot_rsi_guard",
+  "policy_version": 1,
+  "objective": "Only increase the opportunity bucket when RSI is oversold."
+}
+```
+
+服务端将模型原始 JSON 重新解析为 `StrategySpecDocument` 并通过既有领域构造器校验；模型输出的 policy ID/version 必须与请求完全一致，且只能使用 Close、SMA、EMA、RSI、Drawdown、VIX 与白名单机会桶动作。响应仅包含规范化 `document`、简短 `explanation`、最多五条 `warnings`、无密钥 `provider` 和从服务端封闭列表中选出的 `evidence` 引用。未知 profile、非 `dsl_` ID、无能力 profile 返回安全 `400`；模型返回非法 DSL、版本不一致或伪造证据引用时返回安全 `503`。
+
+该接口绝不会写 SQLite、创建 decision record、执行固定样本准入、绑定计划、激活策略或提交 paper order。用户仍必须将返回文档提交给 `POST /strategies/validate`，通过 admission，并显式保存/激活。
+
 #### `POST /strategies/:policy_id/:policy_version/simulate`
 
 以一个计划标的的当前只读市场数据模拟已保存策略，返回截至日期、首条命中规则、机会桶倍率及指标证据；不写入审计、不提交订单。Studio 用它解释“当前为何命中/未命中”。
@@ -150,7 +167,7 @@ Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应
 - `eligible` 与安全的拒绝原因；
 - 每个已覆盖标的在**相同外部现金流、成本、决策/成交时点**下的策略与 `Fixed DCA` 对照：期末净值、最大回撤、年化波动率与现金使用率。
 
-当前不可变 `calibration-v2` 夹具只保存 RSI(14) 与 VIX 的因果历史证据。因此依赖收盘价、SMA、EMA 或回撤的版本仍可保存和当前数据模拟，但会明确拒绝激活，直到补入同样版本化的历史证据；服务端不会以合成输入伪造回测。
+当前不可变 `technical-v1` 已为 Close、SMA、EMA、RSI、Drawdown 与 VIX 提供因果历史证据；策略引用的每个指标都必须在各决策日具有足够预热，否则 admission 明确拒绝激活。服务端不会以合成输入伪造回测。
 
 #### `POST /investment-plans/:id/activate-policy`
 
@@ -353,7 +370,7 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 返回服务器实际部署、可由用户选择的 AI profile 列表。每项只包含 `id`、`provider`、显示名、模型名与无授权能力声明；不会返回 Key、base URL、账户、secret manager 引用或内部错误。当前 production composition root 仅在配置 DashScope Key 时注册 `qwen-default`；未来 OpenAI-compatible provider 也必须由服务器显式注册后才会出现在本列表。
 
-`restricted_policy_drafts` 目前固定为 `false`：本阶段尚无 Copilot 保存接口，AI 不具备创建、激活或下单权限。
+`restricted_policy_drafts: true` 只表示该 profile 可以生成**只读**、受限的 DSL 候选；它不授予保存、激活、准入或下单权限。候选仍须由用户显式执行校验、固定样本准入、保存与激活流程。
 
 ### 阿里云 Qwen Evidence Profile
 

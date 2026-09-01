@@ -1,5 +1,10 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
+use ai_client::{
+    AiClientError, AiCopilotDraft, AiCopilotDraftRequest, AiProvider, AiProviderCapabilities,
+    AiProviderId, AiProviderProfile, AiProviderProfileId, MockAiProvider, NewsItem, NewsSource,
+    NewsSourceError, Sentiment,
+};
 use async_trait::async_trait;
 use axum::{
     body::Body,
@@ -19,6 +24,67 @@ use strategy_dsl::{
 };
 use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
 use tower::ServiceExt;
+
+/// Unused news source retained only because the shared AI registry owns both adapters.
+struct NoopNews;
+
+#[async_trait]
+impl NewsSource for NoopNews {
+    /// Return no news because Copilot-draft tests never invoke the evidence pipeline.
+    async fn fetch(&self) -> Result<Vec<NewsItem>, NewsSourceError> {
+        Ok(Vec::new())
+    }
+}
+
+/// Provider that deliberately cites an unknown reference to verify the API rejects hallucinations.
+struct UntrustedCopilotAi;
+
+#[async_trait]
+impl AiProvider for UntrustedCopilotAi {
+    /// Expose a test-only profile that declares the draft capability.
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::new(
+            AiProviderProfileId::new("untrusted-copilot").unwrap(),
+            AiProviderId::new("test").unwrap(),
+            "Untrusted Copilot".to_owned(),
+            "fixture".to_owned(),
+            AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
+        )
+        .unwrap()
+    }
+
+    /// This route test does not request sentiment.
+    async fn analyze(&self, _prompt: &str) -> Result<Sentiment, AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
+    }
+
+    /// Return a valid-looking document with an untrusted evidence-reference ID.
+    async fn generate_policy_draft(
+        &self,
+        request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        AiCopilotDraft::new(
+            serde_json::json!({
+                "policy_id": request.policy_id(),
+                "policy_version": request.policy_version(),
+                "name": "Untrusted candidate",
+                "rules": [{
+                    "condition": {
+                        "kind": "comparison",
+                        "expression": {"kind": "indicator", "indicator": {"kind": "vix"}},
+                        "operator": "less_than",
+                        "threshold": "30"
+                    },
+                    "action": {"kind": "set_opportunity_multiplier", "multiplier": 1.0}
+                }]
+            }),
+            "This model attempted to cite an unknown source.".to_owned(),
+            Vec::new(),
+            vec!["invented_source".to_owned()],
+        )
+        .map_err(|_| AiClientError::ParseFailure)
+    }
+}
 
 /// Deterministic automatic data source covering the online DSL RSI(14)/VIX profile.
 struct StaticMarketData;
@@ -106,6 +172,118 @@ fn over_budget_strategy() -> StrategySpec {
 async fn response_json(response: axum::response::Response) -> Value {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     serde_json::from_slice(&bytes).unwrap()
+}
+
+/// Verify Copilot returns only one validated read-only document and does not save it.
+#[tokio::test]
+async fn copilot_draft_is_validated_but_never_persisted_or_activated() {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    let app = build_router(
+        ApiState::new(storage, "0.1.0")
+            .with_market_sentiment(Arc::new(NoopNews), Arc::new(MockAiProvider::new())),
+    );
+    let request = serde_json::json!({
+        "profile_id": "mock-default",
+        "policy_id": "dsl_copilot_rsi_guard",
+        "policy_version": 1,
+        "objective": "Only increase the opportunity bucket when RSI is oversold."
+    });
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/strategies/copilot-draft")
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["provider"]["id"], "mock-default");
+    assert_eq!(body["document"]["policy_id"], "dsl_copilot_rsi_guard");
+    assert_eq!(body["document"]["policy_version"], 1);
+    assert_eq!(
+        body["document"]["rules"][0]["action"]["kind"],
+        "set_opportunity_multiplier"
+    );
+    assert!(body["explanation"].as_str().unwrap().contains("bounded"));
+    assert!(body["evidence"]
+        .as_array()
+        .is_some_and(|items| !items.is_empty()));
+
+    let stored = app
+        .oneshot(
+            Request::builder()
+                .uri("/strategies")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stored.status(), StatusCode::OK);
+    assert_eq!(response_json(stored).await, serde_json::json!([]));
+}
+
+/// Verify neither invalid custom policy references nor invented evidence can cross the draft boundary.
+#[tokio::test]
+async fn copilot_draft_rejects_non_dsl_policy_and_invented_evidence() {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    let app = build_router(
+        ApiState::new(storage, "0.1.0")
+            .with_market_sentiment(Arc::new(NoopNews), Arc::new(UntrustedCopilotAi)),
+    );
+
+    let invalid_policy = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/strategies/copilot-draft")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "policy_id": "fixed_dca",
+                        "policy_version": 1,
+                        "objective": "A draft"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invalid_policy.status(), StatusCode::BAD_REQUEST);
+
+    let invented_evidence = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/strategies/copilot-draft?unused=query")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "profile_id": "untrusted-copilot",
+                        "policy_id": "dsl_untrusted_candidate",
+                        "policy_version": 1,
+                        "objective": "A conservative VIX rule"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(invented_evidence.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 /// Verify stored strategy versions are discoverable but not mutable through this API surface.

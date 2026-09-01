@@ -16,7 +16,7 @@
 
 IndexLink V2 is a **transparent, auditable, extensible quantitative DCA strategy studio and paper-trading execution platform** for long-term investors. It helps students and working professionals with limited budgets preserve a traceable answer to “why was this suggested, was it executed, and what actually happened?” rather than presenting opaque judgement as investment advice.
 
-The current release is a demonstrable V2 MVP. It runs locally with SQLite or on Alibaba Cloud ECS, creates investment plans, configures and activates versioned policies, retrieves market inputs, produces bounded Qwen explanations, stores decision evidence, reads a paper account, and submits a paper order to MockBroker or a local Futu/Moomoo OpenD **paper account** only after an explicit operator request. Strategy Studio, the unified policy runtime, fixed-sample admission, and Web runtime-status hints are integrated; the system remains a single-user, paper-only demonstration.
+The current release is a demonstrable V2 MVP. It runs locally with SQLite or on Alibaba Cloud ECS, creates investment plans, configures and activates versioned policies, retrieves market inputs, produces bounded Qwen explanations, and lets a deployed AI profile produce a **read-only** DSL candidate; it then stores decision evidence, reads a paper account, and submits a paper order to MockBroker or a local Futu/Moomoo OpenD **paper account** only after an explicit operator request. Strategy Studio, the unified policy runtime, fixed-sample admission, and Web runtime-status hints are integrated; the system remains a single-user, paper-only demonstration.
 
 > **No outperformance promise.** IndexLink does not predict markets, determine intrinsic value, or guarantee returns. Fixed DCA remains the required fair benchmark; every policy must be validated under matched cash flows, costs, data, and execution timing.
 
@@ -69,7 +69,7 @@ See [Strategy Calibration Baseline V1](./STRATEGY_CALIBRATION_BASELINE_V1.md) fo
 | Implementation | Detail and boundary |
 | :--- | :--- |
 | Plans, schedule rules, and local SQLite | Single-user local persistence; existing plans retain their established behaviour and compatible reads. |
-| 70/20 market inputs and AI Evidence | Fundamental/trend inputs and bounded AI Evidence with a provider identity retain source and time semantics. Only `CoreOpportunityV1` maps its score into the legacy 10% input; Fixed DCA/DSL only display or audit it. Source failure explicitly degrades or rejects an automatic decision; no input is fabricated. |
+| 70/20 inputs, AI Evidence, and Copilot Draft | Fundamental/trend inputs and bounded AI Evidence with a provider identity retain source and time semantics. Only `CoreOpportunityV1` maps its score into the legacy 10% input. A deployed profile can turn an operator objective into a read-only `StrategySpecDocument` candidate, but the API rebuilds domain validation; Fixed DCA/DSL are never rewritten by AI. Source failure explicitly degrades or rejects an automatic decision. |
 | Decision evidence and history | Retains policy ID/version, generic recommendation, inputs, result, credential-free AI profile, rationale/news/warnings, and an optional order acknowledgement; legacy records remain readable. |
 | Minimum scheduler | Creates idempotent evidence on due dates; **never auto-submits an order**. |
 | Two-bucket budget, opportunity cash, and period constraints | Core/opportunity buckets are jointly constrained by the plan budget, available cash, cumulative period cap, and paper-only boundary. |
@@ -112,7 +112,7 @@ graph TD
 Key constraints:
 
 - **No I/O in policy runtime:** a policy receives resolved context only. It cannot query a database, call the network, read secrets, or place an order.
-- **AI is bounded:** registered AI Evidence profiles produce explanations and warnings only. A later Copilot may propose a restricted policy draft, but it cannot bypass validation, backtesting, budget, operator confirmation, or paper-only restrictions.
+- **AI is bounded:** registered profiles produce explanations, warnings, and read-only restricted policy candidates only. A candidate must pass DSL validation, fixed-sample admission, and explicit user save/activation; it cannot bypass budget, operator confirmation, or paper-only restrictions.
 - **Order safety:** only an explicit, due, validated paper-order request can be submitted. There is no live trading, automated cancellation, or scheduler auto-ordering.
 - **Audit first:** retain inputs rather than conclusions only. New records retain policy ID, version, and a generic recommendation snapshot while old records remain readable.
 
@@ -189,7 +189,7 @@ See [deployment/aliyun/README.md](./deployment/aliyun/README.md) for deployment 
 5. **Unified historical evaluation:** complete; `strategy-evaluation` calls the same DSL interpreter with all allow-listed technical indicators limited to raw evidence available by the decision date and execution on the next trading day.
 6. **Strategy storage, Studio, and admission:** complete; immutable SQLite version storage, controlled creation/validation, current-data simulation, and plan activation are available. A DSL version must compare XIRR, terminal wealth, drawdown, volatility, Sortino, cash utilisation, and rolling windows against Fixed DCA on a fixed fixture and pass evidence-integrity, budget, and core-bucket safety gates before activation; results are not return promises.
 7. **Runtime observability and Web integration:** complete; the Web app uses `/health`, `/ready`, and `/runtime-status` to distinguish API, SQLite, Qwen, OpenD, and scheduler state, with React Query managing server-data caching.
-8. **AI Evidence Registry and Copilot:** complete for the credential-free Qwen profile registry: users can select only server-deployed profiles while keys remain in server environment or secret management. A later Copilot may generate candidate policy specifications and richer historical evidence, always subject to deterministic validation, backtesting, and human review; it will never receive order authority.
+8. **AI Evidence Registry and Copilot Draft:** complete for the credential-free Qwen profile registry and the read-only DSL-draft endpoint: users can select only server-deployed profiles while keys remain in server environment or secret management. Candidates remain subject to deterministic validation, backtesting, explicit user save/activation, and review; a later Studio draft experience still will never receive order authority.
 
 See [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md) for details.
 

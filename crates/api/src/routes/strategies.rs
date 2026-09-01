@@ -1,5 +1,6 @@
 //! Read-only HTTP routes for persisted restricted DSL strategy versions.
 
+use ai_client::{AiCopilotDraftRequest, AiCopilotEvidenceReference, AiProviderProfile};
 use axum::{
     extract::{rejection::PathRejection, Path, State},
     http::StatusCode,
@@ -9,7 +10,7 @@ use axum::{
 use chrono::{Datelike, NaiveDate};
 use indexlink_storage::StoredStrategySpec;
 use rust_decimal::Decimal;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use strategy_dsl::{
     DslEvidence, StrategySpecDocument, TechnicalClose, TechnicalMarketSnapshot, TechnicalVix,
 };
@@ -65,11 +66,50 @@ struct StrategySimulationRequest {
     symbol: String,
 }
 
+/// Read-only request for one server-generated restricted DSL candidate.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CopilotDraftRequest {
+    /// Optional deployed AI profile ID; unknown or unsupported profiles are rejected safely.
+    profile_id: Option<String>,
+    /// Caller-selected immutable custom policy identifier, which must start with `dsl_`.
+    policy_id: String,
+    /// Caller-selected positive policy version to repeat in the candidate document.
+    policy_version: u32,
+    /// Bounded natural-language goal used only to draft a reviewable opportunity-bucket rule.
+    objective: String,
+}
+
+/// One trustworthy evidence reference selected by the model from the server-supplied closed list.
+#[derive(Debug, Serialize)]
+struct CopilotEvidenceReferenceResponse {
+    /// Stable server-supplied reference identifier.
+    id: String,
+    /// Display-safe explanation of what the reference represents.
+    label: String,
+}
+
+/// Read-only validated Copilot candidate; it is not persisted, activated, or executable.
+#[derive(Debug, Serialize)]
+struct CopilotDraftResponse {
+    /// Credential-free profile that generated the candidate.
+    provider: AiProviderProfile,
+    /// Canonical, domain-validated restricted DSL document.
+    document: StrategySpecDocument,
+    /// Short model explanation, never a trading instruction.
+    explanation: String,
+    /// Bounded risks and limitations accompanying the candidate.
+    warnings: Vec<String>,
+    /// Only references selected from the trusted server-supplied evidence set.
+    evidence: Vec<CopilotEvidenceReferenceResponse>,
+}
+
 /// Build restricted strategy discovery, validation, and immutable-save routes.
 pub(crate) fn router() -> Router<ApiState> {
     Router::new()
         .route("/strategies", get(list_strategies).post(create_strategy))
         .route("/strategies/validate", post(validate_strategy))
+        .route("/strategies/copilot-draft", post(generate_copilot_draft))
         .route(
             "/strategies/:policy_id/:policy_version/simulate",
             post(simulate_strategy),
@@ -79,6 +119,91 @@ pub(crate) fn router() -> Router<ApiState> {
             get(strategy_admission),
         )
         .route("/strategies/:policy_id/:policy_version", get(get_strategy))
+}
+
+/// Generate one validated, read-only restricted DSL candidate without storage or execution.
+async fn generate_copilot_draft(
+    State(state): State<ApiState>,
+    Json(request): Json<CopilotDraftRequest>,
+) -> Result<Json<CopilotDraftResponse>, ApiError> {
+    let policy_id = PolicyId::new(request.policy_id.clone()).map_err(|_| ApiError::BadRequest)?;
+    let policy_version =
+        PolicyVersion::new(request.policy_version).map_err(|_| ApiError::BadRequest)?;
+    if !policy_id.as_str().starts_with("dsl_") {
+        return Err(ApiError::BadRequest);
+    }
+    let evidence = copilot_evidence_references(&request.objective)?;
+    let provider_request = AiCopilotDraftRequest::new(
+        policy_id.as_str().to_owned(),
+        policy_version.value(),
+        request.objective,
+        evidence.clone(),
+    )
+    .map_err(|_| ApiError::BadRequest)?;
+    let (provider, draft) = state
+        .ai_policy_draft(request.profile_id.as_deref(), &provider_request)
+        .await?;
+
+    let document = serde_json::from_value::<StrategySpecDocument>(draft.document().clone())
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+    if document.policy_id != provider_request.policy_id()
+        || document.policy_version != provider_request.policy_version()
+    {
+        return Err(ApiError::ServiceUnavailable);
+    }
+    let strategy = document
+        .into_strategy_spec()
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+    let document = StrategySpecDocument::from_strategy_spec(&strategy);
+    let selected_evidence = draft
+        .evidence_reference_ids()
+        .iter()
+        .map(|id| {
+            evidence
+                .iter()
+                .find(|reference| reference.id() == id)
+                .map(|reference| CopilotEvidenceReferenceResponse {
+                    id: reference.id().to_owned(),
+                    label: reference.label().to_owned(),
+                })
+                .ok_or(ApiError::ServiceUnavailable)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Json(CopilotDraftResponse {
+        provider,
+        document,
+        explanation: draft.explanation().to_owned(),
+        warnings: draft.warnings().to_vec(),
+        evidence: selected_evidence,
+    }))
+}
+
+/// Build the closed, provider-visible evidence list for one draft request.
+fn copilot_evidence_references(
+    objective: &str,
+) -> Result<Vec<AiCopilotEvidenceReference>, ApiError> {
+    [
+        (
+            "operator_objective",
+            format!("Operator objective: {objective}"),
+        ),
+        (
+            "dsl_allowlist_v1",
+            "Server-enforced DSL allowlist: indicators and opportunity-bucket actions only."
+                .to_owned(),
+        ),
+        (
+            "review_workflow_v1",
+            "Drafts require deterministic validation, fixed-sample admission, and explicit user save/activation."
+                .to_owned(),
+        ),
+    ]
+    .into_iter()
+    .map(|(id, label)| {
+        AiCopilotEvidenceReference::new(id.to_owned(), label).map_err(|_| ApiError::BadRequest)
+    })
+    .collect()
 }
 
 /// Simulate one stored version on current provider data without persisting or submitting anything.

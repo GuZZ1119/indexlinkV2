@@ -7,7 +7,10 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::{AiClientError, AiConfig, AiProvider, AiProviderProfile, Sentiment, SentimentAnalysis};
+use crate::{
+    AiClientError, AiConfig, AiCopilotDraft, AiCopilotDraftRequest, AiProvider, AiProviderProfile,
+    Sentiment, SentimentAnalysis,
+};
 
 // ─── System Prompt ───────────────────────────────────────────────────────────
 
@@ -38,6 +41,42 @@ IMPORTANT: Be conservative. Unless there is a clear directional signal, output a
 value close to 0. The rationale must only summarize the supplied headlines, not \
 invent facts, forecasts, URLs, or sources. Return at most five warnings. Do NOT \
 include any text other than the JSON object.";
+
+/// System prompt for a read-only, schema-bounded DSL candidate.
+///
+/// The API will reject this output unless it recreates a valid `StrategySpecDocument`.
+/// This prompt cannot grant persistence, activation, or order authority.
+const COPILOT_DRAFT_SYSTEM_PROMPT: &str = "\
+You draft a restricted investment-policy candidate for a review workflow. Output ONLY one JSON \
+object with exactly these fields: document, explanation, warnings, evidence_reference_ids.
+
+The document MUST be a StrategySpecDocument and MUST repeat the policy_id and policy_version \
+given by the user exactly. It may contain only a non-empty name and 1-16 ordered rules.
+
+Allowed indicators only:
+- close_price
+- simple_moving_average with lookback_days 2..=366
+- exponential_moving_average with lookback_days 2..=366
+- relative_strength_index with lookback_days 2..=366
+- drawdown with lookback_days 2..=366
+- vix
+
+Allowed conditions only: comparison, all, any. Allowed comparison operators only: \
+greater_than, greater_than_or_equal, less_than, less_than_or_equal. Allowed value expressions \
+only: constant, indicator, add, subtract, multiply, divide.
+
+Allowed actions only:
+- set_opportunity_multiplier with multiplier in [0.0, 1.5]
+- skip_opportunity
+- set_opportunity_fixed_amount with a non-negative decimal string
+
+Never propose code, scripts, network calls, database actions, core-bucket actions, execution, \
+activation, saving, or order placement. This candidate can affect the opportunity bucket only.
+Use only evidence_reference_ids supplied by the user; never invent URLs, facts, market data, \
+or citations. Return at most five concise warnings. The explanation must state that validation, \
+fixed-sample admission, and user confirmation remain required.";
+
+const COPILOT_DRAFT_MIN_TOKENS: u32 = 768;
 
 // ─── Request / Response Types ────────────────────────────────────────────────
 
@@ -125,13 +164,24 @@ impl QwenClient {
     }
 
     /// 构造请求体。
+    #[cfg(test)]
     fn build_request(&self, prompt: &str) -> ChatRequest {
+        self.build_request_with_system(SYSTEM_PROMPT, prompt, self.config.max_tokens)
+    }
+
+    /// Construct a request with a bounded system contract for one provider capability.
+    fn build_request_with_system(
+        &self,
+        system_prompt: &str,
+        prompt: &str,
+        max_tokens: u32,
+    ) -> ChatRequest {
         ChatRequest {
             model: self.config.model.clone(),
             messages: vec![
                 Message {
                     role: "system",
-                    content: SYSTEM_PROMPT.to_owned(),
+                    content: system_prompt.to_owned(),
                 },
                 Message {
                     role: "user",
@@ -139,7 +189,7 @@ impl QwenClient {
                 },
             ],
             temperature: self.config.temperature,
-            max_tokens: self.config.max_tokens,
+            max_tokens,
         }
     }
 
@@ -156,12 +206,17 @@ impl QwenClient {
         }
     }
 
-    /// 执行 HTTP 请求并解析响应。
-    async fn call_api(&self, prompt: &str) -> Result<SentimentAnalysis, AiClientError> {
+    /// Execute one bounded chat-completion request and return model text only.
+    async fn call_completion(
+        &self,
+        system_prompt: &str,
+        prompt: &str,
+        max_tokens: u32,
+    ) -> Result<String, AiClientError> {
         let url = self.chat_url();
-        let body = self.build_request(prompt);
+        let body = self.build_request_with_system(system_prompt, prompt, max_tokens);
 
-        debug!(url = %url, model = %self.config.model, "sending AI sentiment request");
+        debug!(url = %url, model = %self.config.model, "sending bounded AI request");
 
         let response = self
             .http
@@ -216,11 +271,39 @@ impl QwenClient {
                 AiClientError::EmptyResponse
             })?;
 
-        debug!(content = %content, "received AI model output");
+        debug!(
+            content_len = content.len(),
+            "received bounded AI model output"
+        );
 
-        let sentiment = parse_sentiment_from_llm_output(content)?;
+        Ok(content.to_owned())
+    }
+
+    /// Execute one sentiment-only completion and validate the structured result.
+    async fn call_api(&self, prompt: &str) -> Result<SentimentAnalysis, AiClientError> {
+        let content = self
+            .call_completion(SYSTEM_PROMPT, prompt, self.config.max_tokens)
+            .await?;
+
+        let sentiment = parse_sentiment_from_llm_output(&content)?;
 
         Ok(sentiment)
+    }
+
+    /// Generate one untrusted, read-only restricted policy DTO through Qwen.
+    async fn call_policy_draft(
+        &self,
+        request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        let prompt = format_copilot_draft_prompt(request);
+        let content = self
+            .call_completion(
+                COPILOT_DRAFT_SYSTEM_PROMPT,
+                &prompt,
+                self.config.max_tokens.max(COPILOT_DRAFT_MIN_TOKENS),
+            )
+            .await?;
+        parse_policy_draft_from_llm_output(&content)
     }
 }
 
@@ -259,6 +342,52 @@ fn sentiment_analysis_from_response(
     .map_err(|_| AiClientError::ParseFailure)
 }
 
+/// Deserialize a bounded Copilot response without accepting surrounding model prose.
+fn parse_policy_draft_from_llm_output(content: &str) -> Result<AiCopilotDraft, AiClientError> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct CopilotDraftResponse {
+        document: serde_json::Value,
+        explanation: String,
+        #[serde(default)]
+        warnings: Vec<String>,
+        evidence_reference_ids: Vec<String>,
+    }
+
+    let parse = |json: &str| -> Result<AiCopilotDraft, AiClientError> {
+        let response = serde_json::from_str::<CopilotDraftResponse>(json)
+            .map_err(|_| AiClientError::ParseFailure)?;
+        AiCopilotDraft::new(
+            response.document,
+            response.explanation,
+            response.warnings,
+            response.evidence_reference_ids,
+        )
+        .map_err(|_| AiClientError::ParseFailure)
+    };
+
+    parse(content).or_else(|_| {
+        extract_json_object(content).map_or(Err(AiClientError::ParseFailure), |json| parse(&json))
+    })
+}
+
+/// Format the only model-visible prompt for a restricted strategy candidate.
+fn format_copilot_draft_prompt(request: &AiCopilotDraftRequest) -> String {
+    let evidence = request
+        .evidence()
+        .iter()
+        .map(|reference| format!("- {}: {}", reference.id(), reference.label()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "policy_id: {}\npolicy_version: {}\noperator_objective: {}\n\nAllowed evidence references:\n{}",
+        request.policy_id(),
+        request.policy_version(),
+        request.objective(),
+        evidence,
+    )
+}
+
 /// 从文本中提取第一个 `{ ... }` JSON 对象（平衡括号匹配）。
 fn extract_json_object(text: &str) -> Option<String> {
     let start = text.find('{')?;
@@ -294,6 +423,13 @@ impl AiProvider for QwenClient {
     ) -> Result<SentimentAnalysis, AiClientError> {
         self.call_api(prompt).await
     }
+
+    async fn generate_policy_draft(
+        &self,
+        request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        self.call_policy_draft(request).await
+    }
 }
 
 #[cfg(test)]
@@ -317,6 +453,36 @@ mod tests {
         assert_eq!(req.messages[1].content, "沪深300指数今日大幅上涨");
         assert_eq!(req.temperature, 0.0);
         assert_eq!(req.max_tokens, 256);
+    }
+
+    #[test]
+    fn copilot_prompt_only_exposes_closed_evidence_references() {
+        let request = AiCopilotDraftRequest::new(
+            "dsl_copilot_guard".to_owned(),
+            1,
+            "Use a conservative RSI guard".to_owned(),
+            vec![crate::AiCopilotEvidenceReference::new(
+                "dsl_allowlist_v1".to_owned(),
+                "Server-enforced indicator and action allowlist.".to_owned(),
+            )
+            .unwrap()],
+        )
+        .unwrap();
+
+        let prompt = format_copilot_draft_prompt(&request);
+        assert!(prompt.contains("dsl_copilot_guard"));
+        assert!(prompt.contains("dsl_allowlist_v1"));
+        assert!(!prompt.contains("api_key"));
+    }
+
+    #[test]
+    fn parses_a_bounded_policy_draft_json() {
+        let parsed = parse_policy_draft_from_llm_output(
+            r#"{"document":{"policy_id":"dsl_copilot_guard","policy_version":1,"name":"RSI guard","rules":[]},"explanation":"Validate and backtest before saving.","warnings":[],"evidence_reference_ids":["dsl_allowlist_v1"]}"#,
+        )
+        .unwrap();
+        assert_eq!(parsed.document()["policy_id"], "dsl_copilot_guard");
+        assert_eq!(parsed.evidence_reference_ids(), ["dsl_allowlist_v1"]);
     }
 
     #[test]

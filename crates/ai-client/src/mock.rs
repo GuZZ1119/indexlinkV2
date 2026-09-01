@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use tracing::debug;
 
 use crate::{
-    AiClientError, AiProvider, AiProviderCapabilities, AiProviderId, AiProviderProfile,
-    AiProviderProfileId, Sentiment,
+    AiClientError, AiCopilotDraft, AiCopilotDraftRequest, AiProvider, AiProviderCapabilities,
+    AiProviderId, AiProviderProfile, AiProviderProfileId, Sentiment,
 };
 
 /// 开发期 mock，基于关键词匹配返回情绪值。
@@ -117,7 +117,7 @@ impl AiProvider for MockAiProvider {
             AiProviderId::new("mock").expect("static provider ID is valid"),
             "Mock AI".to_owned(),
             "keyword-matcher".to_owned(),
-            AiProviderCapabilities::market_evidence_only(),
+            AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
         )
         .expect("static mock profile is valid")
     }
@@ -126,6 +126,45 @@ impl AiProvider for MockAiProvider {
         let raw = Self::match_keywords(prompt).unwrap_or(self.default_sentiment);
         debug!(raw, prompt, "MockAiProvider returned sentiment");
         Ok(Sentiment::new_clamped(raw))
+    }
+
+    async fn generate_policy_draft(
+        &self,
+        request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        AiCopilotDraft::new(
+            serde_json::json!({
+                "policy_id": request.policy_id(),
+                "policy_version": request.policy_version(),
+                "name": "Mock RSI opportunity guard",
+                "rules": [{
+                    "condition": {
+                        "kind": "comparison",
+                        "expression": {
+                            "kind": "indicator",
+                            "indicator": {
+                                "kind": "relative_strength_index",
+                                "lookback_days": 14
+                            }
+                        },
+                        "operator": "less_than",
+                        "threshold": "35"
+                    },
+                    "action": {
+                        "kind": "set_opportunity_multiplier",
+                        "multiplier": 1.2
+                    }
+                }]
+            }),
+            "Mock provider proposes a bounded RSI opportunity rule.".to_owned(),
+            vec!["Validate and backtest before saving this draft.".to_owned()],
+            request
+                .evidence()
+                .iter()
+                .map(|evidence| evidence.id().to_owned())
+                .collect(),
+        )
+        .map_err(|_| AiClientError::ParseFailure)
     }
 }
 

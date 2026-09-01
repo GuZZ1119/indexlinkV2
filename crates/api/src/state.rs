@@ -4,8 +4,8 @@ use std::{
 };
 
 use ai_client::{
-    fetch_market_sentiment_report, AiEvidence, AiProvider, AiProviderProfile,
-    AiProviderProfileError, AiProviderProfileId, AiProviderRegistry, NewsSource,
+    fetch_market_sentiment_report, AiCopilotDraft, AiCopilotDraftRequest, AiEvidence, AiProvider,
+    AiProviderProfile, AiProviderProfileError, AiProviderProfileId, AiProviderRegistry, NewsSource,
 };
 use async_trait::async_trait;
 use broker::{
@@ -923,6 +923,48 @@ impl ApiState {
         .await
         .inspect_err(|error| tracing::error!(%error, profile_id = %profile_id, "AI evidence pipeline failed"))
         .map_err(Into::into)
+    }
+
+    /// Generate an untrusted, read-only restricted policy candidate through a deployed profile.
+    ///
+    /// The selected profile must declare restricted-draft capability. This method only crosses
+    /// the provider boundary: it does not validate a DSL document, save it, activate it, create
+    /// a decision record, or submit an order.
+    pub(crate) async fn ai_policy_draft(
+        &self,
+        requested_profile: Option<&str>,
+        request: &AiCopilotDraftRequest,
+    ) -> Result<(AiProviderProfile, AiCopilotDraft), ApiError> {
+        let dependencies = self
+            .market_sentiment
+            .as_ref()
+            .ok_or(ApiError::ServiceUnavailable)?;
+        let profile_id = match requested_profile {
+            Some(value) => {
+                AiProviderProfileId::new(value.to_owned()).map_err(|_| ApiError::BadRequest)?
+            }
+            None => dependencies.default_profile_id.clone(),
+        };
+        let profile = dependencies
+            .registry
+            .get(&profile_id)
+            .cloned()
+            .ok_or(ApiError::BadRequest)?;
+        if !profile.capabilities().restricted_policy_drafts {
+            return Err(ApiError::BadRequest);
+        }
+        let provider = dependencies
+            .providers
+            .get(&profile_id)
+            .ok_or(ApiError::BadRequest)?;
+        let draft = provider
+            .generate_policy_draft(request)
+            .await
+            .inspect_err(|error| {
+                tracing::error!(%error, profile_id = %profile_id, "AI Copilot draft generation failed")
+            })
+            .map_err(|_| ApiError::ServiceUnavailable)?;
+        Ok((profile, draft))
     }
 
     /// 拉取一份自动市场信号输入，并在边界保留内部失败日志。
