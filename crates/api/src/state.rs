@@ -912,6 +912,13 @@ impl ApiState {
             }
             None => dependencies.default_profile_id.clone(),
         };
+        let profile = dependencies
+            .registry
+            .get(&profile_id)
+            .ok_or(ApiError::BadRequest)?;
+        if !profile.capabilities().market_evidence {
+            return Err(ApiError::BadRequest);
+        }
         let provider = dependencies
             .providers
             .get(&profile_id)

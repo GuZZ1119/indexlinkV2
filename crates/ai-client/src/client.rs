@@ -127,26 +127,13 @@ struct SentimentResponse {
 /// 返回给调用方。ai-client 不自行降级——由上层 decision engine
 /// 按 70/20/10 → 90/10/0 策略统一处理。
 ///
-/// # 示例
-///
-/// ```rust,no_run
-/// use ai_client::{AiConfig, AiProvider, QwenClient, Sentiment};
-///
-/// # async fn example() {
-/// let config = AiConfig::default();
-/// let client = QwenClient::new(config);
-/// match client
-///     .analyze("央行宣布降准50bp，释放长期流动性约1万亿元")
-///     .await
-/// {
-///     Ok(sentiment) => { /* engine 使用 70/20/10 */ }
-///     Err(err) => { /* engine 降级到 90/10/0 */ }
-/// }
-/// # }
-/// ```
+/// 使用时以 [`Self::new`] 或 [`Self::with_profile`] 构造 client，再通过
+/// [`AiProvider::analyze_with_evidence`] 请求有界、可审计的情绪结果；调用失败由上层
+/// 决策层按既有降级策略处理。
 pub struct QwenClient {
     http: reqwest::Client,
     config: AiConfig,
+    profile: AiProviderProfile,
 }
 
 impl QwenClient {
@@ -156,11 +143,25 @@ impl QwenClient {
     /// 这遵循「延迟失败」原则——直到实际调用时才报错，便于测试和配置热更新。
     #[must_use]
     pub fn new(config: AiConfig) -> Self {
+        let profile = AiProviderProfile::qwen(config.model.clone());
+        Self::with_profile(config, profile)
+    }
+
+    /// Build an OpenAI-compatible client with server-owned, credential-free profile metadata.
+    ///
+    /// The supplied profile is returned by [`AiProvider::profile`] but never changes the
+    /// protocol, exposes credentials, or grants persistence, activation, or order authority.
+    #[must_use]
+    pub fn with_profile(config: AiConfig, profile: AiProviderProfile) -> Self {
         let http = reqwest::Client::builder()
             .timeout(config.timeout)
             .build()
             .expect("reqwest::Client::builder with standard options must not fail");
-        Self { http, config }
+        Self {
+            http,
+            config,
+            profile,
+        }
     }
 
     /// 构造请求体。
@@ -410,7 +411,7 @@ fn extract_json_object(text: &str) -> Option<String> {
 #[async_trait]
 impl AiProvider for QwenClient {
     fn profile(&self) -> AiProviderProfile {
-        AiProviderProfile::qwen(self.config.model.clone())
+        self.profile.clone()
     }
 
     async fn analyze(&self, prompt: &str) -> Result<Sentiment, AiClientError> {
@@ -483,6 +484,13 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.document()["policy_id"], "dsl_copilot_guard");
         assert_eq!(parsed.evidence_reference_ids(), ["dsl_allowlist_v1"]);
+    }
+
+    #[test]
+    fn policy_draft_parser_accepts_embedded_json_and_rejects_prose_only() {
+        let embedded = "Candidate follows. {\"document\":{\"policy_id\":\"dsl_copilot_guard\",\"policy_version\":1,\"name\":\"RSI guard\",\"rules\":[]},\"explanation\":\"Validate first.\",\"warnings\":[],\"evidence_reference_ids\":[\"dsl_allowlist_v1\"]} End.";
+        assert!(parse_policy_draft_from_llm_output(embedded).is_ok());
+        assert!(parse_policy_draft_from_llm_output("no JSON response").is_err());
     }
 
     #[test]

@@ -6,12 +6,12 @@
 mod config;
 mod shutdown;
 
-use ai_client::{QwenClient, RssNewsSource};
+use ai_client::{AiProvider, QwenClient, RssNewsSource};
 use broker::{
     BrokerClient, BrokerError, OpenDConnectionConfig, OpenDPaperBroker, OpenDPaperSession,
     OpenDSessionError,
 };
-use config::{Config, SchedulerConfig};
+use config::{AiProviderConfiguration, Config, SchedulerConfig};
 use indexlink_api::{build_router_with_cors, ApiState, SchedulerStatusHandle};
 use indexlink_storage::SqliteStorage;
 use market_data::OpenDMarketSignalProvider;
@@ -24,6 +24,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     init_tracing()?;
 
     let config = Config::from_env()?;
+    run(config).await
+}
+
+/// Run the configured HTTP server until the operating-system shutdown signal arrives.
+async fn run(config: Config) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    run_with_shutdown(config, shutdown::signal()).await
+}
+
+/// Run one fully composed server with an injected shutdown future.
+///
+/// Keeping the shutdown trigger injectable makes startup, migration, and graceful-stop
+/// behavior verifiable without installing a process-wide signal handler in tests.
+async fn run_with_shutdown<F>(
+    config: Config,
+    shutdown_signal: F,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
     let storage = SqliteStorage::connect_with_options(
         &config.database_url,
         config.database_max_connections,
@@ -32,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .await?;
     storage.migrate().await?;
     tracing::info!("SQLite migrations applied");
-    let market_sentiment_configured = config.qwen.is_some();
+    let market_sentiment_configured = !config.ai_providers.is_empty();
     let paper_broker_configured = config.opend.is_some();
     let scheduler_status = SchedulerStatusHandle::new(
         config.scheduler.enabled,
@@ -40,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     let state = build_api_state(
         storage,
-        config.qwen,
+        config.ai_providers,
         config.opend,
         scheduler_status.clone(),
         build_opend_paper_broker,
@@ -58,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "indexlink server started"
     );
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown::signal())
+        .with_graceful_shutdown(shutdown_signal)
         .await?;
     tracing::info!("indexlink server stopped");
 
@@ -103,13 +122,13 @@ fn start_automatic_scheduler(
     });
 }
 
-/// Assemble production API state with optional Qwen and OpenD paper dependencies.
+/// Assemble production API state with optional server-deployed AI profiles and OpenD dependencies.
 ///
 /// Without an OpenD configuration, the state keeps its local paper-only mock broker.
 /// A configured OpenD session must initialize successfully before the server starts.
 async fn build_api_state<F, Fut>(
     storage: SqliteStorage,
-    qwen: Option<ai_client::AiConfig>,
+    ai_providers: Vec<AiProviderConfiguration>,
     opend: Option<OpenDConnectionConfig>,
     scheduler_status: SchedulerStatusHandle,
     build_broker: F,
@@ -120,12 +139,30 @@ where
 {
     let state =
         ApiState::new(storage, env!("CARGO_PKG_VERSION")).with_scheduler_status(scheduler_status);
-    let state = match qwen {
-        Some(qwen_config) => state.with_market_sentiment(
-            Arc::new(RssNewsSource::new()),
-            Arc::new(QwenClient::new(qwen_config)),
-        ),
-        None => state,
+    let state = if ai_providers.is_empty() {
+        state
+    } else {
+        let default_profile_id = ai_providers
+            .iter()
+            .find(|provider| provider.is_default)
+            .expect("configuration requires exactly one default AI profile")
+            .profile
+            .id()
+            .clone();
+        let providers = ai_providers
+            .into_iter()
+            .map(|provider| {
+                Arc::new(QwenClient::with_profile(provider.client, provider.profile))
+                    as Arc<dyn AiProvider>
+            })
+            .collect();
+        state
+            .with_ai_evidence_providers(
+                Arc::new(RssNewsSource::new()),
+                providers,
+                default_profile_id,
+            )
+            .expect("configuration pre-validates unique AI profiles")
     };
     match opend {
         Some(config) => {
@@ -178,7 +215,7 @@ fn init_tracing() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 mod tests {
     use std::{env, time::Duration};
 
-    use ai_client::AiConfig;
+    use ai_client::{AiConfig, AiProviderProfile};
     use async_trait::async_trait;
     use axum::{
         body::{to_bytes, Body},
@@ -204,12 +241,82 @@ mod tests {
         SchedulerStatusHandle::new(false, 60)
     }
 
+    /// Verify a full local startup applies migrations and accepts an injected graceful stop.
+    #[tokio::test]
+    async fn run_with_shutdown_starts_and_stops_an_in_memory_server() {
+        let config = Config::from_lookup(|name| match name {
+            "APP_HOST" => Some("127.0.0.1".to_owned()),
+            "APP_PORT" => Some("0".to_owned()),
+            "DATABASE_URL" => Some("sqlite::memory:".to_owned()),
+            "SCHEDULER_ENABLED" => Some("false".to_owned()),
+            _ => None,
+        })
+        .expect("isolated test server configuration should be valid");
+        run_with_shutdown(config, async {}).await.unwrap();
+    }
+
+    /// Verify an enabled scheduler records a successful empty-plan audit tick.
+    #[tokio::test]
+    async fn enabled_scheduler_records_a_successful_tick() {
+        let storage = storage().await;
+        storage.migrate().await.unwrap();
+        let status = SchedulerStatusHandle::new(true, 1);
+        let state = ApiState::new(storage, "test").with_scheduler_status(status.clone());
+        start_automatic_scheduler(
+            state,
+            SchedulerConfig {
+                enabled: true,
+                tick_interval: Duration::from_millis(1),
+            },
+            status.clone(),
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(status.snapshot().last_tick_at.is_some());
+    }
+
+    /// Verify disabled scheduling does not create a background execution task.
+    #[test]
+    fn disabled_scheduler_returns_without_running_work() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let state = ApiState::new(storage().await, "test");
+            start_automatic_scheduler(
+                state,
+                SchedulerConfig {
+                    enabled: false,
+                    tick_interval: Duration::from_secs(1),
+                },
+                SchedulerStatusHandle::new(false, 1),
+            );
+        });
+    }
+
+    /// Build a credential-free configured provider for composition-root tests.
+    fn ai_provider(id: &str, is_default: bool) -> AiProviderConfiguration {
+        AiProviderConfiguration {
+            profile: AiProviderProfile::new(
+                ai_client::AiProviderProfileId::new(id).expect("static profile ID is valid"),
+                ai_client::AiProviderId::new("test-ai").expect("static provider ID is valid"),
+                format!("Test {id}"),
+                "test-model".to_owned(),
+                ai_client::AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
+            )
+            .expect("static profile is valid"),
+            client: AiConfig {
+                api_key: "server-test-secret".to_owned(),
+                model: "test-model".to_owned(),
+                ..Default::default()
+            },
+            is_default,
+        }
+    }
+
     /// Verify the production composition root leaves sentiment unavailable without Qwen config.
     #[tokio::test]
     async fn build_api_state_leaves_market_sentiment_unconfigured_without_qwen() {
         let state = build_api_state(
             storage().await,
-            None,
+            Vec::new(),
             None,
             scheduler_status(),
             build_opend_paper_broker,
@@ -220,25 +327,36 @@ mod tests {
         assert!(format!("{state:?}").contains("market_sentiment: None"));
     }
 
-    /// Verify the production composition root injects Qwen without exposing its API key.
+    /// Verify the production composition root injects configured profiles without exposing keys.
     #[tokio::test]
-    async fn build_api_state_injects_qwen_market_sentiment_when_configured() {
+    async fn build_api_state_injects_multiple_ai_profiles_when_configured() {
         let state = build_api_state(
             storage().await,
-            Some(AiConfig {
-                api_key: "server-test-secret".to_owned(),
-                ..Default::default()
-            }),
+            vec![ai_provider("reviewer", true), ai_provider("copilot", false)],
             None,
             scheduler_status(),
             build_opend_paper_broker,
         )
         .await
-        .expect("Qwen-only composition should be infallible");
+        .expect("configured AI composition should be infallible");
         let debug = format!("{state:?}");
 
         assert!(debug.contains("market_sentiment: Some(MarketSentimentDependencies)"));
         assert!(!debug.contains("server-test-secret"));
+        let response = build_router_with_cors(state, Vec::new())
+            .oneshot(
+                Request::builder()
+                    .uri("/ai/providers")
+                    .body(Body::empty())
+                    .expect("provider-list request should build"),
+            )
+            .await
+            .expect("provider-list route should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        let providers = response_json(response).await;
+        assert_eq!(providers["providers"].as_array().map(Vec::len), Some(2));
+        assert_eq!(providers["providers"][0]["id"], "copilot");
+        assert_eq!(providers["providers"][1]["id"], "reviewer");
     }
 
     /// Broker double used to prove the composition root replaces its default mock.
@@ -337,7 +455,7 @@ mod tests {
     async fn build_api_state_returns_session_error_when_opend_factory_fails() {
         let error = build_api_state(
             storage().await,
-            None,
+            Vec::new(),
             Some(paper_config()),
             scheduler_status(),
             |_| async {
@@ -365,7 +483,7 @@ mod tests {
             .expect("in-memory SQLite migrations should apply");
         let state = build_api_state(
             storage,
-            None,
+            Vec::new(),
             Some(paper_config()),
             scheduler_status(),
             |_| async {
@@ -431,7 +549,7 @@ mod tests {
         let app = build_router_with_cors(
             build_api_state(
                 storage,
-                None,
+                Vec::new(),
                 Some(opend),
                 scheduler_status(),
                 build_opend_paper_broker,

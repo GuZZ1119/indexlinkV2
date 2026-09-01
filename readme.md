@@ -177,9 +177,9 @@ indexlink/
    pnpm --dir apps/web dev
    ```
 
-本地 `.env` 已被 Git 忽略。可选的 `DASHSCOPE_API_KEY` 只用于 Qwen 证据；`OPEND_PROVIDER`、`OPEND_HOST`、`OPEND_PORT` 与 `OPEND_ACCOUNT_ID` 只用于本机 loopback OpenD 模拟账户，均不得提交或写入日志。
+本地 `.env` 已被 Git 忽略。可选的 `DASHSCOPE_API_KEY` 只用于 Qwen 证据；也可在 `AI_PROVIDER_PROFILES` 中声明多个已部署的 OpenAI-compatible profile（清单只引用 `api_key_env` 环境变量名，必须恰有一个 `default`，远程 endpoint 必须 HTTPS）。用户和浏览器只能从已部署 profile 中选择，永远看不到 Key 或 endpoint。`OPEND_PROVIDER`、`OPEND_HOST`、`OPEND_PORT` 与 `OPEND_ACCOUNT_ID` 只用于本机 loopback OpenD 模拟账户，均不得提交或写入日志。
 
-启动后在浏览器访问 Vite 输出的本地地址（通常为 `http://localhost:5173`）。如需使用受限 Copilot，先确认状态栏显示“Qwen 已配置”；没有配置时其余 Studio 流程仍可正常使用。
+启动后在浏览器访问 Vite 输出的本地地址（通常为 `http://localhost:5173`）。如需使用受限 Copilot，先确认状态栏显示“AI 已配置”；没有配置时其余 Studio 流程仍可正常使用。
 
 ### Docker / Alibaba Cloud ECS
 
@@ -202,7 +202,7 @@ curl http://127.0.0.1:8080/ready
 5. **统一历史评估**：已完成；`strategy-evaluation` 直接调用同一 DSL 解释器，全部白名单技术指标仅使用决策日及此前原始证据，并固定在下一交易日成交。
 6. **策略存储、Studio 与准入**：已完成不可变版本存储、受控创建/验证、当前数据模拟和计划激活。DSL 版本激活前必须在固定样本中与 Fixed DCA 对照 XIRR、期末净值、回撤、波动、Sortino、现金使用率和滚动窗口，并通过证据完整性、预算/核心桶安全门槛；结果不构成收益承诺。
 7. **运行可观测性与前端联调**：已完成；Web 通过 `/health`、`/ready`、`/runtime-status` 区分 API、SQLite、Qwen、OpenD 与 scheduler 状态，并使用 React Query 管理服务端数据缓存。
-8. **AI Evidence Registry 与 Copilot Draft**：已完成 Qwen 的通用、无密钥 Profile Registry、只读 DSL 草案接口与 Studio 草案交互；用户只能选择服务器已部署的 profile，密钥仅留在服务端环境或 secret manager。草案只会回填可编辑表单，仍须经确定性校验、回测、人工保存与激活，且永不获得下单权限。
+8. **AI Evidence Registry 与 Copilot Draft**：已完成多 Profile 的 OpenAI-compatible 无密钥 Registry、只读 DSL 草案接口与 Studio 草案交互；Qwen 是默认样本，用户只能选择服务器已部署的 profile，密钥仅留在服务端环境或 secret manager。草案只会回填可编辑表单，仍须经确定性校验、回测、人工保存与激活，且永不获得下单权限。
 
 详见 [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md)。
 

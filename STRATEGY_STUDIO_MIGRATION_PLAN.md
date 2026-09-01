@@ -184,7 +184,7 @@ CAPE、ERP、MA、RSI、VIX、Qwen 情绪和 `TacticalDelay` 是 `CoreOpportunit
 
 ### PR 8a — AI Evidence Registry / AI Evidence Registry（已完成 / Complete）
 
-- `AiProviderId`、`AiProviderProfileId`、能力声明和 credential-free Provider Registry 将 Qwen 的通用输出从策略 Registry 中解耦。生产环境先注册 `qwen-default`；后续 OpenAI-compatible provider 必须由服务端显式部署、注册后才可被用户选择。
+- `AiProviderId`、`AiProviderProfileId`、能力声明和 credential-free Provider Registry 将 Qwen 的通用输出从策略 Registry 中解耦。生产环境兼容遗留 `qwen-default`，并可通过 `AI_PROVIDER_PROFILES` 显式部署多个 OpenAI-compatible profile；注册后才可被用户选择。
 - 密钥、endpoint、账户和 secret-manager 引用永不进入 profile、HTTP 列表、日志或审计快照。`GET /ai/providers` 仅公开安全元数据；`POST /market-sentiment/preview` 只接受已部署 profile。
 - `CoreOpportunityV1` 保持旧 10% 情绪输入的兼容适配；Fixed DCA 和 DSL Runtime 只展示/审计 AI Evidence，不受 AI 改写推荐。
 

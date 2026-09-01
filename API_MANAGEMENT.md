@@ -139,7 +139,7 @@ Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应
 
 #### `POST /strategies/copilot-draft`
 
-读取一个用户目标并生成**候选**受限 DSL 文档；它不是策略保存、策略激活、回测、审计或下单入口。请求只接受已部署且在 `GET /ai/providers` 中声明 `restricted_policy_drafts: true` 的 profile。当前 Qwen 的 `qwen-default` profile 支持此能力；未来 OpenAI-compatible provider 必须由服务端显式部署后才可被选择。
+读取一个用户目标并生成**候选**受限 DSL 文档；它不是策略保存、策略激活、回测、审计或下单入口。请求只接受已部署且在 `GET /ai/providers` 中声明 `restricted_policy_drafts: true` 的 profile。`qwen-default` 是示例 profile；任何 OpenAI-compatible provider 都必须由服务端通过无密钥 `AI_PROVIDER_PROFILES` 清单显式部署后才可被选择。
 
 ```json
 {
@@ -368,7 +368,7 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 #### `GET /ai/providers`
 
-返回服务器实际部署、可由用户选择的 AI profile 列表。每项只包含 `id`、`provider`、显示名、模型名与无授权能力声明；不会返回 Key、base URL、账户、secret manager 引用或内部错误。当前 production composition root 仅在配置 DashScope Key 时注册 `qwen-default`；未来 OpenAI-compatible provider 也必须由服务器显式注册后才会出现在本列表。
+返回服务器实际部署、可由用户选择的 AI profile 列表。每项只包含 `id`、`provider`、显示名、模型名与无授权能力声明；不会返回 Key、base URL、账户、secret manager 引用或内部错误。生产 composition root 支持遗留 `DASHSCOPE_*` 单 Qwen 配置，也支持 `AI_PROVIDER_PROFILES` 多 Profile 清单；后者必须引用服务端已有的 Key 环境变量并恰有一个默认 profile。
 
 `restricted_policy_drafts: true` 只表示该 profile 可以生成**只读**、受限的 DSL 候选；它不授予保存、激活、准入或下单权限。候选仍须由用户显式执行校验、固定样本准入、保存与激活流程。
 

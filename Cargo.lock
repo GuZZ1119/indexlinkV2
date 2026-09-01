@@ -932,6 +932,8 @@ dependencies = [
  "indexlink-api",
  "indexlink-storage",
  "market-data",
+ "reqwest",
+ "serde",
  "serde_json",
  "thiserror",
  "tokio",

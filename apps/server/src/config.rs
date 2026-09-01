@@ -1,13 +1,17 @@
 use std::{
+    collections::BTreeSet,
     env,
     net::{IpAddr, SocketAddr},
     num::ParseIntError,
     time::Duration,
 };
 
-use ai_client::AiConfig;
+use ai_client::{
+    AiConfig, AiProviderCapabilities, AiProviderId, AiProviderProfile, AiProviderProfileId,
+};
 use axum::http::HeaderValue;
 use broker::{BrokerProvider, OpenDConnectionConfig};
+use serde::Deserialize;
 
 const DEFAULT_HOST: &str = "0.0.0.0";
 const DEFAULT_PORT: &str = "8080";
@@ -20,6 +24,7 @@ const DASHSCOPE_MODEL: &str = "DASHSCOPE_MODEL";
 const DASHSCOPE_TIMEOUT_SECONDS: &str = "DASHSCOPE_TIMEOUT_SECONDS";
 const DASHSCOPE_MAX_TOKENS: &str = "DASHSCOPE_MAX_TOKENS";
 const DASHSCOPE_TEMPERATURE: &str = "DASHSCOPE_TEMPERATURE";
+const AI_PROVIDER_PROFILES: &str = "AI_PROVIDER_PROFILES";
 const OPEND_PROVIDER: &str = "OPEND_PROVIDER";
 const OPEND_HOST: &str = "OPEND_HOST";
 const OPEND_PORT: &str = "OPEND_PORT";
@@ -38,9 +43,48 @@ pub(crate) struct Config {
     pub(crate) database_max_connections: u32,
     pub(crate) database_connect_timeout: Duration,
     pub(crate) cors_allowed_origins: Vec<HeaderValue>,
-    pub(crate) qwen: Option<AiConfig>,
+    pub(crate) ai_providers: Vec<AiProviderConfiguration>,
     pub(crate) opend: Option<OpenDConnectionConfig>,
     pub(crate) scheduler: SchedulerConfig,
+}
+
+/// One OpenAI-compatible AI provider composed by the server from local configuration only.
+#[derive(Debug)]
+pub(crate) struct AiProviderConfiguration {
+    pub(crate) profile: AiProviderProfile,
+    pub(crate) client: AiConfig,
+    pub(crate) is_default: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiProviderProfileEnvironment {
+    id: String,
+    provider: String,
+    display_name: String,
+    base_url: String,
+    api_key_env: String,
+    model: String,
+    #[serde(default)]
+    default: bool,
+    #[serde(default)]
+    capabilities: AiProviderCapabilitiesEnvironment,
+    timeout_seconds: Option<u64>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiProviderCapabilitiesEnvironment {
+    #[serde(default = "true_value")]
+    market_evidence: bool,
+    #[serde(default)]
+    restricted_policy_drafts: bool,
+}
+
+fn true_value() -> bool {
+    true
 }
 
 /// Safe periodic automatic-decision scheduler settings for weekly or monthly fixed plan dates.
@@ -55,7 +99,9 @@ impl Config {
         Self::from_lookup(|name| env::var(name).ok())
     }
 
-    fn from_lookup(mut lookup: impl FnMut(&str) -> Option<String>) -> Result<Self, ConfigError> {
+    pub(super) fn from_lookup(
+        mut lookup: impl FnMut(&str) -> Option<String>,
+    ) -> Result<Self, ConfigError> {
         let host = value_or_default(&mut lookup, "APP_HOST", DEFAULT_HOST);
         let port = parse_u16(
             "APP_PORT",
@@ -105,7 +151,7 @@ impl Config {
                     .map_err(|_| ConfigError::InvalidCorsOrigin)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let qwen = qwen_config(&mut lookup)?;
+        let ai_providers = ai_provider_configurations(&mut lookup)?;
         let opend = opend_config(&mut lookup)?;
         let scheduler = scheduler_config(&mut lookup)?;
 
@@ -115,7 +161,7 @@ impl Config {
             database_max_connections,
             database_connect_timeout: Duration::from_secs(timeout_seconds),
             cors_allowed_origins,
-            qwen,
+            ai_providers,
             opend,
             scheduler,
         })
@@ -197,9 +243,86 @@ fn normalize_loopback_opend_host(host: String) -> Result<String, ConfigError> {
     Ok(address.to_string())
 }
 
-fn qwen_config(
+fn ai_provider_configurations(
     lookup: &mut impl FnMut(&str) -> Option<String>,
-) -> Result<Option<AiConfig>, ConfigError> {
+) -> Result<Vec<AiProviderConfiguration>, ConfigError> {
+    let Some(profiles) = lookup(AI_PROVIDER_PROFILES) else {
+        return legacy_qwen_configuration(lookup)
+            .map(|configuration| configuration.into_iter().collect());
+    };
+    let profiles = serde_json::from_str::<Vec<AiProviderProfileEnvironment>>(&profiles)
+        .map_err(|_| ConfigError::InvalidAiProviderProfiles)?;
+    if profiles.is_empty() {
+        return Err(ConfigError::InvalidAiProviderProfiles);
+    }
+
+    let defaults = AiConfig::default();
+    let mut ids = BTreeSet::new();
+    let mut default_count = 0usize;
+    let mut configured = Vec::with_capacity(profiles.len());
+    for profile in profiles {
+        let id = AiProviderProfileId::new(profile.id)
+            .map_err(|_| ConfigError::InvalidAiProviderProfiles)?;
+        if !ids.insert(id.clone()) {
+            return Err(ConfigError::InvalidAiProviderProfiles);
+        }
+        let provider = AiProviderId::new(profile.provider)
+            .map_err(|_| ConfigError::InvalidAiProviderProfiles)?;
+        let base_url = normalize_ai_base_url(profile.base_url)?;
+        let api_key_env = normalize_environment_name(profile.api_key_env)?;
+        let api_key = lookup(&api_key_env).ok_or(ConfigError::MissingAiProviderKey)?;
+        let api_key = non_blank(AI_PROVIDER_PROFILES, api_key)
+            .map_err(|_| ConfigError::MissingAiProviderKey)?;
+        let model = non_blank(AI_PROVIDER_PROFILES, profile.model)
+            .map_err(|_| ConfigError::InvalidAiProviderProfiles)?;
+        let timeout_seconds = profile
+            .timeout_seconds
+            .unwrap_or(defaults.timeout.as_secs());
+        let max_tokens = profile.max_tokens.unwrap_or(defaults.max_tokens);
+        let temperature = profile.temperature.unwrap_or(defaults.temperature);
+        if timeout_seconds == 0
+            || max_tokens == 0
+            || !temperature.is_finite()
+            || !(0.0..=2.0).contains(&temperature)
+        {
+            return Err(ConfigError::InvalidAiProviderProfiles);
+        }
+        let configured_profile = AiProviderProfile::new(
+            id,
+            provider,
+            profile.display_name,
+            model.clone(),
+            AiProviderCapabilities {
+                market_evidence: profile.capabilities.market_evidence,
+                restricted_policy_drafts: profile.capabilities.restricted_policy_drafts,
+            },
+        )
+        .map_err(|_| ConfigError::InvalidAiProviderProfiles)?;
+        if profile.default {
+            default_count += 1;
+        }
+        configured.push(AiProviderConfiguration {
+            profile: configured_profile,
+            client: AiConfig {
+                base_url,
+                api_key,
+                model,
+                timeout: Duration::from_secs(timeout_seconds),
+                max_tokens,
+                temperature,
+            },
+            is_default: profile.default,
+        });
+    }
+    if default_count != 1 {
+        return Err(ConfigError::InvalidAiProviderProfiles);
+    }
+    Ok(configured)
+}
+
+fn legacy_qwen_configuration(
+    lookup: &mut impl FnMut(&str) -> Option<String>,
+) -> Result<Option<AiProviderConfiguration>, ConfigError> {
     let Some(api_key) = lookup(DASHSCOPE_API_KEY) else {
         return Ok(None);
     };
@@ -239,14 +362,59 @@ fn qwen_config(
         return Err(ConfigError::InvalidTemperature);
     }
 
-    Ok(Some(AiConfig {
-        base_url,
-        api_key,
-        model,
-        timeout: Duration::from_secs(timeout_seconds),
-        max_tokens,
-        temperature,
+    Ok(Some(AiProviderConfiguration {
+        profile: AiProviderProfile::qwen(model.clone()),
+        client: AiConfig {
+            base_url,
+            api_key,
+            model,
+            timeout: Duration::from_secs(timeout_seconds),
+            max_tokens,
+            temperature,
+        },
+        is_default: true,
     }))
+}
+
+fn normalize_environment_name(value: String) -> Result<String, ConfigError> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.len() > 80
+        || !value.as_bytes().first().is_some_and(u8::is_ascii_uppercase)
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        Err(ConfigError::InvalidAiProviderProfiles)
+    } else {
+        Ok(value.to_owned())
+    }
+}
+
+fn normalize_ai_base_url(value: String) -> Result<String, ConfigError> {
+    let value = value.trim();
+    let url = reqwest::Url::parse(value).map_err(|_| ConfigError::InvalidAiProviderBaseUrl)?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(ConfigError::InvalidAiProviderBaseUrl);
+    }
+    match url.scheme() {
+        "https" => Ok(value.trim_end_matches('/').to_owned()),
+        "http" if url.host_str().is_some_and(is_loopback_host) => {
+            Ok(value.trim_end_matches('/').to_owned())
+        }
+        _ => Err(ConfigError::InvalidAiProviderBaseUrl),
+    }
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 fn non_blank(name: &'static str, value: String) -> Result<String, ConfigError> {
@@ -314,6 +482,12 @@ pub(crate) enum ConfigError {
     InvalidBoolean { name: &'static str },
     #[error("DASHSCOPE_TEMPERATURE must be in the range 0.0..=2.0")]
     InvalidTemperature,
+    #[error("AI_PROVIDER_PROFILES must contain one safe default profile per deployment")]
+    InvalidAiProviderProfiles,
+    #[error("configured AI provider URL must use HTTPS or local loopback HTTP")]
+    InvalidAiProviderBaseUrl,
+    #[error("configured AI provider key is unavailable")]
+    MissingAiProviderKey,
     #[error("OPEND_PROVIDER must be futu or moomoo")]
     InvalidOpenDProvider,
     #[error("OPEND_HOST must be a loopback OpenD address")]
@@ -352,7 +526,7 @@ mod tests {
         assert_eq!(config.database_max_connections, 10);
         assert_eq!(config.database_connect_timeout, Duration::from_secs(5));
         assert!(config.cors_allowed_origins.is_empty());
-        assert!(config.qwen.is_none());
+        assert!(config.ai_providers.is_empty());
         assert!(config.opend.is_none());
         assert!(config.scheduler.enabled);
         assert_eq!(config.scheduler.tick_interval, Duration::from_secs(60));
@@ -573,18 +747,24 @@ mod tests {
 
     #[test]
     fn qwen_configuration_is_optional_and_uses_safe_defaults() {
-        let config = parse(&[(DASHSCOPE_API_KEY, "sk-test-secret")]).unwrap();
-        let qwen = config.qwen.expect("key enables Qwen configuration");
+        let config = parse(&[(DASHSCOPE_API_KEY, "test-secret")]).unwrap();
+        let qwen = config
+            .ai_providers
+            .into_iter()
+            .next()
+            .expect("key enables Qwen configuration");
 
         assert_eq!(
-            qwen.base_url,
+            qwen.client.base_url,
             "https://dashscope.aliyuncs.com/compatible-mode"
         );
-        assert_eq!(qwen.model, "qwen-plus");
-        assert_eq!(qwen.timeout, Duration::from_secs(30));
-        assert_eq!(qwen.max_tokens, 256);
-        assert_eq!(qwen.temperature, 0.0);
-        assert_eq!(qwen.api_key, "sk-test-secret");
+        assert_eq!(qwen.profile.id().as_str(), "qwen-default");
+        assert!(qwen.is_default);
+        assert_eq!(qwen.client.model, "qwen-plus");
+        assert_eq!(qwen.client.timeout, Duration::from_secs(30));
+        assert_eq!(qwen.client.max_tokens, 256);
+        assert_eq!(qwen.client.temperature, 0.0);
+        assert_eq!(qwen.client.api_key, "test-secret");
     }
 
     #[test]
@@ -598,13 +778,20 @@ mod tests {
             (DASHSCOPE_TEMPERATURE, "0.2"),
         ])
         .unwrap();
-        let qwen = config.qwen.expect("key enables Qwen configuration");
+        let qwen = config
+            .ai_providers
+            .into_iter()
+            .next()
+            .expect("key enables Qwen configuration");
 
-        assert_eq!(qwen.base_url, "https://qwen.example/compatible-mode/");
-        assert_eq!(qwen.model, "qwen-max");
-        assert_eq!(qwen.timeout, Duration::from_secs(9));
-        assert_eq!(qwen.max_tokens, 256);
-        assert_eq!(qwen.temperature, 0.2);
+        assert_eq!(
+            qwen.client.base_url,
+            "https://qwen.example/compatible-mode/"
+        );
+        assert_eq!(qwen.client.model, "qwen-max");
+        assert_eq!(qwen.client.timeout, Duration::from_secs(9));
+        assert_eq!(qwen.client.max_tokens, 256);
+        assert_eq!(qwen.client.temperature, 0.2);
     }
 
     #[test]
@@ -627,6 +814,75 @@ mod tests {
             error.to_string(),
             "DASHSCOPE_TEMPERATURE must be in the range 0.0..=2.0"
         );
+    }
+
+    #[test]
+    fn configured_openai_compatible_profiles_are_safe_and_selectable() {
+        let profiles = r#"[
+          {
+            "id": "qwen-research",
+            "provider": "qwen",
+            "display_name": "Research Qwen",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode",
+            "api_key_env": "RESEARCH_QWEN_KEY",
+            "model": "qwen-plus",
+            "default": true,
+            "capabilities": {"market_evidence": true, "restricted_policy_drafts": true}
+          },
+          {
+            "id": "local-reviewer",
+            "provider": "local-ai",
+            "display_name": "Local reviewer",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "api_key_env": "LOCAL_REVIEWER_KEY",
+            "model": "reviewer",
+            "capabilities": {"market_evidence": false, "restricted_policy_drafts": true},
+            "max_tokens": 512
+          }
+        ]"#;
+        let config = parse(&[
+            (AI_PROVIDER_PROFILES, profiles),
+            ("RESEARCH_QWEN_KEY", "first-secret"),
+            ("LOCAL_REVIEWER_KEY", "second-secret"),
+        ])
+        .expect("safe configured profiles should parse");
+
+        assert_eq!(config.ai_providers.len(), 2);
+        assert_eq!(
+            config.ai_providers[0].profile.id().as_str(),
+            "qwen-research"
+        );
+        assert!(
+            config.ai_providers[0]
+                .profile
+                .capabilities()
+                .restricted_policy_drafts
+        );
+        assert!(config.ai_providers[0].is_default);
+        assert_eq!(config.ai_providers[1].client.max_tokens, 512);
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("first-secret"));
+        assert!(!debug.contains("second-secret"));
+    }
+
+    #[test]
+    fn unsafe_or_ambiguous_provider_profiles_fail_without_echoing_secrets() {
+        let remote_http = r#"[{"id":"bad","provider":"test","display_name":"Bad","base_url":"http://example.com","api_key_env":"TEST_KEY","model":"x","default":true}]"#;
+        assert!(matches!(
+            parse(&[
+                (AI_PROVIDER_PROFILES, remote_http),
+                ("TEST_KEY", "top-secret")
+            ]),
+            Err(ConfigError::InvalidAiProviderBaseUrl)
+        ));
+        let missing_default = r#"[{"id":"one","provider":"test","display_name":"One","base_url":"https://example.com","api_key_env":"TEST_KEY","model":"x"}]"#;
+        let error = parse(&[
+            (AI_PROVIDER_PROFILES, missing_default),
+            ("TEST_KEY", "top-secret"),
+        ])
+        .expect_err("one explicit default is required");
+        assert!(matches!(error, ConfigError::InvalidAiProviderProfiles));
+        assert!(!error.to_string().contains("top-secret"));
     }
 
     /// Verify OpenD stays disabled unless a supported provider is explicitly configured.

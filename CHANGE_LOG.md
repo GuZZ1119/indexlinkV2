@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-01 CST — Multi-Profile AI Deployment 与可测启动编排
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：服务端 AI 适配器、多 Provider 安全配置、启动组合根、AI/RSS 测试与双语文档。
+- 涉及文件：`apps/server/{Cargo.toml,src/{config,main}.rs}`、`crates/ai-client/src/{client,copilot,mock,news,provider}.rs`、`crates/ai-client/tests/{openai_compatible_client,news_live}.rs`、`crates/api/src/state.rs`、`.env.example`、`README.md`、`readme.en.md`、`API_MANAGEMENT.md`、`STRATEGY_STUDIO_MIGRATION_PLAN.md`、`Cargo.lock`、`CHANGE_LOG.md`。
+- 变更内容：服务端现兼容旧 `DASHSCOPE_*` 单 Qwen 配置，并支持无密钥 `AI_PROVIDER_PROFILES` 清单装配多个 OpenAI-compatible profile；清单只保存 Profile 元数据与 `api_key_env` 名称，要求恰有一个默认 Profile，远程 endpoint 强制 HTTPS（本机 loopback mock 可用 HTTP）。`QwenClient::with_profile` 将兼容协议客户端与安全 Profile 元数据绑定；API 在调用市场证据前二次检查 capability。启动路径拆为可注入 shutdown 的组合函数，覆盖内存 SQLite migration、优雅退出及启用/禁用 scheduler。新增本机 HTTP mock 覆盖 AI 超时、结构化 evidence、只读 Copilot DTO、RSS 成功/失败、Profile 边界；集成测试改名以避免 llvm-cov 将 `tests/client.rs` 与 `src/client.rs` 同名聚合。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p ai-client --offline`（96 unit + 16 local integration 通过，2 个真实网络 smoke ignored）、`cargo test -p indexlink-server --offline`（35 通过，1 个真实 OpenD smoke ignored）、`cargo test -p core-domain --offline`、`cargo check --workspace --locked`、`cargo clippy -p ai-client -p indexlink-api -p indexlink-server --all-targets --all-features --locked -- -D warnings`、`cargo llvm-cov -p ai-client --all-features --summary-only`（Lines 90.03%）、`cargo llvm-cov -p indexlink-server --all-features --summary-only`（Lines 90.02%）、`git diff --check`。
+
 ### 2026-09-01 CST — V2 README：Copilot Studio 操作与密钥边界
 
 - 执行模型：GPT-5 Codex。

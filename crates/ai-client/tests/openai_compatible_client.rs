@@ -3,8 +3,12 @@
 //! 使用本地 mock HTTP server 验证请求构造、响应解析和错误传播。
 
 use std::net::SocketAddr;
+use std::time::Duration;
 
-use ai_client::{AiConfig, AiProvider, QwenClient};
+use ai_client::{
+    AiConfig, AiCopilotDraftRequest, AiCopilotEvidenceReference, AiProvider,
+    AiProviderCapabilities, AiProviderId, AiProviderProfile, AiProviderProfileId, QwenClient,
+};
 use axum::body::Body;
 use axum::http::{HeaderMap, Response, StatusCode};
 use axum::{routing::post, Json, Router};
@@ -65,6 +69,23 @@ fn json_response(status: StatusCode, value: f64) -> Response<Body> {
         .unwrap()
 }
 
+/// Build one OpenAI-compatible completion response from a raw model content string.
+fn completion_response(status: StatusCode, content: &str) -> Response<Body> {
+    let body = serde_json::to_string(&MockResponse {
+        choices: vec![MockChoice {
+            message: MockChoiceMessage {
+                content: content.to_owned(),
+            },
+        }],
+    })
+    .unwrap();
+    Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .body(Body::from(body))
+        .unwrap()
+}
+
 /// 启动本地 mock server，返回绑定的地址。
 async fn spawn_mock_server() -> SocketAddr {
     let app = Router::new().route(
@@ -85,6 +106,17 @@ async fn spawn_mock_server() -> SocketAddr {
                 assert!(!body.model.is_empty());
                 assert!(!body.messages.is_empty());
                 assert_eq!(body.messages[0].role, "system");
+
+                if body.messages[0]
+                    .content
+                    .contains("restricted investment-policy candidate")
+                {
+                    assert!(body.max_tokens >= 768);
+                    return completion_response(
+                        StatusCode::OK,
+                        r#"{"document":{"policy_id":"dsl_test_guard","policy_version":1,"name":"Test guard","rules":[{"condition":{"kind":"comparison","expression":{"kind":"indicator","indicator":{"kind":"relative_strength_index","lookback_days":14}},"operator":"less_than","threshold":"35"},"action":{"kind":"set_opportunity_multiplier","multiplier":1.2}}]},"explanation":"Validate before saving.","warnings":["Mock warning."],"evidence_reference_ids":["dsl_allowlist_v1"]}"#,
+                    );
+                }
 
                 let user_content = &body.messages[1].content;
 
@@ -329,4 +361,91 @@ async fn client_returns_error_on_auth_failure() {
         result.is_err(),
         "空 api_key 导致认证失败，应返回 HttpStatus 401"
     );
+}
+
+#[tokio::test]
+async fn configured_profile_generates_only_a_bounded_read_only_copilot_draft() {
+    let addr = spawn_mock_server().await;
+    let profile = AiProviderProfile::new(
+        AiProviderProfileId::new("reviewer").unwrap(),
+        AiProviderId::new("openai-compatible").unwrap(),
+        "Reviewer".to_owned(),
+        "test-model".to_owned(),
+        AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
+    )
+    .unwrap();
+    let client = QwenClient::with_profile(
+        AiConfig {
+            base_url: format!("http://{addr}"),
+            api_key: "test-key".to_owned(),
+            model: "test-model".to_owned(),
+            ..Default::default()
+        },
+        profile,
+    );
+    let request = AiCopilotDraftRequest::new(
+        "dsl_test_guard".to_owned(),
+        1,
+        "Increase only the opportunity bucket after oversold RSI.".to_owned(),
+        vec![AiCopilotEvidenceReference::new(
+            "dsl_allowlist_v1".to_owned(),
+            "Server allowlist".to_owned(),
+        )
+        .unwrap()],
+    )
+    .unwrap();
+
+    let draft = client.generate_policy_draft(&request).await.unwrap();
+    assert_eq!(client.profile().id().as_str(), "reviewer");
+    assert_eq!(draft.evidence_reference_ids(), ["dsl_allowlist_v1"]);
+    assert_eq!(draft.document()["policy_id"], "dsl_test_guard");
+}
+
+#[tokio::test]
+async fn configured_profile_returns_structured_market_evidence() {
+    let addr = spawn_mock_server().await;
+    let client = QwenClient::with_profile(
+        AiConfig {
+            base_url: format!("http://{addr}"),
+            api_key: "test-key".to_owned(),
+            ..Default::default()
+        },
+        AiProviderProfile::new(
+            AiProviderProfileId::new("evidence").unwrap(),
+            AiProviderId::new("openai-compatible").unwrap(),
+            "Evidence provider".to_owned(),
+            "test-model".to_owned(),
+            AiProviderCapabilities::market_evidence_only(),
+        )
+        .unwrap(),
+    );
+    let evidence = client.analyze_with_evidence("利好").await.unwrap();
+    assert!(evidence.sentiment().value() > 0.0);
+    assert!(evidence.rationale().contains("Mock explanation"));
+    assert_eq!(client.profile().id().as_str(), "evidence");
+}
+
+#[tokio::test]
+async fn client_maps_a_local_slow_provider_to_a_bounded_timeout() {
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(|| async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            json_response(StatusCode::OK, 0.0)
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = QwenClient::new(AiConfig {
+        base_url: format!("http://{address}"),
+        api_key: "test-key".to_owned(),
+        timeout: Duration::from_millis(10),
+        ..Default::default()
+    });
+    let error = client.analyze("timeout expected").await.unwrap_err();
+    assert!(matches!(
+        error,
+        ai_client::AiClientError::Timeout { seconds: 0 }
+    ));
 }

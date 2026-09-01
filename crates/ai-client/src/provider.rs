@@ -385,6 +385,15 @@ impl fmt::Display for AiConfig {
 mod tests {
     use super::*;
 
+    struct LegacyProvider;
+
+    #[async_trait]
+    impl AiProvider for LegacyProvider {
+        async fn analyze(&self, _prompt: &str) -> Result<Sentiment, AiClientError> {
+            Ok(Sentiment::new_clamped(0.25))
+        }
+    }
+
     #[test]
     fn config_default_values() {
         let config = AiConfig::default();
@@ -473,5 +482,84 @@ mod tests {
                 .unwrap_err(),
             AiProviderProfileError::DuplicateProfile
         );
+    }
+
+    #[test]
+    fn identifiers_normalize_and_reject_unsafe_values() {
+        let provider = AiProviderId::new("  OpenAI-Compatible  ").unwrap();
+        let profile = AiProviderProfileId::new("  Review-01 ").unwrap();
+        assert_eq!(provider.as_str(), "openai-compatible");
+        assert_eq!(provider.to_string(), "openai-compatible");
+        assert_eq!(profile.as_str(), "review-01");
+        assert_eq!(profile.to_string(), "review-01");
+        for invalid in ["", "has space", "under_score", "中文", "a/"] {
+            assert_eq!(
+                AiProviderId::new(invalid).unwrap_err(),
+                AiProviderProfileError::InvalidIdentifier
+            );
+        }
+    }
+
+    #[test]
+    fn profile_metadata_is_bounded_and_registry_lookup_is_safe() {
+        let profile = AiProviderProfile::new(
+            AiProviderProfileId::new("reviewer").unwrap(),
+            AiProviderId::new("openai-compatible").unwrap(),
+            "  Reviewer  ".to_owned(),
+            " model-a ".to_owned(),
+            AiProviderCapabilities::market_evidence_only(),
+        )
+        .unwrap();
+        assert_eq!(profile.display_name(), "Reviewer");
+        assert_eq!(profile.model(), "model-a");
+        assert!(!profile.capabilities().restricted_policy_drafts);
+
+        let mut registry = AiProviderRegistry::default();
+        registry.register(profile).unwrap();
+        assert!(registry
+            .get(&AiProviderProfileId::new("reviewer").unwrap())
+            .is_some());
+        assert!(registry
+            .get(&AiProviderProfileId::new("absent").unwrap())
+            .is_none());
+
+        assert_eq!(
+            AiProviderProfile::new(
+                AiProviderProfileId::new("bad").unwrap(),
+                AiProviderId::new("test").unwrap(),
+                "\n".to_owned(),
+                "model".to_owned(),
+                AiProviderCapabilities::market_evidence_only(),
+            )
+            .unwrap_err(),
+            AiProviderProfileError::InvalidText
+        );
+    }
+
+    #[tokio::test]
+    async fn default_provider_behaviour_is_safe_and_non_authorising() {
+        let provider = LegacyProvider;
+        let profile = provider.profile();
+        assert_eq!(profile.id().as_str(), "external-default");
+        assert_eq!(profile.provider().as_str(), "external");
+
+        let evidence = provider.analyze_with_evidence("news").await.unwrap();
+        assert_eq!(evidence.sentiment().value(), 0.25);
+        assert!(evidence.rationale().contains("bounded sentiment"));
+        let request = AiCopilotDraftRequest::new(
+            "guard".to_owned(),
+            1,
+            "objective".to_owned(),
+            vec![crate::AiCopilotEvidenceReference::new(
+                "allowed".to_owned(),
+                "Server allowlist".to_owned(),
+            )
+            .unwrap()],
+        )
+        .unwrap();
+        assert!(matches!(
+            provider.generate_policy_draft(&request).await,
+            Err(AiClientError::UnsupportedCapability)
+        ));
     }
 }

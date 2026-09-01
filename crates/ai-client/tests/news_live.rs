@@ -11,6 +11,47 @@
 
 use ai_client::news::{fetch_market_sentiment, format_sentiment_prompt, NewsSource, RssNewsSource};
 use ai_client::{AiConfig, MockAiProvider, QwenClient};
+use axum::{http::StatusCode, routing::get, Router};
+use chrono::{Duration, Utc};
+use tokio::net::TcpListener;
+
+/// Serve one local RSS response without relying on the public internet.
+async fn local_rss_server(status: StatusCode, body: String) -> String {
+    let app = Router::new().route(
+        "/feed",
+        get(move || {
+            let body = body.clone();
+            async move { (status, body) }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{address}/feed")
+}
+
+#[tokio::test]
+async fn local_rss_adapter_fetches_recent_items_without_network() {
+    let timestamp = Utc::now().to_rfc2822();
+    let url = local_rss_server(
+        StatusCode::OK,
+        format!(
+            "<rss><channel><item><title>Local headline</title><description>Local summary</description><link>https://example.test/news</link><pubDate>{timestamp}</pubDate></item></channel></rss>"
+        ),
+    )
+    .await;
+    let source = RssNewsSource::with_config(url, 24, 5);
+    let items = source.fetch().await.unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].title, "Local headline");
+}
+
+#[tokio::test]
+async fn local_rss_adapter_maps_http_failure_without_network() {
+    let url = local_rss_server(StatusCode::BAD_GATEWAY, "unavailable".to_owned()).await;
+    let source = RssNewsSource::with_config(url, Duration::hours(1).num_hours(), 5);
+    assert!(source.fetch().await.is_err());
+}
 
 /// 真实拉取 CNBC RSS，用 Mock AI 分析情绪。
 #[tokio::test]

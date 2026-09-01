@@ -229,6 +229,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mock_exposes_safe_profile_and_bounded_draft() {
+        let mock = MockAiProvider::default();
+        assert_eq!(mock.profile().id().as_str(), "mock-default");
+        let request = AiCopilotDraftRequest::new(
+            "mock-policy".to_owned(),
+            1,
+            "Keep opportunity actions bounded".to_owned(),
+            vec![crate::AiCopilotEvidenceReference::new(
+                "allowlist".to_owned(),
+                "Server allowlist".to_owned(),
+            )
+            .unwrap()],
+        )
+        .unwrap();
+        let draft = mock.generate_policy_draft(&request).await.unwrap();
+        assert_eq!(draft.document()["policy_id"], "mock-policy");
+        assert_eq!(draft.evidence_reference_ids(), ["allowlist"]);
+    }
+
+    #[tokio::test]
     async fn mock_strong_signal_overrides_weak() {
         // 回归测试：强信号关键词不能被子串弱信号覆盖。
         // "大涨" 包含 "上涨"，"强势反弹" 包含 "反弹" ——
@@ -241,11 +261,7 @@ mod tests {
 
         // "强势反弹" 是强信号，不能因为包含 "反弹" 而返回弱信号
         let s = mock.analyze("市场强势反弹").await.unwrap();
-        assert!(
-            s.value() > 0.5,
-            "强势反弹应是强信号(0.6), got {}",
-            s.value()
-        );
+        assert!(s.value() > 0.5, "强势反弹应是强信号(0.6)");
 
         // 纯弱信号不受影响
         let s = mock.analyze("市场温和反弹").await.unwrap();

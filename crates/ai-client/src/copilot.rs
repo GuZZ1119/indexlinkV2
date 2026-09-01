@@ -258,4 +258,39 @@ mod tests {
         assert_eq!(request.policy_id(), "dsl_copilot_guard");
         assert_eq!(request.evidence()[0].id(), "operator_objective");
     }
+
+    #[test]
+    fn draft_dto_rejects_untrusted_identifiers_and_unbounded_lists() {
+        assert_eq!(
+            AiCopilotEvidenceReference::new("bad id".to_owned(), "label".to_owned()),
+            Err(AiCopilotDraftError::InvalidIdentifier)
+        );
+        assert_eq!(
+            AiCopilotDraftRequest::new("policy".to_owned(), 0, "objective".to_owned(), vec![]),
+            Err(AiCopilotDraftError::InvalidPolicyVersion)
+        );
+        assert_eq!(
+            AiCopilotDraft::new(
+                serde_json::json!({}),
+                "reason".to_owned(),
+                (0..6).map(|_| "warning".to_owned()).collect(),
+                vec!["evidence".to_owned()],
+            ),
+            Err(AiCopilotDraftError::InvalidWarnings)
+        );
+    }
+
+    #[test]
+    fn draft_dto_normalizes_safe_output() {
+        let draft = AiCopilotDraft::new(
+            serde_json::json!({"policy_id": "candidate"}),
+            "  bounded rationale  ".to_owned(),
+            vec!["  risk  ".to_owned()],
+            vec![" Evidence_1 ".to_owned()],
+        )
+        .unwrap();
+        assert_eq!(draft.explanation(), "bounded rationale");
+        assert_eq!(draft.warnings(), ["risk"]);
+        assert_eq!(draft.evidence_reference_ids(), ["evidence_1"]);
+    }
 }

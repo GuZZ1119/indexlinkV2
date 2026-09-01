@@ -177,9 +177,9 @@ indexlink/
    pnpm --dir apps/web dev
    ```
 
-The local `.env` is Git-ignored. `DASHSCOPE_API_KEY` is optional Qwen evidence configuration; `OPEND_PROVIDER`, `OPEND_HOST`, `OPEND_PORT`, and `OPEND_ACCOUNT_ID` are only for a local-loopback OpenD paper account. None may be committed or logged.
+The local `.env` is Git-ignored. `DASHSCOPE_API_KEY` optionally enables Qwen evidence. `AI_PROVIDER_PROFILES` can instead declare multiple deployed OpenAI-compatible profiles: its credential-free manifest refers only to an `api_key_env` name, requires exactly one default profile, and permits remote HTTPS endpoints only. Users and browsers can select only those deployed profiles and never receive a key or endpoint. `OPEND_PROVIDER`, `OPEND_HOST`, `OPEND_PORT`, and `OPEND_ACCOUNT_ID` are only for a local-loopback OpenD paper account. None may be committed or logged.
 
-After startup, open the local Vite address (normally `http://localhost:5173`). For restricted Copilot, first confirm that the status strip shows “Qwen configured”; without it, all non-AI Studio steps still work.
+After startup, open the local Vite address (normally `http://localhost:5173`). For restricted Copilot, first confirm that the status strip shows “AI configured”; without it, all non-AI Studio steps still work.
 
 ### Docker / Alibaba Cloud ECS
 
@@ -202,7 +202,7 @@ See [deployment/aliyun/README.md](./deployment/aliyun/README.md) for deployment 
 5. **Unified historical evaluation:** complete; `strategy-evaluation` calls the same DSL interpreter with all allow-listed technical indicators limited to raw evidence available by the decision date and execution on the next trading day.
 6. **Strategy storage, Studio, and admission:** complete; immutable SQLite version storage, controlled creation/validation, current-data simulation, and plan activation are available. A DSL version must compare XIRR, terminal wealth, drawdown, volatility, Sortino, cash utilisation, and rolling windows against Fixed DCA on a fixed fixture and pass evidence-integrity, budget, and core-bucket safety gates before activation; results are not return promises.
 7. **Runtime observability and Web integration:** complete; the Web app uses `/health`, `/ready`, and `/runtime-status` to distinguish API, SQLite, Qwen, OpenD, and scheduler state, with React Query managing server-data caching.
-8. **AI Evidence Registry and Copilot Draft:** complete for the credential-free Qwen profile registry, read-only DSL-draft endpoint, and Studio draft interaction: users can select only server-deployed profiles while keys remain in server environment or secret management. A candidate only populates an editable form and remains subject to deterministic validation, backtesting, explicit user save/activation, and review; it never receives order authority.
+8. **AI Evidence Registry and Copilot Draft:** complete for a credential-free multi-profile OpenAI-compatible registry, a read-only DSL-draft endpoint, and Studio draft interaction. Qwen is the default example; users can select only server-deployed profiles while keys remain in server environment or secret management. A candidate only populates an editable form and remains subject to deterministic validation, backtesting, explicit user save/activation, and review; it never receives order authority.
 
 See [STRATEGY_STUDIO_MIGRATION_PLAN.md](./STRATEGY_STUDIO_MIGRATION_PLAN.md) for details.
 

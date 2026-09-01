@@ -556,6 +556,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_cdata_description_and_default_source_are_supported() {
+        let xml = sample_rss(
+            "<item><title>CDATA headline</title><description><![CDATA[<b>CDATA summary</b>]]></description><link>https://example.com/cdata</link><pubDate>Mon, 06 Jul 2026 14:30:00 GMT</pubDate></item>",
+        );
+        let items = RssNewsSource::parse_items(&xml).unwrap();
+        assert_eq!(items[0].description, "<b>CDATA summary</b>");
+        assert_eq!(RssNewsSource::default().url, CNBC_TOP_NEWS_RSS);
+    }
+
+    #[test]
     fn parse_multiple_items() {
         let items_xml = [
             sample_item("Title 1", "Desc 1", "Mon, 06 Jul 2026 10:00:00 GMT"),
