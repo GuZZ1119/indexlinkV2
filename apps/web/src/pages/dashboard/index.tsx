@@ -11,7 +11,6 @@ import {
   setPaperOpeningBalance,
   useActualPerformance,
   useDecisionRecords,
-  useHistoricalBacktest,
   useHoldingPriceHistory,
   useMarketSentiment,
   useMarketSignalInput,
@@ -26,7 +25,6 @@ import type {
   InvestmentPlan,
   MarketSignalInput,
   ActualPerformance,
-  HistoricalBacktest,
   HoldingPriceHistory,
   MarketSentimentEvidence,
   PersistedMarketSentimentSnapshot,
@@ -84,7 +82,6 @@ export default function DashboardPage() {
   const paperPortfolioQuery = usePaperPortfolio()
   const paperPerformanceQuery = usePaperPerformance(selectedPlan?.id ?? null)
   const actualPerformanceQuery = useActualPerformance()
-  const historicalBacktestQuery = useHistoricalBacktest()
   const priceHistoryQuery = useHoldingPriceHistory(pricePeriod)
 
   const decisionMutation = useMutation({
@@ -122,15 +119,7 @@ export default function DashboardPage() {
     onSuccess: async () => { await paperPerformanceQuery.refetch() },
   })
 
-  const error = marketSignalQuery.error
-    ?? decisionMutation.error
-    ?? marketSentimentQuery.error
-    ?? paperPortfolioQuery.error
-    ?? paperPerformanceQuery.error
-    ?? openingBalanceMutation.error
-    ?? actualPerformanceQuery.error
-    ?? historicalBacktestQuery.error
-    ?? priceHistoryQuery.error
+  const coreError = decisionMutation.error
     ?? plansError
     ?? decisionRecordsError
   const hasSignalInput = marketSignalQuery.data !== undefined || result !== null
@@ -147,18 +136,17 @@ export default function DashboardPage() {
         marketRefresh={marketSignalQuery.data ?? null}
         portfolio={paperPortfolioQuery.data ?? null}
         portfolioRefreshing={paperPortfolioQuery.isFetching}
+        portfolioError={paperPortfolioQuery.error}
         onRefreshPortfolio={() => void paperPortfolioQuery.refetch()}
         performance={paperPerformanceQuery.data ?? null}
         performanceRefreshing={paperPerformanceQuery.isFetching || openingBalanceMutation.isPending}
+        performanceError={paperPerformanceQuery.error ?? openingBalanceMutation.error}
         onRefreshPerformance={() => void paperPerformanceQuery.refetch()}
         onSetOpeningBalance={(input) => openingBalanceMutation.mutate(input)}
         actualPerformance={actualPerformanceQuery.data ?? null}
         actualRefreshing={actualPerformanceQuery.isFetching}
+        actualError={actualPerformanceQuery.error}
         onRefreshActual={() => void actualPerformanceQuery.refetch()}
-        historicalBacktest={historicalBacktestQuery.data ?? null}
-        historicalRefreshing={historicalBacktestQuery.isFetching}
-        historicalError={historicalBacktestQuery.error}
-        onRefreshHistorical={() => void historicalBacktestQuery.refetch()}
         priceHistory={priceHistoryQuery.data ?? null}
         priceRefreshing={priceHistoryQuery.isFetching}
         priceHistoryError={priceHistoryQuery.error}
@@ -231,6 +219,7 @@ export default function DashboardPage() {
             {t('live.decision.marketRefreshed', { symbol: marketSignalQuery.data.symbol, date: marketSignalQuery.data.as_of })}
             </p>
           )}
+          {marketSignalQuery.error ? <OptionalServiceError message={t('dashboard.extra.marketUnavailable')} /> : null}
         </CardContent>
       </Card>
 
@@ -249,6 +238,7 @@ export default function DashboardPage() {
             </Button>
           </div>
           {marketSentimentQuery.data && <MarketSentimentCard sentiment={marketSentimentQuery.data} />}
+          {marketSentimentQuery.error ? <OptionalServiceError message={t('dashboard.extra.aiUnavailable')} /> : null}
         </CardContent>
       </Card>
 
@@ -291,9 +281,9 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {error && (
+      {coreError && (
         <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          {requestErrorMessage(error, decisionMutation.error !== null)}
+          {requestErrorMessage(coreError, decisionMutation.error !== null)}
         </p>
       )}
 
@@ -418,18 +408,17 @@ function DashboardOverview({
   marketRefresh,
   portfolio,
   portfolioRefreshing,
+  portfolioError,
   onRefreshPortfolio,
   performance,
   performanceRefreshing,
+  performanceError,
   onRefreshPerformance,
   onSetOpeningBalance,
   actualPerformance,
   actualRefreshing,
+  actualError,
   onRefreshActual,
-  historicalBacktest,
-  historicalRefreshing,
-  historicalError,
-  onRefreshHistorical,
   priceHistory,
   priceRefreshing,
   priceHistoryError,
@@ -442,18 +431,17 @@ function DashboardOverview({
   marketRefresh: MarketSignalInput | null
   portfolio: PaperPortfolioSnapshot | null
   portfolioRefreshing: boolean
+  portfolioError: Error | null
   onRefreshPortfolio: () => void
   performance: PaperPerformance | null
   performanceRefreshing: boolean
+  performanceError: Error | null
   onRefreshPerformance: () => void
   onSetOpeningBalance: (input: { amount: string; occurred_at: string }) => void
   actualPerformance: ActualPerformance | null
   actualRefreshing: boolean
+  actualError: Error | null
   onRefreshActual: () => void
-  historicalBacktest: HistoricalBacktest | null
-  historicalRefreshing: boolean
-  historicalError: Error | null
-  onRefreshHistorical: () => void
   priceHistory: HoldingPriceHistory[] | null
   priceRefreshing: boolean
   priceHistoryError: Error | null
@@ -674,6 +662,7 @@ function DashboardOverview({
             {portfolioRefreshing ? t('dashboard.portfolio.refreshing') : t('dashboard.portfolio.refresh')}
           </Button>
           </div>
+          {portfolioError ? <OptionalServiceError message={t('dashboard.extra.portfolioUnavailable')} /> : null}
           {portfolio ? <PaperPortfolioDetails portfolio={portfolio} /> : <EmptyState text={t('dashboard.portfolio.empty')} />}
         </CardContent>
       </Card>
@@ -681,6 +670,7 @@ function DashboardOverview({
       <PaperPerformanceDetails
         performance={performance}
         refreshing={performanceRefreshing}
+        error={performanceError}
         currency={currency}
         onRefresh={onRefreshPerformance}
         onSetOpeningBalance={onSetOpeningBalance}
@@ -692,6 +682,7 @@ function DashboardOverview({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex justify-center"><Button className="w-full max-w-md" variant="outline" disabled={actualRefreshing} onClick={onRefreshActual}><RefreshCw className={cn('size-4', actualRefreshing && 'animate-spin')} />{t('dashboard.extra.actualRefresh')}</Button></div>
+          {actualError ? <OptionalServiceError message={t('dashboard.extra.actualUnavailable')} /> : null}
           {actualPerformance?.total_points.length ? <ActualPerformanceChart performance={actualPerformance} /> : <EmptyState text={t('dashboard.extra.actualEmpty')} />}
         </CardContent>
       </Card>
@@ -706,15 +697,6 @@ function DashboardOverview({
         </CardContent>
       </Card>
 
-      <Card className="border-indigo-200/80 bg-indigo-50/45">
-        <CardHeader>
-          <div><CardTitle>{t('dashboard.extra.replayTitle')}</CardTitle><CardDescription>{t('dashboard.extra.replayDescription')}</CardDescription></div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex justify-center"><Button className="w-full max-w-md" variant="outline" disabled={historicalRefreshing} onClick={onRefreshHistorical}><RefreshCw className={cn('size-4', historicalRefreshing && 'animate-spin')} />{t('dashboard.extra.replayRun')}</Button></div>
-          {historicalBacktest?.points.length ? <HistoricalBacktestChart backtest={historicalBacktest} /> : <EmptyState text={historicalError ? requestErrorMessage(historicalError, false) : t('dashboard.extra.replayEmpty')} />}
-        </CardContent>
-      </Card>
     </section>
   )
 }
@@ -789,22 +771,16 @@ function HoldingPriceChart({ holdings }: { holdings: HoldingPriceHistory[] }) {
   return <div className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={42} /><YAxis domain={['auto', 'auto']} tickLine={false} axisLine={false} width={56} tickFormatter={(value) => `${Number(value).toFixed(0)}`} /><Tooltip formatter={(value) => typeof value === 'number' ? `${value.toFixed(2)} (${t('dashboard.extra.startAt100')})` : '—'} />{keys.map((key, index) => { const holding = holdings.find((item) => item.plan_id === key); return <Line key={key} type="monotone" dataKey={key} name={`${holding?.symbol ?? key} ${t('dashboard.extra.normalized')}`} stroke={chartColor(index)} strokeWidth={2} dot={false} connectNulls /> })}{markers.map((marker, index) => <ReferenceDot key={`${marker.key}-${marker.date}-${index}`} x={marker.date} y={marker.value} r={5} fill={marker.side === 'buy' ? '#16a34a' : '#dc2626'} stroke="white" />)}</LineChart></ResponsiveContainer><p className="mt-2 text-xs text-muted-foreground">{t('dashboard.extra.normalizedHint')}</p></div>
 }
 
-/** Render the clearly scoped one-year plain-versus-adaptive historical replay. */
-function HistoricalBacktestChart({ backtest }: { backtest: HistoricalBacktest }) {
-  const { t } = useTranslation()
-  const data = backtest.points.map((point) => ({ date: point.date, plain: point.plain_dca_value, adaptive: point.adaptive_value }))
-  return <div className="space-y-3"><div className="h-80"><ResponsiveContainer width="100%" height="100%"><LineChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="date" tickLine={false} axisLine={false} minTickGap={32} /><YAxis tickLine={false} axisLine={false} width={72} /><Tooltip formatter={(value) => typeof value === 'number' ? formatCurrency(value, backtest.currency) : '—'} /><Line type="monotone" dataKey="plain" name={t('dashboard.performance.plain')} stroke="#64748b" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="adaptive" name={t('dashboard.performance.adaptive')} stroke="#16a34a" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div><p className="rounded-lg border border-dashed bg-muted/20 p-3 text-xs leading-relaxed text-muted-foreground">{backtest.methodology}</p></div>
-}
-
 /** Return a stable contrast-friendly series colour without persisting UI state. */
 function chartColor(index: number): string {
   return ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2'][index % 6]
 }
 
 /** Render local ledger status, return summary, and the explicit opening-balance setup. */
-function PaperPerformanceDetails({ performance, refreshing, currency, onRefresh, onSetOpeningBalance }: {
+function PaperPerformanceDetails({ performance, refreshing, error, currency, onRefresh, onSetOpeningBalance }: {
   performance: PaperPerformance | null
   refreshing: boolean
+  error: Error | null
   currency: string
   onRefresh: () => void
   onSetOpeningBalance: (input: { amount: string; occurred_at: string }) => void
@@ -818,6 +794,7 @@ function PaperPerformanceDetails({ performance, refreshing, currency, onRefresh,
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex justify-center"><Button className="w-full max-w-md" disabled={refreshing} onClick={onRefresh}><RefreshCw className={cn('size-4', refreshing && 'animate-spin')} />{t('dashboard.performance.refresh')}</Button></div>
+        {error ? <OptionalServiceError message={t('dashboard.extra.performanceUnavailable')} /> : null}
         {!performance?.has_opening_balance && (
           <form className="flex flex-wrap items-end gap-3 rounded-lg border border-dashed p-3" onSubmit={(event) => { event.preventDefault(); onSetOpeningBalance({ amount, occurred_at: new Date().toISOString() }) }}>
             <label className="grid gap-1 text-sm font-medium"><span>{t('dashboard.performance.openingBalance')}</span><Input required inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="10000.00" /></label>
@@ -836,6 +813,11 @@ function PaperPerformanceDetails({ performance, refreshing, currency, onRefresh,
       </CardContent>
     </Card>
   )
+}
+
+/** Keep one optional provider failure inside the task that requested it. */
+function OptionalServiceError({ message }: { message: string }) {
+  return <p role="status" className="rounded-lg border border-amber-300/70 bg-amber-50 p-3 text-sm leading-6 text-amber-900">{message}</p>
 }
 
 /** Render a small label-value fact without claiming unavailable data is zero. */

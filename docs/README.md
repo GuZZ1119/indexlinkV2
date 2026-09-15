@@ -14,6 +14,7 @@ This directory contains project design, API contracts, policy research, and hist
 - [Strategy Studio 迁移计划](./architecture/strategy-studio-migration-plan.md)
 - [V1.1 策略与执行升级计划](./plans/v1_1_plan.md)
 - [V2.1 本地优先发布过渡计划](./plans/v2_1_productization_plan.md)
+- [V2.1 收口 Hardness 与执行门槛](./plans/v2_1_closeout_hardness.md)
 
 ## 策略研究 / Policy Research
 

@@ -2,6 +2,7 @@ import { Bot, Box, CheckCircle2, ChevronRight, Database, KeyRound, PlugZap, Shie
 import { useState } from 'react'
 
 import { PageHeading } from '@/components/v2_1/page-heading'
+import { LegacyReplayPanel } from '@/components/v2_1/legacy-replay-panel'
 import { connectionLabel, type LabConnectionState } from '@/features/v2_1/model'
 
 const integrations = [
@@ -21,6 +22,8 @@ export default function LabPage() {
       <section className="grid gap-4 md:grid-cols-2">{integrations.map((integration) => <IntegrationCard key={integration.id} integration={integration} active={openedIntegration === integration.id} onOpen={() => setOpenedIntegration(integration.id)} onClose={() => setOpenedIntegration(null)} />)}</section>
 
       <section className="rounded-[1.35rem] border border-[#eadfc4] bg-[#fcf8ed] p-5 sm:p-6"><div className="flex gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#9a6d20]" /><div><h2 className="font-semibold text-[#102028]">执行权限仍保持关闭</h2><p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-600">V2.1 的高级配置只为后续连接预留入口。当前页面不保存密钥、不验证账号、不提交模拟或真实订单；请在本机环境变量或 Docker 配置中完成真实配置。</p></div></div></section>
+
+      <LegacyReplayPanel />
 
       <section className="grid gap-4 md:grid-cols-3"><Guardrail icon={<KeyRound />} title="密钥不进浏览器" text="API 密钥只应由本地服务端读取。" /><Guardrail icon={<CheckCircle2 />} title="每次执行都确认" text="未来即使接入券商，也应展示订单草稿与确认步骤。" /><Guardrail icon={<ShieldCheck />} title="先模拟，后执行" text="真实账户接入前，先完成可复核的模拟验证。" /></section>
     </div>

@@ -12,13 +12,13 @@ The default entry is now a local-first consumer shell: Personal, Strategy Center
 | --- | --- | --- |
 | 个人中心 / Personal | 查看正在坚持的策略、下一次行动与近期变化 | 本地演示状态；不伪装为已连接收益或订单数据 |
 | 策略中心 / Strategy Center | 理解、选用、比较固定定投与 70/20/10 等精选策略 | 路由为 `/strategy-center`，避免与 Rust `/strategies` API 前缀冲突；含 `/strategy-analysis` 二级导航：直观视角按统一起点 100 比较本地示例策略，专业研究视角则按需读取后端已保存 DSL 的固定样本准入指标；公开分享/fork 与通用版本化回测等待后续契约 |
-| 高级实验室 / Advanced Lab | 了解 Docker、Moomoo/OpenD、Qwen、市场数据等可选能力 | 只显示配置入口与安全边界；不保存密钥、不验证账户、不下单 |
+| 高级实验室 / Advanced Lab | 了解 Docker、Moomoo/OpenD、Qwen、市场数据等可选能力；按需运行旧 MA200 兼容回放 | 配置入口只展示安全边界；旧回放默认不请求且必须手动触发；不保存密钥、不验证账户、不下单 |
 
 ## 页面与契约 / Pages and contracts
 
 | 页面 / Page | 已实现 / Implemented | 主要 API / Main API |
 | --- | --- | --- |
-| 仪表盘 / Dashboard | 自动市场输入、Qwen 情绪、Decision Preview、双桶结果、模拟账户、收益与回放图 | `/signals/*`, `/market-sentiment/preview`, `/investment-plans/:id/*`, `/paper-*` |
+| 仪表盘 / Dashboard | 自动市场输入、Qwen 情绪、Decision Preview、双桶结果、模拟账户与收益；可选错误在对应卡片内显示 | `/signals/*`, `/market-sentiment/preview`, `/investment-plans/:id/*`, `/paper-*`；旧 MA200 回放已移至高级实验室 |
 | 定投标的 / Holdings | V1.1 周期、多个执行日、桶比例、风险模式、滚存、策略版本创建与编辑 | `/investment-plans` |
 | 决策 / Decisions | 跨标的记录、计划/动作/日期筛选、分页、审计详情与审批模式 paper order 确认 | `/decisions`, `/investment-plans/:id/decisions` |
 | 策略 Studio / Strategy Studio | 受限 DSL、验证、准入回测、版本激活 | `/strategies`, `/investment-plans/:id/activate-policy` |
@@ -36,6 +36,8 @@ The top status strip reads `/health`, `/ready` and `/runtime-status`. It disting
 - 服务端数据必须通过 React Query；手动刷新使用 `refetch`，仍写入同一 query cache。
 - 不开放自由策略代码编辑器；策略 Studio 只提交后端白名单 DSL。
 - 所有交易交互保持 paper-only；审批模式必须确认已有决策存证，不能重新计算后下单。
+- 普通首页不得预取旧 MA200 回放；兼容回放只能在高级实验室由用户明确触发。
+- 市场、AI、组合、模拟收益等可选查询失败时，只影响对应卡片，不得升级为页面级核心错误。
 
 ## 验证 / Verification
 
@@ -47,6 +49,6 @@ pnpm --dir apps/web build
 
 ## 后续 / Next
 
-1. 以版本化策略、数据集、费用与假设契约替换当前策略分析页的本地示例序列。
-2. 实现本地计划采用、手动完成/跳过/调整记录与可复核复盘。
-3. 在保持用户确认的前提下，先接入一个只读券商账户，再评估预填订单或一键确认执行。
+1. 解耦服务端 market-data 与 paper broker 初始化，使可选能力失败不阻止 SQLite 核心启动。
+2. 将 PostgreSQL 从默认依赖图移为显式 opt-in feature。
+3. 实现 append-only 手工执行日志，再把 Fixed DCA 的真实 Plan、Decision 与 Today 接入普通首页。

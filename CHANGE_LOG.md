@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### 2026-09-15 AEST — Push 1：隔离旧 MA200 回放与首页可选错误
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：Web 兼容实验隔离、可选能力错误边界、回归测试与计划状态更新。
+- 涉及文件：`apps/web/src/{components/v2_1/legacy-replay-panel.tsx,pages/{dashboard/index.tsx,lab/index.tsx,v2_1-shell.test.tsx},i18n/locales/{zh.ts,en.ts}}`、`apps/web/{PLAN.md,vitest.config.ts}`、`docs/plans/v2_1_closeout_hardness.md`、`CHANGE_LOG.md`。
+- 变更内容：从旧 Dashboard 移除硬编码 MA200 历史回放，不删除兼容 API，也不改变 Rust 策略公式；回放改为高级实验室中的明确旧实验，只在用户点击后请求。普通 `/personal` 首页不会请求或展示旧回放。Dashboard 不再把市场、AI、组合、模拟收益和实际收益等可选查询错误汇总成页面级错误，而是在对应卡片内局部说明，核心 Plan/Decision 错误仍保留页面级呈现。新增成功、失败和首页零请求回归测试，并将后续顺序收口到服务端 capability 解耦、PostgreSQL opt-in 与 Fixed DCA 人工执行闭环。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（22 项通过；Statements 95.83%、Branches 90.00%、Functions 92.94%、Lines 99.22%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check`。
+
+### 2026-09-15 AEST — V2.1 正式收口 Hardness 与阶段门槛
+
+- 执行模型：GPT-5 Codex（当前环境未提供用户指定的 Aster 6，未声称由其执行）。
+- 变更类型：项目级 Agent 约束、V2.1 收口执行门槛、当前代码进度审查与数据来源候选登记；无生产代码变更。
+- 涉及文件：`AGENTS.md`、`docs/plans/v2_1_closeout_hardness.md`、`docs/plans/v2_1_productization_plan.md`、`docs/README.md`、`CHANGE_LOG.md`。
+- 变更内容：将正式收口手册的主线固化为 `Plan → readable Decision → user-reported execution → Audit`，明确 Fixed DCA、local-first、用户执行权、DecisionRecord 不可变、append-only 手工留痕、可选能力隔离、SQLite 默认、PostgreSQL opt-in、市场数据/回测可复现、前端不得伪造真实结果等 Hardness。以当前 `0ff5920` 对照手册 `0cae8d5` 基线，登记新前端仍为演示壳、OpenD 行情与 broker 初始化仍耦合、价格型 DSL 仍被完整证据阻塞、PostgreSQL 仍在默认依赖图、Manual Execution Journal/产品级本地数据/BacktestService/Tauri 尚未完成。执行顺序改为 0B → 0C → 0D → Manual Journal → 真实 Fixed DCA Today/Plan → 3–5 位用户验证，策略平台 S1–S6 延后到反馈支持的 M2。将 HiThink-Tech Financial-API 登记为 A 股/A 股 ETF 可选导入来源候选，不进入 M0/M1 或核心运行时；要求先关闭授权、历史窗口、复权、幂等、冲突和离线可用性问题。
+- 验证：完整提取并逐页检查 13 页正式 DOCX；核对 `0cae8d5..0ff5920` 文件差异与相关前后端调用路径；核对 Financial-API 官方 README、marketdb 文档和 MIT 软件许可证；运行 `git diff --check` 与文档链接检查。未运行 Rust/前端测试，因为本次仅修改执行文档且用户明确要求不落实生产代码。
+
 ### 2026-09-10 CST — V2.1 后端映射审计与统一策略目录实施账本
 
 - 执行模型：GPT-5 Codex。

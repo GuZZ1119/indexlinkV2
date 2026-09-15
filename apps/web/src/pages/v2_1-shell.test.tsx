@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
 
 import { StrategyCard } from '@/components/v2_1/strategy-card'
 import { findConsumerStrategy } from '@/features/v2_1/model'
+import i18n from '@/i18n'
 import LabPage from '@/pages/lab'
 import PersonalPage from '@/pages/personal'
 import StrategyAnalysisPage from '@/pages/strategy-analysis'
@@ -19,12 +20,17 @@ const renderPage = (page: React.ReactNode) => {
 const response = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 503, json: async () => body })
 
 describe('V2.1 consumer shell', () => {
+  beforeAll(async () => { await i18n.changeLanguage('zh') })
   beforeEach(() => setActiveStrategyId('adaptive-70-20-10'))
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
   it('shows one clear monthly action and makes its local-only result visible', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
     renderPage(<PersonalPage />)
     expect(screen.getByRole('heading', { name: '按计划投入 ¥2,200' })).toBeTruthy()
+    expect(screen.queryByText('MA200 一年历史回放')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '我已完成这次投入' }))
     expect(screen.getByRole('status').textContent).toContain('当前浏览器会话')
     expect(screen.getByText('6 / 6 次')).toBeTruthy()
@@ -97,6 +103,49 @@ describe('V2.1 consumer shell', () => {
     expect(screen.getByText(/不写入任何配置/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '收起预览' }))
     expect(screen.queryByText('配置预览')).toBeNull()
+  })
+
+  it('runs the legacy MA200 replay only after an explicit Lab action', async () => {
+    let finishReplay: (() => void) | undefined
+    const fetchMock = vi.fn().mockImplementation(() => new Promise((resolve) => {
+      finishReplay = () => resolve(response({
+        currency: 'USD',
+        methodology: 'Legacy hard-coded MA200 replay for compatibility only.',
+        points: [{ date: '2026-01-02', plain_dca_value: 1000, adaptive_value: 1012 }],
+      }))
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage(<LabPage />)
+    expect(fetchMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '运行旧实验' }))
+    expect(await screen.findByRole('button', { name: '正在运行…' })).toHaveProperty('disabled', true)
+    await act(async () => { finishReplay?.() })
+
+    expect(await screen.findByText('Legacy hard-coded MA200 replay for compatibility only.')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/paper-performance/historical-backtest')
+  })
+
+  it('contains a legacy replay failure inside the Lab panel', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ error: { code: 'optional_unavailable', message: 'offline' } }, false))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage(<LabPage />)
+    fireEvent.click(screen.getByRole('button', { name: '运行旧实验' }))
+
+    expect((await screen.findByRole('status')).textContent).toContain('旧回放暂时不可用')
+    expect(screen.getByRole('heading', { name: '把复杂配置，留给想深入的人' })).toBeTruthy()
+  })
+
+  it('shows an explicit empty state when the legacy replay returns no points', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ currency: 'USD', methodology: 'legacy', points: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPage(<LabPage />)
+    fireEvent.click(screen.getByRole('button', { name: '运行旧实验' }))
+
+    expect(await screen.findByText('没有足够的历史数据生成这份旧回放。')).toBeTruthy()
   })
 
   it('renders a compact strategy card without the rule panel', () => {

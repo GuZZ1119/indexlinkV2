@@ -20,6 +20,7 @@ export default defineConfig({
         'src/components/v2_1/strategy-card.tsx',
         'src/components/v2_1/strategy-center-nav.tsx',
         'src/components/v2_1/professional-research-panel.tsx',
+        'src/components/v2_1/legacy-replay-panel.tsx',
         'src/pages/personal/index.tsx',
         'src/pages/strategy-center/index.tsx',
         'src/pages/strategy-analysis/index.tsx',
