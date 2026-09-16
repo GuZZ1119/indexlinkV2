@@ -4,8 +4,11 @@
 //! SQLx 连接、migration 与 repository adapter 基础设施。
 //!
 //! 此 crate 负责连接池的建立、存活检查，以及面向领域 crate 的 outbound adapter。
+//! SQLite 是默认后端；PostgreSQL adapter 仅在显式启用 `postgres` feature 时可用。
 
+#[cfg(feature = "postgres")]
 mod decision_records;
+#[cfg(feature = "postgres")]
 mod investment_plans;
 mod sqlite;
 mod sqlite_decision_records;
@@ -16,13 +19,17 @@ mod sqlite_period_execution;
 mod sqlite_scheduled_decisions;
 mod sqlite_strategy_specs;
 
+#[cfg(feature = "postgres")]
 use std::{str::FromStr, time::Duration};
 
+#[cfg(feature = "postgres")]
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
 /// Decision Record repository 的 PostgreSQL adapter。
+#[cfg(feature = "postgres")]
 pub use decision_records::PostgresDecisionRecordRepository;
 /// Investment Plan repository 的 PostgreSQL adapter。
+#[cfg(feature = "postgres")]
 pub use investment_plans::PostgresInvestmentPlanRepository;
 /// SQLite 本地存储连接与 migration runner。
 pub use sqlite::SqliteStorage;
@@ -48,15 +55,19 @@ pub use sqlite_strategy_specs::{
     SqliteStrategySpecRepository, StoredStrategySpec, StrategySpecRepositoryError,
 };
 
+#[cfg(feature = "postgres")]
 const DEFAULT_MAX_CONNECTIONS: u32 = 10;
+#[cfg(feature = "postgres")]
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// PostgreSQL 存储连接。
+#[cfg(feature = "postgres")]
 #[derive(Clone, Debug)]
 pub struct Storage {
     pool: PgPool,
 }
 
+#[cfg(feature = "postgres")]
 impl Storage {
     /// 使用调用方提供的 PostgreSQL 连接池构建存储句柄。
     ///
@@ -164,7 +175,7 @@ pub enum StorageError {
     Migration(#[source] sqlx::migrate::MigrateError),
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "postgres"))]
 mod tests {
     use super::*;
 

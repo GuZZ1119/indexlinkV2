@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-16 AEST — Push 3：PostgreSQL 改为 storage 显式 opt-in
+
+- 执行模型：GPT-5 Codex（由并行子 Agent 实现并提交，主 Agent 负责集成复核）。
+- 变更类型：Rust 依赖边界、storage feature 隔离与 CI 回归门禁。
+- 涉及文件：`Cargo.toml`、`crates/storage/{Cargo.toml,src/lib.rs}`、`.github/workflows/rust-ci.yml`、`CHANGE_LOG.md`。
+- 变更内容：从 workspace 默认 SQLx features 移除 PostgreSQL；`indexlink-storage` 新增默认空 feature 集合，只有显式启用 `postgres` 时才编译 PostgreSQL 连接、repository adapter 与相关测试。SQLite 仍为 server 默认存储，`StorageError` 仍在默认构建中可用，既有 PostgreSQL/SQLite migrations 未改动。CI 新增依赖图断言，防止默认 server 回归引入 `sqlx-postgres`，并确认 storage 显式 feature 仍包含它。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-storage --locked`（默认 feature，31 项通过）、`cargo test -p indexlink-storage --locked --features postgres`（45 项通过）、`cargo check -p indexlink-server --locked`、`cargo clippy -p indexlink-storage --all-targets --all-features --locked -- -D warnings`、`cargo test --workspace --locked`（沙箱内首次因 localhost 监听权限失败，获准在沙箱外同命令重跑通过）、默认 server 与显式 storage PostgreSQL feature 的两条 `cargo tree` 断言、`git diff --check`。
+
 ### 2026-09-16 AEST — Push 2：行情与模拟 Broker capability 解耦
 
 - 执行模型：GPT-5 Codex（多 Agent 实现通道触发使用额度上限后由主 Agent 接管收口）。
