@@ -9,9 +9,7 @@ use ai_client::{
     AiProviderRegistry, NewsSource, PipelineError,
 };
 use async_trait::async_trait;
-use broker::{
-    BrokerClient, BrokerOrderAck, BrokerOrderRequest, MockBroker, PaperPortfolioSnapshot,
-};
+use broker::{BrokerClient, BrokerOrderAck, BrokerOrderRequest, PaperPortfolioSnapshot};
 use builtin_policies::BuiltinPolicyResolver;
 use chrono::Datelike;
 use decision_records::{
@@ -110,17 +108,29 @@ impl SchedulerStatusHandle {
     }
 }
 
+/// Display-safe lifecycle state for one optional runtime capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityStatus {
+    /// The operator did not enable this capability.
+    NotConfigured,
+    /// The adapter was composed successfully.
+    Configured,
+    /// The operator enabled the capability, but its adapter could not initialize.
+    Unavailable,
+}
+
 /// Display-safe configured dependency capabilities for the web runtime status page.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct RuntimeCapabilities {
-    /// Whether automatic market-data input has been composed from OpenD.
-    pub market_data_configured: bool,
+    /// Market-data adapter composition status; this is not an active health probe.
+    pub market_data: CapabilityStatus,
     /// Whether a Qwen/news provider has been composed from local configuration.
     pub qwen_configured: bool,
     /// Credential-free AI profiles registered by the server operator.
     pub ai_provider_profiles: Vec<AiProviderProfile>,
-    /// Whether the production OpenD paper broker replaced the local mock broker.
-    pub paper_broker_configured: bool,
+    /// Paper-broker adapter composition status.
+    pub paper_broker: CapabilityStatus,
     /// Current in-process scheduler counters and timestamps.
     pub scheduler: SchedulerStatus,
 }
@@ -308,7 +318,7 @@ pub struct ApiState {
     readiness: Arc<ReadinessBackend>,
     plans: InvestmentPlanService,
     decision_records: DecisionRecordService,
-    broker: Arc<dyn BrokerClient>,
+    broker: Option<Arc<dyn BrokerClient>>,
     market_sentiment: Option<Arc<MarketSentimentDependencies>>,
     market_data: Option<Arc<dyn MarketSignalProvider>>,
     paper_performance: Option<SqlitePaperPerformanceRepository>,
@@ -317,7 +327,8 @@ pub struct ApiState {
     period_execution: Option<SqlitePeriodExecutionRepository>,
     strategy_specs: Option<SqliteStrategySpecRepository>,
     scheduler_status: SchedulerStatusHandle,
-    paper_broker_configured: bool,
+    market_data_status: CapabilityStatus,
+    paper_broker_status: CapabilityStatus,
     policy_resolver: Arc<BuiltinPolicyResolver>,
     version: Arc<str>,
 }
@@ -329,7 +340,7 @@ impl fmt::Debug for ApiState {
             .field("readiness", &self.readiness)
             .field("plans", &"InvestmentPlanService")
             .field("decision_records", &"DecisionRecordService")
-            .field("broker", &"BrokerClient")
+            .field("broker", &self.broker.as_ref().map(|_| "BrokerClient"))
             .field("market_sentiment", &self.market_sentiment)
             .field(
                 "market_data",
@@ -357,7 +368,7 @@ impl ApiState {
             readiness: Arc::new(ReadinessBackend::SqliteStorage(storage)),
             plans,
             decision_records,
-            broker: Arc::new(MockBroker::paper_only()),
+            broker: None,
             market_sentiment: None,
             market_data: None,
             paper_performance: Some(SqlitePaperPerformanceRepository::new(pool)),
@@ -366,7 +377,8 @@ impl ApiState {
             period_execution: Some(period_execution),
             strategy_specs: Some(strategy_specs),
             scheduler_status: SchedulerStatusHandle::new(false, 0),
-            paper_broker_configured: false,
+            market_data_status: CapabilityStatus::NotConfigured,
+            paper_broker_status: CapabilityStatus::NotConfigured,
             policy_resolver: Arc::new(BuiltinPolicyResolver::default()),
             version: version.into(),
         }
@@ -392,10 +404,12 @@ impl ApiState {
         plans: InvestmentPlanService,
         version: impl Into<Arc<str>>,
     ) -> Self {
-        Self::with_readiness_plans_and_broker(
+        Self::with_readiness_plans_optional_broker_and_decision_records(
             readiness,
             plans,
-            Arc::new(MockBroker::paper_only()),
+            None,
+            CapabilityStatus::NotConfigured,
+            DecisionRecordService::new(Arc::new(UnavailableDecisionRecords)),
             version,
         )
     }
@@ -426,6 +440,24 @@ impl ApiState {
         decision_records: DecisionRecordService,
         version: impl Into<Arc<str>>,
     ) -> Self {
+        Self::with_readiness_plans_optional_broker_and_decision_records(
+            readiness,
+            plans,
+            Some(broker),
+            CapabilityStatus::Configured,
+            decision_records,
+            version,
+        )
+    }
+
+    fn with_readiness_plans_optional_broker_and_decision_records(
+        readiness: Arc<dyn ReadinessCheck>,
+        plans: InvestmentPlanService,
+        broker: Option<Arc<dyn BrokerClient>>,
+        paper_broker_status: CapabilityStatus,
+        decision_records: DecisionRecordService,
+        version: impl Into<Arc<str>>,
+    ) -> Self {
         Self {
             readiness: Arc::new(ReadinessBackend::Custom(readiness)),
             plans,
@@ -439,7 +471,8 @@ impl ApiState {
             period_execution: None,
             strategy_specs: None,
             scheduler_status: SchedulerStatusHandle::new(false, 0),
-            paper_broker_configured: false,
+            market_data_status: CapabilityStatus::NotConfigured,
+            paper_broker_status,
             policy_resolver: Arc::new(BuiltinPolicyResolver::default()),
             version: version.into(),
         }
@@ -496,6 +529,15 @@ impl ApiState {
     #[must_use]
     pub fn with_market_data(mut self, provider: Arc<dyn MarketSignalProvider>) -> Self {
         self.market_data = Some(provider);
+        self.market_data_status = CapabilityStatus::Configured;
+        self
+    }
+
+    /// Mark an explicitly configured market-data adapter as unavailable without blocking startup.
+    #[must_use]
+    pub fn with_market_data_unavailable(mut self) -> Self {
+        self.market_data = None;
+        self.market_data_status = CapabilityStatus::Unavailable;
         self
     }
 
@@ -505,8 +547,16 @@ impl ApiState {
     /// HTTP 请求、响应、审计快照或日志。
     #[must_use]
     pub fn with_broker(mut self, broker: Arc<dyn BrokerClient>) -> Self {
-        self.broker = broker;
-        self.paper_broker_configured = true;
+        self.broker = Some(broker);
+        self.paper_broker_status = CapabilityStatus::Configured;
+        self
+    }
+
+    /// Mark an explicitly configured paper broker as unavailable without installing a mock.
+    #[must_use]
+    pub fn with_paper_broker_unavailable(mut self) -> Self {
+        self.broker = None;
+        self.paper_broker_status = CapabilityStatus::Unavailable;
         self
     }
 
@@ -521,10 +571,10 @@ impl ApiState {
     #[must_use]
     pub(crate) fn runtime_capabilities(&self) -> RuntimeCapabilities {
         RuntimeCapabilities {
-            market_data_configured: self.market_data.is_some(),
+            market_data: self.market_data_status,
             qwen_configured: self.market_sentiment.is_some(),
             ai_provider_profiles: self.ai_provider_profiles(),
-            paper_broker_configured: self.paper_broker_configured,
+            paper_broker: self.paper_broker_status,
             scheduler: self.scheduler_status.snapshot(),
         }
     }
@@ -656,8 +706,8 @@ impl ApiState {
     }
 
     /// 返回受配置保护的 broker port。
-    pub(crate) fn broker(&self) -> &dyn BrokerClient {
-        self.broker.as_ref()
+    pub(crate) fn broker(&self) -> Result<&dyn BrokerClient, ApiError> {
+        self.broker.as_deref().ok_or(ApiError::ServiceUnavailable)
     }
 
     /// 从已配置的 paper broker 读取账户、持仓和订单快照。
@@ -665,7 +715,7 @@ impl ApiState {
     /// 读取失败仅对客户端返回统一不可用错误；OpenD 协议细节、账户标识和
     /// provider 错误文本只保留在服务端日志中。
     pub(crate) async fn paper_portfolio(&self) -> Result<PaperPortfolioSnapshot, ApiError> {
-        self.broker
+        self.broker()?
             .read_paper_portfolio()
             .await
             .inspect_err(|error| tracing::error!(%error, "paper portfolio refresh failed"))
@@ -1597,9 +1647,9 @@ mod tests {
         assert!(!error.to_string().contains("secret"));
     }
 
-    /// Verify a configured adapter replaces the local mock at the broker port.
+    /// Verify an explicitly configured adapter is exposed at the broker port.
     #[tokio::test]
-    async fn with_broker_replaces_default_mock_broker() {
+    async fn with_broker_configures_explicit_broker() {
         let pool =
             SqlitePoolOptions::new().connect_lazy_with(SqliteConnectOptions::new().in_memory(true));
         let state = ApiState::new(SqliteStorage::from_pool(pool), "0.1.0")
@@ -1614,7 +1664,11 @@ mod tests {
         .expect("paper order fixture should be valid");
 
         assert_eq!(
-            state.broker().submit_order(request).await,
+            state
+                .broker()
+                .expect("configured broker should be available")
+                .submit_order(request)
+                .await,
             Err(BrokerError::Unavailable)
         );
     }

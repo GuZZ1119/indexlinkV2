@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-16 AEST — Push 2：行情与模拟 Broker capability 解耦
+
+- 执行模型：GPT-5 Codex（多 Agent 实现通道触发使用额度上限后由主 Agent 接管收口）。
+- 变更类型：服务端可选能力隔离、运行状态契约、配置兼容与回归测试。
+- 涉及文件：`apps/server/src/{config.rs,main.rs}`、`crates/api/src/{state.rs,routes/{decision_preview.rs,decision_records.rs,runtime_status.rs}}`、`crates/api/tests/health.rs`、`apps/web/src/{api/types.ts,components/layout/runtime-status.tsx,i18n/locales/{zh.ts,en.ts}}`、`.env.example`、`readme.md`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：将 OpenD 行情和 paper broker 改为独立开关、独立装配与 `not_configured/configured/unavailable` 三态；保留旧 `OPEND_*` 默认兼容。生产 `ApiState` 不再默认安装 MockBroker；未配置或初始化失败的 broker 路由安全返回 503。任一可选 adapter 初始化失败只记录安全状态，不再阻止 SQLite、计划、决策、审计与 HTTP 服务启动。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-api --locked`（全部单元、集成与文档测试通过）、`cargo check -p indexlink-server --locked`、`cargo test -p indexlink-server --locked`（37 项通过、1 项真实 OpenD smoke 按设计忽略）、`git diff --check`。
+
 ### 2026-09-15 AEST — Push 1：隔离旧 MA200 回放与首页可选错误
 
 - 执行模型：GPT-5 Codex。

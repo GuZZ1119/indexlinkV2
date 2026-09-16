@@ -29,9 +29,9 @@ export function RuntimeStatus() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-muted/25 px-4 py-1.5 text-xs text-muted-foreground">
       <StatusItem tone="ok" icon={<CircleCheck />} label={t('runtime.apiReady')} />
-      <StatusItem tone={status.paper_broker === 'configured' ? 'ok' : 'muted'} label={status.paper_broker === 'configured' ? t('runtime.opendConfigured') : t('runtime.opendNotConfigured')} />
+      <StatusItem tone={status.paper_broker === 'configured' ? 'ok' : status.paper_broker === 'unavailable' ? 'danger' : 'muted'} label={status.paper_broker === 'configured' ? t('runtime.opendConfigured') : status.paper_broker === 'unavailable' ? t('runtime.opendUnavailable') : t('runtime.opendNotConfigured')} />
       <StatusItem tone={status.qwen === 'configured' ? 'ok' : 'muted'} label={status.qwen === 'configured' ? t('runtime.qwenConfigured') : t('runtime.qwenNotConfigured')} />
-      <StatusItem tone={status.market_data === 'configured' ? 'ok' : 'muted'} label={status.market_data === 'configured' ? t('runtime.marketConfigured') : t('runtime.marketNotConfigured')} />
+      <StatusItem tone={status.market_data === 'configured' ? 'ok' : status.market_data === 'unavailable' ? 'danger' : 'muted'} label={status.market_data === 'configured' ? t('runtime.marketConfigured') : status.market_data === 'unavailable' ? t('runtime.marketUnavailable') : t('runtime.marketNotConfigured')} />
       <StatusItem
         tone={status.scheduler.enabled ? 'ok' : 'muted'}
         icon={<TimerReset />}
@@ -48,8 +48,8 @@ export function RuntimeStatus() {
 }
 
 /** Render an individual small runtime-state indicator. */
-function StatusItem({ label, tone, icon }: { label: string; tone: 'ok' | 'muted'; icon?: ReactNode }) {
-  return <span className={cn('inline-flex items-center gap-1', tone === 'ok' ? 'text-semantic-positive' : 'text-muted-foreground')}>{icon}{label}</span>
+function StatusItem({ label, tone, icon }: { label: string; tone: 'ok' | 'muted' | 'danger'; icon?: ReactNode }) {
+  return <span className={cn('inline-flex items-center gap-1', tone === 'ok' ? 'text-semantic-positive' : tone === 'danger' ? 'text-destructive' : 'text-muted-foreground')}>{icon}{label}</span>
 }
 
 /** Render an unambiguous full-width availability state. */

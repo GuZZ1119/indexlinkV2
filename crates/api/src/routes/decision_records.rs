@@ -182,7 +182,7 @@ async fn approve_paper_order(
 
     let acknowledgement = timeout(
         Duration::from_secs(5),
-        state.broker().submit_order(request.clone()),
+        state.broker()?.submit_order(request.clone()),
     )
     .await
     .map_err(|_| ApiError::OrderOutcomeUnknown)?

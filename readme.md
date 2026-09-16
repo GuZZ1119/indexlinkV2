@@ -181,7 +181,7 @@ indexlink/
    pnpm --dir apps/web dev
    ```
 
-本地 `.env` 已被 Git 忽略。可选的 `DASHSCOPE_API_KEY` 只用于 Qwen 证据；也可在 `AI_PROVIDER_PROFILES` 中声明多个已部署的 OpenAI-compatible profile（清单只引用 `api_key_env` 环境变量名，必须恰有一个 `default`，远程 endpoint 必须 HTTPS）。用户和浏览器只能从已部署 profile 中选择，永远看不到 Key 或 endpoint。`OPEND_PROVIDER`、`OPEND_HOST`、`OPEND_PORT` 与 `OPEND_ACCOUNT_ID` 只用于本机 loopback OpenD 模拟账户，均不得提交或写入日志。
+本地 `.env` 已被 Git 忽略。可选的 `DASHSCOPE_API_KEY` 只用于 Qwen 证据；也可在 `AI_PROVIDER_PROFILES` 中声明多个已部署的 OpenAI-compatible profile（清单只引用 `api_key_env` 环境变量名，必须恰有一个 `default`，远程 endpoint 必须 HTTPS）。用户和浏览器只能从已部署 profile 中选择，永远看不到 Key 或 endpoint。`OPEND_PROVIDER`、`OPEND_HOST`、`OPEND_PORT` 与 `OPEND_ACCOUNT_ID` 只用于本机 loopback OpenD；`OPEND_MARKET_DATA_ENABLED` 和 `OPEND_PAPER_BROKER_ENABLED` 可独立关闭行情或模拟 broker。可选 adapter 失败不会阻止 SQLite 核心启动，broker 失败也不会回退到 Mock。所有配置均不得提交或写入日志。
 
 启动后在浏览器访问 Vite 输出的本地地址（通常为 `http://localhost:5173`）。如需使用受限 Copilot，先确认状态栏显示“AI 已配置”；没有配置时其余 Studio 流程仍可正常使用。
 

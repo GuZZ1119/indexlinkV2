@@ -53,6 +53,30 @@
 }
 ```
 
+#### `GET /runtime-status`
+
+返回 SQLite 核心、可选 adapter 与调度器的展示安全状态，不会主动调用外部行情、AI 或 broker。`market_data` 与 `paper_broker` 均为三态：`not_configured` 表示运营方未启用，`configured` 表示 adapter 已装配，`unavailable` 表示已启用但初始化失败。可选能力不可用不会改变核心服务的存活状态；依赖这些能力的具体路由会返回 `503 service_unavailable`。
+
+响应示例：
+
+```json
+{
+  "service": "running",
+  "database": "ready",
+  "market_data": "not_configured",
+  "qwen": "not_configured",
+  "ai_provider_profiles": [],
+  "paper_broker": "unavailable",
+  "scheduler": {
+    "enabled": true,
+    "tick_interval_seconds": 60,
+    "last_tick_at": null,
+    "last_summary": null,
+    "last_error_at": null
+  }
+}
+```
+
 ### Investment Plans
 
 #### `POST /investment-plans`
@@ -452,7 +476,7 @@ curl -X POST 'http://127.0.0.1:8080/market-sentiment/preview?profile_id=qwen-def
 
 ### Futu/Moomoo OpenD Paper Trading API
 
-已具备 broker port、MockBroker、OpenD raw TCP paper session 与下单 adapter。server 未设置 `OPEND_PROVIDER` 时保留 MockBroker；设置 `futu` 或 `moomoo` 后，server 在启动时连接本机 loopback OpenD 并注入真实 `OpenDPaperBroker`。启动失败会安全失败，绝不会静默降级到 mock broker。
+已具备 broker port、测试专用 MockBroker、OpenD raw TCP paper session 与下单 adapter。生产 server 未配置 broker 时不会安装 Mock；设置 `OPEND_PROVIDER` 后，可通过 `OPEND_MARKET_DATA_ENABLED` 与 `OPEND_PAPER_BROKER_ENABLED` 独立装配只读行情和模拟 broker。任一 adapter 初始化失败只会将对应 capability 标记为 `unavailable`，不会阻止 SQLite、Plan、Decision、Audit 或 HTTP server 启动，也绝不会静默降级到 Mock。
 
 真实 OpenD 下单暂不需要单独 HTTP endpoint；它复用 `POST /investment-plans/:id/decision-preview` 的 `paper_order`，以确保订单必须经过计划、执行日和决策保护。
 
@@ -507,11 +531,13 @@ OPEND_PROVIDER=futu
 OPEND_HOST=127.0.0.1
 OPEND_PORT=11111
 OPEND_ACCOUNT_ID='<paper-account-id>'
+OPEND_MARKET_DATA_ENABLED=true
+OPEND_PAPER_BROKER_ENABLED=true
 ```
 
 - 配置仅接受 `futu` / `moomoo` 和 loopback host（`127.0.0.1`、`::1`、`localhost`）。
 - server 配置层只构造 `Paper` adapter；没有 live environment 或 live gate 配置项。
-- 未设置 `OPEND_PROVIDER` 时，演示继续使用 paper-only `MockBroker`。
+- 两个 capability 开关未显式设置时保持旧配置兼容：存在 `OPEND_PROVIDER` 即默认同时启用；也可分别设为 `false`。未配置或初始化失败的 broker 路由统一返回 `503 service_unavailable`，不会生成 `MOCK-*` 回执。
 - 真实 smoke 是忽略式测试，必须显式确认且提供唯一 idempotency key、symbol 与 quantity；它不读取、不传输 OpenD 登录密码或 token。
 
 真实 smoke 前先在 OpenD GUI 中登录并确认选择的是虚拟账户；以下命令会提交一笔 paper market order，不应在 CI 中执行：

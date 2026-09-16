@@ -349,9 +349,9 @@ export interface SchedulerStatus {
 export interface RuntimeStatus {
   service: 'running'
   database: 'ready' | 'unavailable'
-  market_data: 'configured' | 'not_configured'
+  market_data: 'configured' | 'not_configured' | 'unavailable'
   qwen: 'configured' | 'not_configured'
-  paper_broker: 'configured' | 'not_configured'
+  paper_broker: 'configured' | 'not_configured' | 'unavailable'
   scheduler: SchedulerStatus
 }
 

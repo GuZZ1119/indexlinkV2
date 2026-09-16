@@ -1168,7 +1168,7 @@ async fn submit_paper_order(
 ) -> Result<BrokerOrderAck, ApiError> {
     timeout(
         BROKER_SUBMIT_TIMEOUT,
-        state.broker().submit_order(request.clone()),
+        state.broker()?.submit_order(request.clone()),
     )
     .await
     .map_err(|_| ApiError::ServiceUnavailable)?

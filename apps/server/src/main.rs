@@ -14,7 +14,7 @@ use broker::{
 use config::{AiProviderConfiguration, Config, SchedulerConfig};
 use indexlink_api::{build_router_with_cors, ApiState, SchedulerStatusHandle};
 use indexlink_storage::SqliteStorage;
-use market_data::OpenDMarketSignalProvider;
+use market_data::{MarketSignalProvider, OpenDMarketSignalProvider};
 use std::{future::Future, sync::Arc};
 use tracing_subscriber::EnvFilter;
 
@@ -52,7 +52,8 @@ where
     storage.migrate().await?;
     tracing::info!("SQLite migrations applied");
     let market_sentiment_configured = !config.ai_providers.is_empty();
-    let paper_broker_configured = config.opend.is_some();
+    let market_data_configured = config.market_data.is_some();
+    let paper_broker_configured = config.paper_broker.is_some();
     let scheduler_status = SchedulerStatusHandle::new(
         config.scheduler.enabled,
         config.scheduler.tick_interval.as_secs(),
@@ -60,11 +61,13 @@ where
     let state = build_api_state(
         storage,
         config.ai_providers,
-        config.opend,
+        config.market_data,
+        config.paper_broker,
         scheduler_status.clone(),
+        build_opend_market_data,
         build_opend_paper_broker,
     )
-    .await?;
+    .await;
     start_automatic_scheduler(state.clone(), config.scheduler, scheduler_status);
     let app = build_router_with_cors(state, config.cors_allowed_origins);
     let listener = tokio::net::TcpListener::bind(config.address).await?;
@@ -72,6 +75,7 @@ where
     tracing::info!(
         address = %config.address,
         market_sentiment_configured,
+        market_data_configured,
         paper_broker_configured,
         scheduler_enabled = config.scheduler.enabled,
         "indexlink server started"
@@ -124,17 +128,21 @@ fn start_automatic_scheduler(
 
 /// Assemble production API state with optional server-deployed AI profiles and OpenD dependencies.
 ///
-/// Without an OpenD configuration, the state keeps its local paper-only mock broker.
-/// A configured OpenD session must initialize successfully before the server starts.
-async fn build_api_state<F, Fut>(
+/// Optional adapters are composed independently and can never block the SQLite core.
+async fn build_api_state<MF, BF, Fut>(
     storage: SqliteStorage,
     ai_providers: Vec<AiProviderConfiguration>,
-    opend: Option<OpenDConnectionConfig>,
+    market_data: Option<OpenDConnectionConfig>,
+    paper_broker: Option<OpenDConnectionConfig>,
     scheduler_status: SchedulerStatusHandle,
-    build_broker: F,
-) -> Result<ApiState, BrokerSetupError>
+    build_market_data: MF,
+    build_broker: BF,
+) -> ApiState
 where
-    F: FnOnce(OpenDConnectionConfig) -> Fut,
+    MF: FnOnce(
+        OpenDConnectionConfig,
+    ) -> Result<Arc<dyn MarketSignalProvider>, market_data::MarketDataError>,
+    BF: FnOnce(OpenDConnectionConfig) -> Fut,
     Fut: Future<Output = Result<Arc<dyn BrokerClient>, BrokerSetupError>>,
 {
     let state =
@@ -164,16 +172,34 @@ where
             )
             .expect("configuration pre-validates unique AI profiles")
     };
-    match opend {
-        Some(config) => {
-            let market_data = OpenDMarketSignalProvider::new(config.host(), config.port())
-                .map_err(BrokerSetupError::MarketData)?;
-            Ok(state
-                .with_market_data(Arc::new(market_data))
-                .with_broker(build_broker(config).await?))
-        }
-        None => Ok(state),
+    let state = match market_data {
+        Some(config) => match build_market_data(config) {
+            Ok(provider) => state.with_market_data(provider),
+            Err(error) => {
+                tracing::warn!(%error, "configured market-data adapter is unavailable");
+                state.with_market_data_unavailable()
+            }
+        },
+        None => state,
+    };
+    match paper_broker {
+        Some(config) => match build_broker(config).await {
+            Ok(broker) => state.with_broker(broker),
+            Err(error) => {
+                tracing::warn!(%error, "configured paper broker is unavailable");
+                state.with_paper_broker_unavailable()
+            }
+        },
+        None => state,
     }
+}
+
+/// Build the read-only OpenD market-data adapter without probing the network.
+fn build_opend_market_data(
+    config: OpenDConnectionConfig,
+) -> Result<Arc<dyn MarketSignalProvider>, market_data::MarketDataError> {
+    OpenDMarketSignalProvider::new(config.host(), config.port())
+        .map(|provider| Arc::new(provider) as Arc<dyn MarketSignalProvider>)
 }
 
 /// Connect and wrap the configured local OpenD session as the production paper broker.
@@ -191,9 +217,6 @@ async fn build_opend_paper_broker(
 /// Safe startup error when an explicitly configured OpenD paper adapter cannot initialize.
 #[derive(Debug, thiserror::Error)]
 enum BrokerSetupError {
-    /// The local OpenD endpoint could not become a read-only market-data provider.
-    #[error("configured OpenD market-data provider could not be initialized")]
-    MarketData(#[source] market_data::MarketDataError),
     /// The local OpenD session could not be initialized.
     #[error("configured OpenD paper broker is unavailable")]
     Session(#[source] OpenDSessionError),
@@ -318,11 +341,12 @@ mod tests {
             storage().await,
             Vec::new(),
             None,
+            None,
             scheduler_status(),
+            build_opend_market_data,
             build_opend_paper_broker,
         )
-        .await
-        .expect("mock broker composition should be infallible");
+        .await;
 
         assert!(format!("{state:?}").contains("market_sentiment: None"));
     }
@@ -334,11 +358,12 @@ mod tests {
             storage().await,
             vec![ai_provider("reviewer", true), ai_provider("copilot", false)],
             None,
+            None,
             scheduler_status(),
+            build_opend_market_data,
             build_opend_paper_broker,
         )
-        .await
-        .expect("configured AI composition should be infallible");
+        .await;
         let debug = format!("{state:?}");
 
         assert!(debug.contains("market_sentiment: Some(MarketSentimentDependencies)"));
@@ -359,7 +384,7 @@ mod tests {
         assert_eq!(providers["providers"][1]["id"], "reviewer");
     }
 
-    /// Broker double used to prove the composition root replaces its default mock.
+    /// Broker double used to prove the composition root installs an explicit adapter.
     #[derive(Debug)]
     struct UnavailableBroker;
 
@@ -450,30 +475,68 @@ mod tests {
         .expect("decision route should respond")
     }
 
-    /// Verify a configured OpenD factory failure prevents server composition.
+    /// Verify a configured OpenD factory failure is isolated from server composition.
     #[tokio::test]
-    async fn build_api_state_returns_session_error_when_opend_factory_fails() {
-        let error = build_api_state(
+    async fn build_api_state_contains_session_error_when_opend_factory_fails() {
+        let state = build_api_state(
             storage().await,
             Vec::new(),
+            None,
             Some(paper_config()),
             scheduler_status(),
+            build_opend_market_data,
             |_| async {
                 Err::<Arc<dyn BrokerClient>, _>(BrokerSetupError::Session(
                     OpenDSessionError::Unavailable,
                 ))
             },
         )
-        .await
-        .expect_err("failed OpenD factory must prevent startup");
+        .await;
 
-        assert!(matches!(
-            error,
-            BrokerSetupError::Session(OpenDSessionError::Unavailable)
-        ));
+        let response = build_router_with_cors(state, Vec::new())
+            .oneshot(
+                Request::builder()
+                    .uri("/runtime-status")
+                    .body(Body::empty())
+                    .expect("runtime-status request should build"),
+            )
+            .await
+            .expect("runtime-status should respond");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response_json(response).await["paper_broker"], "unavailable");
     }
 
-    /// Verify a configured broker factory replaces the default mock in the HTTP route.
+    /// Verify market-data construction failure does not discard a configured paper broker.
+    #[tokio::test]
+    async fn build_api_state_composes_optional_capabilities_independently() {
+        let state = build_api_state(
+            storage().await,
+            Vec::new(),
+            Some(paper_config()),
+            Some(paper_config()),
+            scheduler_status(),
+            |_| Err(market_data::MarketDataError::OpenDUnavailable),
+            |_| async {
+                Ok::<Arc<dyn BrokerClient>, BrokerSetupError>(Arc::new(UnavailableBroker))
+            },
+        )
+        .await;
+        let response = build_router_with_cors(state, Vec::new())
+            .oneshot(
+                Request::builder()
+                    .uri("/runtime-status")
+                    .body(Body::empty())
+                    .expect("runtime-status request should build"),
+            )
+            .await
+            .expect("runtime-status should respond");
+        let body = response_json(response).await;
+
+        assert_eq!(body["market_data"], "unavailable");
+        assert_eq!(body["paper_broker"], "configured");
+    }
+
+    /// Verify a configured broker factory is used by the HTTP route.
     #[tokio::test]
     async fn build_api_state_uses_configured_broker_factory() {
         let storage = storage().await;
@@ -484,14 +547,15 @@ mod tests {
         let state = build_api_state(
             storage,
             Vec::new(),
+            None,
             Some(paper_config()),
             scheduler_status(),
+            build_opend_market_data,
             |_| async {
                 Ok::<Arc<dyn BrokerClient>, BrokerSetupError>(Arc::new(UnavailableBroker))
             },
         )
-        .await
-        .expect("configured factory should compose");
+        .await;
         let response = submit_decision_preview(
             build_router_with_cors(state, Vec::new()),
             "VOO",
@@ -532,7 +596,7 @@ mod tests {
         );
         let config = Config::from_env().expect("server configuration should be valid");
         let opend = config
-            .opend
+            .paper_broker
             .expect("OPEND_PROVIDER must configure the real paper broker");
         assert!(
             opend.account_id().is_some(),
@@ -550,12 +614,13 @@ mod tests {
             build_api_state(
                 storage,
                 Vec::new(),
+                None,
                 Some(opend),
                 scheduler_status(),
+                build_opend_market_data,
                 build_opend_paper_broker,
             )
-            .await
-            .expect("local OpenD paper broker should initialize"),
+            .await,
             Vec::new(),
         );
         let response = submit_decision_preview(app, &symbol, &quantity, &idempotency_key).await;
