@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-16 AEST — Push 4：Append-only Manual Execution Journal
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：执行留痕领域契约、SQLite migration/repository、HTTP API、审计不变量与回归测试。
+- 涉及文件：`crates/decision-records/src/lib.rs`、`crates/storage/src/{lib.rs,sqlite.rs,sqlite_manual_executions.rs}`、`crates/api/src/{error.rs,state.rs,routes/{mod.rs,manual_executions.rs}}`、`crates/api/tests/manual_executions.rs`、`migrations/sqlite/20260916090000_create_manual_execution_events.sql`、`docs/{reference/api-management.md,plans/v2_1_closeout_hardness.md}`、`CHANGE_LOG.md`。
+- 变更内容：新增与不可变 DecisionRecord 分离的手工执行事件，支持 `executed`、`skipped`、`partial`，实际金额使用精确 decimal 字符串，发生时间规范化为 UTC，来源固定为 `user_reported`。`plan_id` 与 `currency` 由 SQLite 从原 decision 继承；客户端生成非 nil `event_id`，重复追加返回 `409 conflict`。repository 只暴露 append/list，SQLite trigger 拒绝直接修改和仍有关联计划时的直接删除，同时保留既有计划删除级联契约。新增 `POST/GET /decisions/:id/manual-executions`，不调用 broker、不重算策略、不覆盖原建议。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p decision-records --locked`（14 项通过）、`cargo test -p indexlink-storage --all-features --locked`（47 项通过）、`cargo test -p indexlink-api --locked`（含 3 项新 HTTP 集成测试，全部通过）、`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`、`cargo test --workspace --locked`（全部通过；网络/真实 OpenD smoke 按设计忽略）、`cargo llvm-cov -p decision-records -p indexlink-storage -p indexlink-api --all-features --summary-only`（新 route 行覆盖 98.31%，新 SQLite repository 行覆盖 98.33%，decision-records crate 行覆盖 94.68%）、`git diff --check`。
+
 ### 2026-09-16 AEST — Gate 1 集成验收与状态收口
 
 - 执行模型：GPT-5 Codex（Push 2 / Push 3 采用并行 worktree；子 Agent 使用额度触顶后由主 Agent 完成审查、验证与集成）。

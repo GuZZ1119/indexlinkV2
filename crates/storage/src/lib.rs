@@ -13,6 +13,7 @@ mod investment_plans;
 mod sqlite;
 mod sqlite_decision_records;
 mod sqlite_investment_plans;
+mod sqlite_manual_executions;
 mod sqlite_opportunity_cash;
 mod sqlite_paper_performance;
 mod sqlite_period_execution;
@@ -37,6 +38,8 @@ pub use sqlite::SqliteStorage;
 pub use sqlite_decision_records::SqliteDecisionRecordRepository;
 /// Investment Plan repository 的 SQLite adapter。
 pub use sqlite_investment_plans::SqliteInvestmentPlanRepository;
+/// Append-only SQLite journal adapter for user-reported execution events.
+pub use sqlite_manual_executions::SqliteManualExecutionRepository;
 /// SQLite local opportunity-bucket cash ledger adapter.
 pub use sqlite_opportunity_cash::{
     OpportunityCashSettlement, OpportunityCashSettlementInput, SqliteOpportunityCashRepository,

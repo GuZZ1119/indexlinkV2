@@ -14,15 +14,16 @@ use builtin_policies::BuiltinPolicyResolver;
 use chrono::Datelike;
 use decision_records::{
     DecisionRecord, DecisionRecordListQuery, DecisionRecordRepository,
-    DecisionRecordRepositoryError, DecisionRecordService,
+    DecisionRecordRepositoryError, DecisionRecordService, ManualExecutionEvent,
+    ManualExecutionRepository, ManualExecutionRepositoryError, ManualExecutionService,
 };
 use indexlink_storage::{
     OpportunityCashSettlementInput, PaperPerformance, PaperPerformanceError, PaperPerformancePlan,
     PaperPerformancePoint, PaperTradeMarker, SqliteDecisionRecordRepository,
-    SqliteInvestmentPlanRepository, SqliteOpportunityCashRepository,
-    SqlitePaperPerformanceRepository, SqlitePeriodExecutionRepository,
-    SqliteScheduledDecisionRepository, SqliteStorage, SqliteStrategySpecRepository,
-    StoredStrategySpec,
+    SqliteInvestmentPlanRepository, SqliteManualExecutionRepository,
+    SqliteOpportunityCashRepository, SqlitePaperPerformanceRepository,
+    SqlitePeriodExecutionRepository, SqliteScheduledDecisionRepository, SqliteStorage,
+    SqliteStrategySpecRepository, StoredStrategySpec,
 };
 use investment_plans::InvestmentPlanService;
 use market_data::{MarketDataError, MarketPricePoint, MarketSignalInput, MarketSignalProvider};
@@ -318,6 +319,7 @@ pub struct ApiState {
     readiness: Arc<ReadinessBackend>,
     plans: InvestmentPlanService,
     decision_records: DecisionRecordService,
+    manual_executions: ManualExecutionService,
     broker: Option<Arc<dyn BrokerClient>>,
     market_sentiment: Option<Arc<MarketSentimentDependencies>>,
     market_data: Option<Arc<dyn MarketSignalProvider>>,
@@ -340,6 +342,7 @@ impl fmt::Debug for ApiState {
             .field("readiness", &self.readiness)
             .field("plans", &"InvestmentPlanService")
             .field("decision_records", &"DecisionRecordService")
+            .field("manual_executions", &"ManualExecutionService")
             .field("broker", &self.broker.as_ref().map(|_| "BrokerClient"))
             .field("market_sentiment", &self.market_sentiment)
             .field(
@@ -360,6 +363,9 @@ impl ApiState {
             InvestmentPlanService::new(Arc::new(SqliteInvestmentPlanRepository::new(pool.clone())));
         let decision_records =
             DecisionRecordService::new(Arc::new(SqliteDecisionRecordRepository::new(pool.clone())));
+        let manual_executions = ManualExecutionService::new(Arc::new(
+            SqliteManualExecutionRepository::new(pool.clone()),
+        ));
         let scheduled_decisions = SqliteScheduledDecisionRepository::new(pool.clone());
         let opportunity_cash = SqliteOpportunityCashRepository::new(pool.clone());
         let period_execution = SqlitePeriodExecutionRepository::new(pool.clone());
@@ -368,6 +374,7 @@ impl ApiState {
             readiness: Arc::new(ReadinessBackend::SqliteStorage(storage)),
             plans,
             decision_records,
+            manual_executions,
             broker: None,
             market_sentiment: None,
             market_data: None,
@@ -462,6 +469,7 @@ impl ApiState {
             readiness: Arc::new(ReadinessBackend::Custom(readiness)),
             plans,
             decision_records,
+            manual_executions: ManualExecutionService::new(Arc::new(UnavailableManualExecutions)),
             broker,
             market_sentiment: None,
             market_data: None,
@@ -557,6 +565,13 @@ impl ApiState {
     pub fn with_paper_broker_unavailable(mut self) -> Self {
         self.broker = None;
         self.paper_broker_status = CapabilityStatus::Unavailable;
+        self
+    }
+
+    /// Inject a manual execution journal service for isolated adapters and tests.
+    #[must_use]
+    pub fn with_manual_executions(mut self, service: ManualExecutionService) -> Self {
+        self.manual_executions = service;
         self
     }
 
@@ -1020,6 +1035,11 @@ impl ApiState {
         &self.decision_records
     }
 
+    /// Return the append-only manual execution journal service.
+    pub(crate) fn manual_executions(&self) -> &ManualExecutionService {
+        &self.manual_executions
+    }
+
     /// Return the most recent earlier audit record for one plan, if any.
     ///
     /// The result is used only to produce a readable local change summary for
@@ -1365,6 +1385,9 @@ struct UnavailableInvestmentPlans;
 /// Fallback repository used when decision records are not configured in isolated tests.
 struct UnavailableDecisionRecords;
 
+/// Fallback repository used when the manual execution journal is not configured.
+struct UnavailableManualExecutions;
+
 #[async_trait]
 impl investment_plans::InvestmentPlanRepository for UnavailableInvestmentPlans {
     async fn create(
@@ -1435,6 +1458,23 @@ impl DecisionRecordRepository for UnavailableDecisionRecords {
     /// Reject record lookups because no decision-record backend is configured.
     async fn get(&self, _id: uuid::Uuid) -> Result<DecisionRecord, DecisionRecordRepositoryError> {
         Err(DecisionRecordRepositoryError::Unavailable)
+    }
+}
+
+#[async_trait]
+impl ManualExecutionRepository for UnavailableManualExecutions {
+    async fn append(
+        &self,
+        _input: decision_records::CreateManualExecutionEvent,
+    ) -> Result<ManualExecutionEvent, ManualExecutionRepositoryError> {
+        Err(ManualExecutionRepositoryError::Unavailable)
+    }
+
+    async fn list_by_decision(
+        &self,
+        _decision_record_id: uuid::Uuid,
+    ) -> Result<Vec<ManualExecutionEvent>, ManualExecutionRepositoryError> {
+        Err(ManualExecutionRepositoryError::Unavailable)
     }
 }
 

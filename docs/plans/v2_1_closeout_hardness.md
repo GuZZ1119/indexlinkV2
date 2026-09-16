@@ -38,7 +38,7 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 | 普通首页 | `/personal` 已替代旧 Dashboard 作为默认入口，但金额、日期、进度和完成状态仍是前端演示数据 | 视觉壳可复用，M1 未闭环 |
 | 旧 MA200 回放 | 普通首页与旧 Dashboard 均不再渲染；旧 API 保留，只有高级实验室可由用户手动触发 disabled query | Push 1 已隔离；端点仅作兼容，产品回测仍须重建 |
 | Plan 与 Decision | Rust API、SQLite 与旧 `/plans`、`/decisions` 页面可用，但没有进入普通首页主流程 | 核心可复用，前端未映射 |
-| 手工执行留痕 | 没有 append-only manual execution domain、migration、repository 或 API | M1 阻塞项 |
+| 手工执行留痕 | 已有独立 append-only `ManualExecutionEvent`、SQLite migration/repository 与 `POST/GET /decisions/:id/manual-executions`；支持 `executed/skipped/partial`、用户报告来源、重试冲突保护和原决策不变测试 | Push 4 已完成；待 Push 5 接入普通用户界面 |
 | 可选能力隔离 | Web 错误已局部化；OpenD 行情与 paper broker 现可独立启用、独立装配并报告 `not_configured/configured/unavailable`；失败不会阻止 SQLite 核心启动，也不会回退 Mock | Push 2 已完成 |
 | DSL 数据依赖 | 除 Fixed DCA 外仍先拉完整宏观/趋势/VIX；价格型 DSL 不能只依赖价格历史 | M2 前置项，不阻塞 M1 |
 | PostgreSQL | server 默认依赖图不再包含 `sqlx-postgres`；storage 仅在显式 `postgres` feature 下编译 PostgreSQL adapter 与测试 | Push 3 已完成 |
@@ -164,6 +164,8 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 5. 决策详情同时显示原建议和所有手工事件；
 6. 无 AI、OpenD、broker 与市场数据时全流程仍可用。
 
+当前状态：**进行中。** Push 4 已关闭后端 journal 阻塞项；事件只能追加，`plan_id/currency` 从原 decision 继承，来源固定为 `user_reported`。Gate 2 尚未通过，因为普通首页、最小 Plan 与 Decision detail 还未在 Push 5 接入真实 API。
+
 通过后立即让 3–5 位目标用户完成一次任务，不先扩展策略数量。
 
 ### Gate 3 用户任务验证
@@ -201,7 +203,7 @@ Fixed DCA 加一个受限规则策略即可。完整策略目录、三到五个�
 | 1（已完成） | `fix(web): isolate legacy replay and optional errors` | 新普通首页、Dashboard caller、query hooks、路由；不碰 Rust 公式 | 普通首页不请求旧回放；旧回放仅在 Lab 手动触发；可选失败不造成全局错误 |
 | 2（已完成） | `refactor(server): decouple market and paper broker capabilities` | `apps/server/src/{main,config}.rs`、必要的 `ApiState` capability 契约 | 无 broker 或 broker 失败时核心启动；真实失败不伪装 Mock |
 | 3（已完成） | `build(storage): make PostgreSQL opt in` | workspace Cargo、storage modules/exports/tests | 默认依赖图无 SQLx postgres；显式 feature 仍编译 |
-| 4 | `feat(execution): add manual execution journal` | 新 domain/service、SQLite migration/repository、API、API 文档 | append-only executed/skipped/partial；DecisionRecord 不变 |
+| 4（已完成） | `feat(execution): add manual execution journal` | 新 domain/service、SQLite migration/repository、API、API 文档 | append-only executed/skipped/partial；DecisionRecord 不变 |
 | 5 | `feat(web): connect minimal Today and Plan flow` | `/personal` 或 `/today`、最小 Plan、Decision detail、React Query hooks | Fixed DCA 真实创建、真实建议、真实手工留痕、真实历史 |
 | 6 | `test(product): run M1 user-task validation` | 验收记录，不扩展功能 | 3–5 位用户证据和 Go/Adjust/Stop 决策 |
 | 7 | 条件 Push | M2 数据、回测与两策略对比 | 仅在 Gate 3 支持后创建 |

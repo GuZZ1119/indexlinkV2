@@ -22,6 +22,7 @@ const MAX_SYMBOL_LEN: usize = 32;
 const MAX_SUMMARY_LEN: usize = 2000;
 const DEFAULT_RECORD_LIST_LIMIT: u16 = 50;
 const MAX_RECORD_LIST_LIMIT: u16 = 200;
+const MAX_MANUAL_EXECUTION_NOTE_LEN: usize = 500;
 
 /// Execution status captured by a decision record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -188,6 +189,227 @@ pub struct AttachBrokerOrderRequest {
     pub broker_order_request: Value,
     /// User-facing state explaining that the broker outcome is pending.
     pub summary: String,
+}
+
+/// User-reported outcome appended to an immutable decision record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManualExecutionOutcome {
+    /// The user reports completing the intended investment action.
+    Executed,
+    /// The user reports intentionally taking no action.
+    Skipped,
+    /// The user reports completing only part of the intended action.
+    Partial,
+}
+
+/// Provenance attached to a manual execution event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManualExecutionSource {
+    /// The event is an unverified statement entered by the user.
+    UserReported,
+}
+
+/// One append-only user-reported execution event linked to a decision record.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ManualExecutionEvent {
+    /// Client-generated event ID used to make retries explicit and duplicate-safe.
+    pub id: Uuid,
+    /// Immutable decision record to which the user response applies.
+    pub decision_record_id: Uuid,
+    /// Plan snapshot inherited from the referenced decision record.
+    pub plan_id: Uuid,
+    /// User-reported execution outcome.
+    pub outcome: ManualExecutionOutcome,
+    /// Actual amount reported by the user; absent only when the outcome is skipped.
+    #[serde(
+        with = "rust_decimal::serde::str_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub actual_amount: Option<Decimal>,
+    /// Currency snapshot inherited from the referenced decision record.
+    pub currency: String,
+    /// Optional bounded user note.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// When the user says the execution outcome occurred.
+    #[serde(with = "time::serde::rfc3339")]
+    pub occurred_at: OffsetDateTime,
+    /// When IndexLink appended this event to the local journal.
+    #[serde(with = "time::serde::rfc3339")]
+    pub recorded_at: OffsetDateTime,
+    /// Explicitly marks the event as user-reported rather than broker-verified.
+    pub source: ManualExecutionSource,
+}
+
+/// Input for appending one manual execution event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateManualExecutionEvent {
+    /// Client-generated event ID; retries must reuse the same value.
+    pub id: Uuid,
+    /// Immutable decision record to which this event applies.
+    pub decision_record_id: Uuid,
+    /// User-reported execution outcome.
+    pub outcome: ManualExecutionOutcome,
+    /// Positive actual amount for executed or partial outcomes.
+    pub actual_amount: Option<Decimal>,
+    /// Optional user note.
+    pub note: Option<String>,
+    /// User-reported occurrence time.
+    pub occurred_at: OffsetDateTime,
+}
+
+impl CreateManualExecutionEvent {
+    /// Normalize and validate a manual execution event before persistence.
+    pub fn normalize(self) -> Result<Self, ManualExecutionValidationError> {
+        if self.id.is_nil() || self.decision_record_id.is_nil() {
+            return Err(ManualExecutionValidationError::InvalidIdentifier);
+        }
+        match (self.outcome, self.actual_amount) {
+            (ManualExecutionOutcome::Skipped, None) => {}
+            (ManualExecutionOutcome::Skipped, Some(_)) => {
+                return Err(ManualExecutionValidationError::UnexpectedActualAmount)
+            }
+            (ManualExecutionOutcome::Executed | ManualExecutionOutcome::Partial, Some(amount))
+                if amount > Decimal::ZERO => {}
+            (ManualExecutionOutcome::Executed | ManualExecutionOutcome::Partial, _) => {
+                return Err(ManualExecutionValidationError::InvalidActualAmount)
+            }
+        }
+        let note = self.note.map(normalize_manual_execution_note).transpose()?;
+
+        Ok(Self {
+            note,
+            occurred_at: self.occurred_at.to_offset(time::UtcOffset::UTC),
+            ..self
+        })
+    }
+}
+
+/// Validation failures for user-reported manual execution events.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ManualExecutionValidationError {
+    /// Event and decision identifiers must be non-nil UUIDs.
+    #[error("manual execution identifier is invalid")]
+    InvalidIdentifier,
+    /// Executed and partial outcomes require a positive actual amount.
+    #[error("manual execution actual amount is invalid")]
+    InvalidActualAmount,
+    /// Skipped outcomes must not claim an actual amount.
+    #[error("skipped manual execution must not contain an actual amount")]
+    UnexpectedActualAmount,
+    /// Notes must be non-blank and within the supported bound.
+    #[error("manual execution note is invalid")]
+    InvalidNote,
+}
+
+/// Storage failures hidden behind the manual execution application layer.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ManualExecutionRepositoryError {
+    /// The event did not pass domain validation.
+    #[error(transparent)]
+    Validation(#[from] ManualExecutionValidationError),
+    /// The referenced decision record does not exist.
+    #[error("manual execution decision record not found")]
+    NotFound,
+    /// The event ID already exists and must not be appended again.
+    #[error("manual execution event already exists")]
+    AlreadyExists,
+    /// The storage backend is unavailable.
+    #[error("manual execution repository unavailable")]
+    Unavailable,
+}
+
+/// Application-layer failures for the manual execution journal.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ManualExecutionApplicationError {
+    /// The event did not pass domain validation.
+    #[error(transparent)]
+    Validation(#[from] ManualExecutionValidationError),
+    /// The referenced decision record does not exist.
+    #[error("manual execution decision record not found")]
+    NotFound,
+    /// The event ID was already used.
+    #[error("manual execution event already exists")]
+    AlreadyExists,
+    /// The journal backend is unavailable.
+    #[error("manual execution journal unavailable")]
+    Unavailable,
+}
+
+impl From<ManualExecutionRepositoryError> for ManualExecutionApplicationError {
+    fn from(error: ManualExecutionRepositoryError) -> Self {
+        match error {
+            ManualExecutionRepositoryError::Validation(error) => Self::Validation(error),
+            ManualExecutionRepositoryError::NotFound => Self::NotFound,
+            ManualExecutionRepositoryError::AlreadyExists => Self::AlreadyExists,
+            ManualExecutionRepositoryError::Unavailable => Self::Unavailable,
+        }
+    }
+}
+
+/// Outbound append-only repository port for manual execution events.
+#[async_trait]
+pub trait ManualExecutionRepository: Send + Sync {
+    /// Append one event without updating the referenced decision record.
+    async fn append(
+        &self,
+        input: CreateManualExecutionEvent,
+    ) -> Result<ManualExecutionEvent, ManualExecutionRepositoryError>;
+
+    /// List all events for a decision in stable journal order.
+    async fn list_by_decision(
+        &self,
+        decision_record_id: Uuid,
+    ) -> Result<Vec<ManualExecutionEvent>, ManualExecutionRepositoryError>;
+}
+
+/// Application service for append-only user-reported execution events.
+#[derive(Clone)]
+pub struct ManualExecutionService {
+    repository: Arc<dyn ManualExecutionRepository>,
+}
+
+impl ManualExecutionService {
+    /// Build the service from a repository implementation.
+    #[must_use]
+    pub fn new(repository: Arc<dyn ManualExecutionRepository>) -> Self {
+        Self { repository }
+    }
+
+    /// Append one validated user-reported event.
+    ///
+    /// # Errors
+    ///
+    /// Returns validation, not-found, duplicate-ID, or backend availability errors.
+    pub async fn append(
+        &self,
+        input: CreateManualExecutionEvent,
+    ) -> Result<ManualExecutionEvent, ManualExecutionApplicationError> {
+        self.repository
+            .append(input.normalize()?)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// List all user-reported events for one immutable decision record.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ManualExecutionApplicationError::Unavailable`] if storage is unavailable.
+    pub async fn list_by_decision(
+        &self,
+        decision_record_id: Uuid,
+    ) -> Result<Vec<ManualExecutionEvent>, ManualExecutionApplicationError> {
+        if decision_record_id.is_nil() {
+            return Err(ManualExecutionValidationError::InvalidIdentifier.into());
+        }
+        self.repository
+            .list_by_decision(decision_record_id)
+            .await
+            .map_err(Into::into)
+    }
 }
 
 /// Query options for listing decision records.
@@ -563,6 +785,17 @@ fn normalize_summary(value: String) -> Result<String, DecisionRecordValidationEr
     }
 }
 
+fn normalize_manual_execution_note(
+    value: String,
+) -> Result<String, ManualExecutionValidationError> {
+    let normalized = value.trim().to_owned();
+    if normalized.is_empty() || normalized.len() > MAX_MANUAL_EXECUTION_NOTE_LEN {
+        Err(ManualExecutionValidationError::InvalidNote)
+    } else {
+        Ok(normalized)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -915,5 +1148,64 @@ mod tests {
                 ))
             );
         }
+    }
+
+    fn manual_input(outcome: ManualExecutionOutcome) -> CreateManualExecutionEvent {
+        CreateManualExecutionEvent {
+            id: Uuid::from_u128(41),
+            decision_record_id: Uuid::from_u128(42),
+            outcome,
+            actual_amount: Some(Decimal::new(7500, 2)),
+            note: Some(" completed in my broker ".to_owned()),
+            occurred_at: OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap(),
+        }
+    }
+
+    #[test]
+    fn manual_execution_normalizes_note_and_enforces_outcome_amount_contract() {
+        let normalized = manual_input(ManualExecutionOutcome::Partial)
+            .normalize()
+            .unwrap();
+        assert_eq!(normalized.actual_amount, Some(Decimal::new(7500, 2)));
+        assert_eq!(normalized.note.as_deref(), Some("completed in my broker"));
+
+        let mut skipped_with_amount = manual_input(ManualExecutionOutcome::Skipped);
+        assert_eq!(
+            skipped_with_amount.clone().normalize(),
+            Err(ManualExecutionValidationError::UnexpectedActualAmount)
+        );
+        skipped_with_amount.actual_amount = None;
+        assert!(skipped_with_amount.normalize().is_ok());
+
+        let mut executed_without_amount = manual_input(ManualExecutionOutcome::Executed);
+        executed_without_amount.actual_amount = None;
+        assert_eq!(
+            executed_without_amount.normalize(),
+            Err(ManualExecutionValidationError::InvalidActualAmount)
+        );
+    }
+
+    #[test]
+    fn manual_execution_rejects_invalid_identifiers_amounts_and_notes() {
+        let mut invalid_id = manual_input(ManualExecutionOutcome::Executed);
+        invalid_id.id = Uuid::nil();
+        assert_eq!(
+            invalid_id.normalize(),
+            Err(ManualExecutionValidationError::InvalidIdentifier)
+        );
+
+        let mut invalid_amount = manual_input(ManualExecutionOutcome::Partial);
+        invalid_amount.actual_amount = Some(Decimal::ZERO);
+        assert_eq!(
+            invalid_amount.normalize(),
+            Err(ManualExecutionValidationError::InvalidActualAmount)
+        );
+
+        let mut invalid_note = manual_input(ManualExecutionOutcome::Executed);
+        invalid_note.note = Some(" ".to_owned());
+        assert_eq!(
+            invalid_note.normalize(),
+            Err(ManualExecutionValidationError::InvalidNote)
+        );
     }
 }

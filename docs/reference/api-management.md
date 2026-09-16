@@ -9,6 +9,7 @@
 - UUID 路径参数非法时返回 `400 bad_request`。
 - 资源不存在时返回 `404 not_found`。
 - 已发送订单但未收到可信回执时返回 `409 order_outcome_unknown`；客户端不得自动重试。
+- 重复提交已存在的不可变资源标识时返回 `409 conflict`。
 - 服务依赖不可用时返回 `503 service_unavailable`。
 
 统一错误响应：
@@ -381,6 +382,52 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 按 ID 查询单条 decision record。不存在时返回 `404 not_found`。
 
+#### `POST /decisions/:id/manual-executions`
+
+向指定 decision record 追加一条用户自行报告的执行事件。该接口不会修改 decision record，也不会调用 broker、重新计算策略或把用户报告冒充为已验证成交。事件只允许追加，不提供更新或删除 API；SQLite 同时拒绝对仍有关联计划的事件做直接 `UPDATE` / `DELETE`。
+
+只有 `execution_status == "due"` 的决策可以记录执行结果；`waiting` 或 `inactive` 决策返回 `400 bad_request`。
+
+请求示例：
+
+```json
+{
+  "event_id": "00000000-0000-0000-0000-000000000301",
+  "outcome": "partial",
+  "actual_amount": "750.00",
+  "occurred_at": "2026-09-16T08:30:00+10:00",
+  "note": "本次只完成了部分投入"
+}
+```
+
+- `event_id` 由客户端生成且必须为非 nil UUID；网络重试必须复用同一个值。重复 ID 返回 `409 conflict`，不会追加第二条事件。
+- `outcome` 只接受 `executed`、`skipped`、`partial`。
+- `executed` 与 `partial` 必须提交正数 decimal 字符串 `actual_amount`；`skipped` 必须省略该字段。
+- `occurred_at` 必须为带时区的 RFC 3339 时间，保存时规范化为 UTC。
+- `note` 可省略；提供时去除首尾空白，长度为 `1..=500`。
+- 返回事件中的 `plan_id` 与 `currency` 从不可变 decision record 继承，调用方不能覆盖；`source` 固定为 `user_reported`。
+
+成功返回 `201 Created`：
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000301",
+  "decision_record_id": "00000000-0000-0000-0000-000000000001",
+  "plan_id": "00000000-0000-0000-0000-000000000002",
+  "outcome": "partial",
+  "actual_amount": "750.00",
+  "currency": "USD",
+  "note": "本次只完成了部分投入",
+  "occurred_at": "2026-09-15T22:30:00Z",
+  "recorded_at": "2026-09-16T00:00:00Z",
+  "source": "user_reported"
+}
+```
+
+#### `GET /decisions/:id/manual-executions`
+
+按 `recorded_at ASC, id ASC` 返回指定 decision record 的完整手工执行事件历史。不存在的 decision record 返回 `404 not_found`。返回数组为空表示该决策尚未收到用户执行反馈，不能据此推断已经执行或跳过。
+
 #### `POST /decisions/:id/approve-paper-order`
 
 仅允许对已持久化且状态为 `due` 的 `approval` 模式 decision record 进行一次人工确认模拟下单。请求体只接受非空 `idempotency_key`；服务端从该记录的不可变双桶快照读取推荐金额，再以本机最新可信价格换算整股数量，**不会重新运行 70/20/10、Qwen 或接受调用方自填金额/数量**。
@@ -577,13 +624,15 @@ OPEND_SMOKE_CONFIRM=submit-paper-order \
 9. `POST /signals/trend/preview`
 10. `GET /investment-plans/:id/decisions`
 11. `GET /decisions/:id`
-12. `POST /decisions/:id/approve-paper-order`
-13. `GET /paper-performance/actual`
-14. `GET /market-data/holdings?period=1y`
-14. `GET /paper-performance/historical-backtest`
-15. `GET /strategies`
-16. `GET /strategies/:policy_id/:policy_version`
-17. `GET /strategies/:policy_id/:policy_version/admission`
+12. `POST /decisions/:id/manual-executions`
+13. `GET /decisions/:id/manual-executions`
+14. `POST /decisions/:id/approve-paper-order`
+15. `GET /paper-performance/actual`
+16. `GET /market-data/holdings?period=1y`
+17. `GET /paper-performance/historical-backtest`
+18. `GET /strategies`
+19. `GET /strategies/:policy_id/:policy_version`
+20. `GET /strategies/:policy_id/:policy_version/admission`
 
 ## 当前 MVP 缺口优先级
 

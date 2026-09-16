@@ -1,7 +1,7 @@
 use ai_client::PipelineError;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use broker::BrokerError;
-use decision_records::DecisionRecordApplicationError;
+use decision_records::{DecisionRecordApplicationError, ManualExecutionApplicationError};
 use investment_plans::{PlanApplicationError, PlanValidationError};
 use serde::Serialize;
 
@@ -14,6 +14,9 @@ pub enum ApiError {
     /// 请求的资源不存在。
     #[error("not found")]
     NotFound,
+    /// The request conflicts with an existing immutable resource.
+    #[error("conflict")]
+    Conflict,
     /// 订单结果尚未确认，客户端不得自动重试。
     #[error("order outcome is unknown")]
     OrderOutcomeUnknown,
@@ -60,6 +63,16 @@ impl IntoResponse for ApiError {
                     error: ErrorBody {
                         code: "not_found",
                         message: "resource not found",
+                        request_id: None,
+                    },
+                },
+            ),
+            Self::Conflict => (
+                StatusCode::CONFLICT,
+                ErrorEnvelope {
+                    error: ErrorBody {
+                        code: "conflict",
+                        message: "resource already exists",
                         request_id: None,
                     },
                 },
@@ -115,6 +128,18 @@ impl From<DecisionRecordApplicationError> for ApiError {
             DecisionRecordApplicationError::Validation(_) => Self::BadRequest,
             DecisionRecordApplicationError::NotFound => Self::NotFound,
             DecisionRecordApplicationError::Unavailable => Self::ServiceUnavailable,
+        }
+    }
+}
+
+impl From<ManualExecutionApplicationError> for ApiError {
+    /// Convert manual execution journal errors into safe API errors.
+    fn from(error: ManualExecutionApplicationError) -> Self {
+        match error {
+            ManualExecutionApplicationError::Validation(_) => Self::BadRequest,
+            ManualExecutionApplicationError::NotFound => Self::NotFound,
+            ManualExecutionApplicationError::AlreadyExists => Self::Conflict,
+            ManualExecutionApplicationError::Unavailable => Self::ServiceUnavailable,
         }
     }
 }
