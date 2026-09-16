@@ -2,7 +2,7 @@
 
 > 状态：**已生效**
 > 项目负责人确认日期：2026-09-15
-> 当前代码基线：`0ff5920b715d71e34bd426c706c48cc83cad3841`
+> Gate 1 实现集成基线：`f8bf9ee`（Push 2 / Push 3）
 > 外部审查基线：`0cae8d5e00221ff245acf483119c0e8921d37b86`
 
 ## 1. 这份 Hardness 解决什么
@@ -39,9 +39,9 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 | 旧 MA200 回放 | 普通首页与旧 Dashboard 均不再渲染；旧 API 保留，只有高级实验室可由用户手动触发 disabled query | Push 1 已隔离；端点仅作兼容，产品回测仍须重建 |
 | Plan 与 Decision | Rust API、SQLite 与旧 `/plans`、`/decisions` 页面可用，但没有进入普通首页主流程 | 核心可复用，前端未映射 |
 | 手工执行留痕 | 没有 append-only manual execution domain、migration、repository 或 API | M1 阻塞项 |
-| 可选能力隔离 | Web Dashboard 的市场、AI、组合与收益错误已局部化；OpenD 配置仍同时组装行情与 broker，`build_broker(config).await?` 可阻止服务启动 | 前端 Push 1 已完成，服务端仍是 M0 阻塞项 |
+| 可选能力隔离 | Web 错误已局部化；OpenD 行情与 paper broker 现可独立启用、独立装配并报告 `not_configured/configured/unavailable`；失败不会阻止 SQLite 核心启动，也不会回退 Mock | Push 2 已完成 |
 | DSL 数据依赖 | 除 Fixed DCA 外仍先拉完整宏观/趋势/VIX；价格型 DSL 不能只依赖价格历史 | M2 前置项，不阻塞 M1 |
-| PostgreSQL | 服务启动只接受 SQLite，但 workspace SQLx 与 storage 默认仍编译 PostgreSQL adapter | M0 收口项 |
+| PostgreSQL | server 默认依赖图不再包含 `sqlx-postgres`；storage 仅在显式 `postgres` feature 下编译 PostgreSQL adapter 与测试 | Push 3 已完成 |
 | 策略中心 | 三张静态卡、归一化演示曲线与浏览器选择状态已完成 | 仅前端壳，不是真实策略产品 |
 | 专业研究 | 只对已保存 DSL 调用 admission API；内置策略没有统一研究结果 | M2 未闭环 |
 | 本地市场数据 | 只有现有 market adapter 与研究 fixtures，没有产品级版本化本地历史数据层 | M2 未开始 |
@@ -151,6 +151,8 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 
 未通过 Gate 1，不开始新的数据源、BacktestService 或完整策略目录。
 
+当前状态：**已通过。** Push 1–3 已依序完成；合并后 workspace 测试、storage 默认/显式 PostgreSQL feature、依赖图断言、前端 lint / 90% 覆盖门槛 / production build 均通过。下一项是 Gate 2 的 Push 4：append-only Manual Execution Journal。
+
 ### Gate 2 M1 最小人工执行闭环
 
 只做一个标的和 Fixed DCA：
@@ -197,8 +199,8 @@ Fixed DCA 加一个受限规则策略即可。完整策略目录、三到五个�
 | --- | --- | --- | --- |
 | 0 | `docs: establish V2.1 closeout hardness` | `AGENTS.md`、V2.1 计划、文档索引、`CHANGE_LOG.md` | Gate 0 通过；不改生产代码 |
 | 1（已完成） | `fix(web): isolate legacy replay and optional errors` | 新普通首页、Dashboard caller、query hooks、路由；不碰 Rust 公式 | 普通首页不请求旧回放；旧回放仅在 Lab 手动触发；可选失败不造成全局错误 |
-| 2 | `refactor(server): decouple market and paper broker capabilities` | `apps/server/src/{main,config}.rs`、必要的 `ApiState` capability 契约 | 无 broker 或 broker 失败时核心启动；真实失败不伪装 Mock |
-| 3 | `build(storage): make PostgreSQL opt in` | workspace Cargo、storage modules/exports/tests | 默认依赖图无 SQLx postgres；显式 feature 仍编译 |
+| 2（已完成） | `refactor(server): decouple market and paper broker capabilities` | `apps/server/src/{main,config}.rs`、必要的 `ApiState` capability 契约 | 无 broker 或 broker 失败时核心启动；真实失败不伪装 Mock |
+| 3（已完成） | `build(storage): make PostgreSQL opt in` | workspace Cargo、storage modules/exports/tests | 默认依赖图无 SQLx postgres；显式 feature 仍编译 |
 | 4 | `feat(execution): add manual execution journal` | 新 domain/service、SQLite migration/repository、API、API 文档 | append-only executed/skipped/partial；DecisionRecord 不变 |
 | 5 | `feat(web): connect minimal Today and Plan flow` | `/personal` 或 `/today`、最小 Plan、Decision detail、React Query hooks | Fixed DCA 真实创建、真实建议、真实手工留痕、真实历史 |
 | 6 | `test(product): run M1 user-task validation` | 验收记录，不扩展功能 | 3–5 位用户证据和 Go/Adjust/Stop 决策 |
@@ -208,7 +210,7 @@ Push 1–3 的共享文件 ownership 必须在开始前再次核对；`apps/serv
 
 ## 8. 当前明确不做
 
-- 本次不修改生产代码、不新增 migration、不运行数据导入；
+- Gate 1 不新增 migration、不运行数据导入；
 - 不安装或接入 Financial-API Skill、MCP、CLI、Python SDK 或 DuckDB；
 - 不把当前前端演示策略改名后当成真实策略；
 - 不先建立三到五个策略、200 日均线策略、股债组合或更多专业指标；
