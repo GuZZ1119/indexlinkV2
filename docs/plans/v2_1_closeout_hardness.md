@@ -35,10 +35,10 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 
 | 区域 | 当前事实 | 判断 |
 | --- | --- | --- |
-| 普通首页 | `/personal` 已读取真实 plan 与最新 `due` decision，支持确认完成、部分执行或跳过，并通过真实 journal API 自动刷新当前建议的执行历史；演示金额、浏览器会话完成状态与静态近期变化已移除 | Push 5 已完成个人中心执行闭环；最小建计划与决策详情历史仍待收口 |
+| 普通首页 | `/personal` 已读取真实 plan 与最新 `due` decision，支持确认完成、部分执行或跳过，并通过真实 journal API 自动刷新当前建议的执行历史；无建议时显示真实计划节奏与下一计划日 | Gate 2 已通过；不使用演示金额或浏览器会话伪状态 |
 | 旧 MA200 回放 | 普通首页与旧 Dashboard 均不再渲染；旧 API 保留，只有高级实验室可由用户手动触发 disabled query | Push 1 已隔离；端点仅作兼容，产品回测仍须重建 |
-| Plan 与 Decision | Rust API、SQLite 与旧 `/plans`、`/decisions` 页面可用，但没有进入普通首页主流程 | 核心可复用，前端未映射 |
-| 手工执行留痕 | 已有独立 append-only `ManualExecutionEvent`、SQLite migration/repository 与 `POST/GET /decisions/:id/manual-executions`；支持 `executed/skipped/partial`、用户报告来源、重试冲突保护和原决策不变测试 | Push 4 已完成；待 Push 5 接入普通用户界面 |
+| Plan 与 Decision | `/plans` 已收口为标的、金额、周期和可选名称的 Fixed DCA 最小表单；其余策略/双桶/风险默认值由产品冻结。Decision detail 同时展示不可变原建议与关联执行流水 | Gate 2 已通过；旧高级 API 仍保留但不进入普通路径 |
+| 手工执行留痕 | 已有独立 append-only `ManualExecutionEvent`、SQLite migration/repository 与 `POST/GET /decisions/:id/manual-executions`；支持 `executed/skipped/partial`、用户报告来源、重试冲突保护和原决策不变测试 | Push 4–5B 已形成前后端闭环 |
 | 可选能力隔离 | Web 错误已局部化；OpenD 行情与 paper broker 现可独立启用、独立装配并报告 `not_configured/configured/unavailable`；失败不会阻止 SQLite 核心启动，也不会回退 Mock | Push 2 已完成 |
 | DSL 数据依赖 | 除 Fixed DCA 外仍先拉完整宏观/趋势/VIX；价格型 DSL 不能只依赖价格历史 | M2 前置项，不阻塞 M1 |
 | PostgreSQL | server 默认依赖图不再包含 `sqlx-postgres`；storage 仅在显式 `postgres` feature 下编译 PostgreSQL adapter 与测试 | Push 3 已完成 |
@@ -164,7 +164,7 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 5. 决策详情同时显示原建议和所有手工事件；
 6. 无 AI、OpenD、broker 与市场数据时全流程仍可用。
 
-当前状态：**进行中。** Push 4 已关闭后端 journal 阻塞项；Push 5 已将普通首页接入真实 Plan、`due` Decision 和 `GET/POST manual-executions`，三种人工结果及当前建议的执行历史已形成真实闭环。Gate 2 尚未通过，因为现有 `/plans` 仍是高级配置表单，Decision detail 尚未展示全部手工事件；完成这两项后才能进入 3–5 人任务验证。
+当前状态：**已通过。** Push 4–5B 已完成 append-only journal、真实个人中心、最小 Fixed DCA 建立流程与 Decision detail journal。Fixed DCA 创建后可在无 AI、OpenD、broker、市场数据和 Docker 的环境中生成真实 `due` 建议；成功的计划日自动预览会写入同一 `(plan_id, scheduled_for)` 调度标记，避免服务重启后生成第二条同日建议并使执行流水看似丢失。全新 SQLite 浏览器验收已走通“建立计划 → 找到建议 → 记录部分执行 → 详情找回 → 重启服务后再次找回”。下一项唯一主线是 3–5 位目标用户任务验证。
 
 通过后立即让 3–5 位目标用户完成一次任务，不先扩展策略数量。
 
@@ -205,7 +205,7 @@ Fixed DCA 加一个受限规则策略即可。完整策略目录、三到五个�
 | 3（已完成） | `build(storage): make PostgreSQL opt in` | workspace Cargo、storage modules/exports/tests | 默认依赖图无 SQLx postgres；显式 feature 仍编译 |
 | 4（已完成） | `feat(execution): add manual execution journal` | 新 domain/service、SQLite migration/repository、API、API 文档 | append-only executed/skipped/partial；DecisionRecord 不变 |
 | 5（已完成） | `feat(web): connect personal execution loop` | `/personal`、manual execution types/hooks/tests；不改 Rust 决策公式 | 已有计划的真实 `due` 建议可记录 executed/skipped/partial，追加后自动刷新真实历史；无演示金额或浏览器会话伪状态 |
-| 5B | `feat(web): close minimal Plan and Decision detail` | 最小 Fixed DCA 建立流程、Decision detail journal；不扩展策略 | 普通用户可建立最小计划；决策详情同时展示原建议与所有手工事件；Gate 2 通过 |
+| 5B（已完成） | `feat(web): close minimal Plan and Decision detail` | 最小 Fixed DCA 建立流程、Decision detail journal；不扩展策略 | 普通用户可建立最小计划；决策详情同时展示原建议与所有手工事件；Gate 2 通过 |
 | 6 | `test(product): run M1 user-task validation` | 验收记录，不扩展功能 | 3–5 位用户证据和 Go/Adjust/Stop 决策 |
 | 7 | 条件 Push | M2 数据、回测与两策略对比 | 仅在 Gate 3 支持后创建 |
 

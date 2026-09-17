@@ -18,9 +18,10 @@ The default entry is now a local-first consumer shell: Personal, Strategy Center
 
 | 页面 / Page | 已实现 / Implemented | 主要 API / Main API |
 | --- | --- | --- |
+| 建立计划 / Plans | 普通用户最小 Fixed DCA 表单，只要求标的、金额与周期；策略版本、100% 核心桶、风险与机会资金默认值由产品固定；建立后立即准备本期真实建议 | `POST /investment-plans`, `POST /investment-plans/:id/automatic-decision-preview` |
 | 仪表盘 / Dashboard | 自动市场输入、Qwen 情绪、Decision Preview、双桶结果、模拟账户与收益；可选错误在对应卡片内显示 | `/signals/*`, `/market-sentiment/preview`, `/investment-plans/:id/*`, `/paper-*`；旧 MA200 回放已移至高级实验室 |
 | 定投标的 / Holdings | V1.1 周期、多个执行日、桶比例、风险模式、滚存、策略版本创建与编辑 | `/investment-plans` |
-| 决策 / Decisions | 跨标的记录、计划/动作/日期筛选、分页、审计详情与审批模式 paper order 确认 | `/decisions`, `/investment-plans/:id/decisions` |
+| 决策 / Decisions | 跨标的记录、计划/动作/日期筛选、分页；详情同时保留原建议证据、所有用户报告的执行流水与审批模式 paper order 确认 | `/decisions`, `/investment-plans/:id/decisions`, `/decisions/:id/manual-executions` |
 | 策略 Studio / Strategy Studio | 受限 DSL、验证、准入回测、版本激活 | `/strategies`, `/investment-plans/:id/activate-policy` |
 
 ## 运行可观测性 / Runtime observability
@@ -50,6 +51,6 @@ pnpm --dir apps/web build
 
 ## 后续 / Next
 
-1. 把决策详情接入同一执行历史，并将现有复杂计划表单收口为普通用户可完成的最小 Fixed DCA 建立流程。
-2. 让 3–5 位目标用户完成“建立计划 → 找到建议 → 记录执行 → 找回历史”的完整任务并记录证据。
+1. 让 3–5 位目标用户完成“建立计划 → 找到建议 → 记录执行 → 找回历史”的完整任务并记录证据。
+2. 根据阻塞点形成 Go / Adjust / Stop 决策，不在测试前扩展策略。
 3. 只有用户反馈支持后，才进入 M2 数据层、第二条策略与公平比较。

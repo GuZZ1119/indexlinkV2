@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock3,
-  History,
   Loader2,
   SkipForward,
   Sparkles,
@@ -24,11 +23,11 @@ import {
 import type {
   DecisionRecord,
   InvestmentPlan,
-  ManualExecutionEvent,
   ManualExecutionOutcome,
 } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ManualExecutionHistory } from '@/components/v2_1/manual-execution-history'
 import { PageHeading } from '@/components/v2_1/page-heading'
 import { setSelectedPlanId, uiStore } from '@/stores/ui'
 
@@ -217,7 +216,7 @@ function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision:
           </div>
         </div>
 
-        <ExecutionHistory events={journal.data ?? []} pending={journal.isPending} error={journal.error} onRetry={() => void journal.refetch()} />
+        <ManualExecutionHistory events={journal.data ?? []} pending={journal.isPending} error={journal.error} onRetry={() => void journal.refetch()} />
       </section>
     </>
   )
@@ -293,45 +292,6 @@ function ConfirmationForm({
   )
 }
 
-function ExecutionHistory({
-  events,
-  pending,
-  error,
-  onRetry,
-}: {
-  events: ManualExecutionEvent[]
-  pending: boolean
-  error: Error | null
-  onRetry: () => void
-}) {
-  const newestFirst = [...events].reverse()
-  return (
-    <aside className="rounded-[1.35rem] border border-slate-200 bg-white p-5" aria-label="执行历史">
-      <div className="flex items-center gap-2"><History className="size-4 text-[#2d6a57]" /><h2 className="text-lg font-semibold tracking-[-0.025em] text-[#102028]">执行历史</h2></div>
-      {pending ? <p className="mt-5 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" />正在读取本机记录…</p> : null}
-      {!pending && error ? (
-        <div className="mt-5 rounded-xl bg-red-50 p-4 text-sm leading-6 text-red-700"><p>暂时读不到执行历史。</p><button type="button" className="mt-2 font-medium underline underline-offset-4" onClick={onRetry}>重新读取</button></div>
-      ) : null}
-      {!pending && !error && newestFirst.length === 0 ? (
-        <p className="mt-5 rounded-xl bg-[#f4f7f6] p-4 text-sm leading-6 text-slate-600">还没有执行记录。完成券商侧操作后，从上方选择实际结果。</p>
-      ) : null}
-      {!pending && !error && newestFirst.length > 0 ? (
-        <ol className="mt-5 space-y-5">
-          {newestFirst.map((event, index) => (
-            <li key={event.id} className="relative pl-6">
-              <span className="absolute left-0 top-1.5 size-2.5 rounded-full bg-[#2d6a57]" />
-              {index < newestFirst.length - 1 ? <span className="absolute left-[4px] top-5 h-[calc(100%+8px)] w-px bg-slate-200" /> : null}
-              <div className="flex flex-wrap items-baseline justify-between gap-2"><p className="text-sm font-medium text-[#102028]">{outcomeCopy[event.outcome].history}</p>{event.actual_amount ? <p className="text-sm font-medium text-[#2d6a57]">{formatMoney(event.currency, event.actual_amount)}</p> : null}</div>
-              <p className="mt-1 text-xs text-slate-400">{formatDateTime(event.occurred_at)} · 由你记录</p>
-              {event.note ? <p className="mt-2 text-sm leading-6 text-slate-600">{event.note}</p> : null}
-            </li>
-          ))}
-        </ol>
-      ) : null}
-    </aside>
-  )
-}
-
 function LoadingState() {
   return <section className="grid min-h-72 place-items-center rounded-[1.6rem] bg-[#102028] text-sm text-slate-300"><p className="flex items-center gap-2"><Loader2 className="size-4 animate-spin" />正在读取你的计划与本期建议…</p></section>
 }
@@ -345,7 +305,8 @@ function NoPlanState() {
 }
 
 function NoDecisionState({ plan }: { plan: InvestmentPlan }) {
-  return <section className="rounded-[1.6rem] bg-[#102028] p-8 text-white"><p className="text-sm text-[#b8d5c6]">{plan.name}</p><h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">现在没有待执行的建议</h2><p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">计划已经连接，但还没有状态为“现在执行”的决策记录。我们不会用演示金额代替真实建议。</p><Link to="/decisions" className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[#b8d5c6]">查看全部建议 <ArrowRight className="size-3.5" /></Link></section>
+  const nextDate = nextScheduledDate(plan)
+  return <section className="rounded-[1.6rem] bg-[#102028] p-8 text-white"><p className="text-sm text-[#b8d5c6]">{plan.name}</p><h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">{plan.is_active ? '现在只需要继续等待' : '这个计划已经暂停'}</h2><p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">{plan.is_active ? `计划按${scheduleLabel(plan)}执行，下一次计划日是 ${nextDate}。只有到计划日，真实建议才会出现在这里。` : '暂停期间不会产生新的待执行建议；继续计划后，系统会恢复原来的固定节奏。'}</p><Link to="/decisions" className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[#b8d5c6]">查看全部建议 <ArrowRight className="size-3.5" /></Link></section>
 }
 
 function PlanFact({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
@@ -367,6 +328,28 @@ function decisionTitle(decision: DecisionRecord): string {
 function scheduleLabel(plan: InvestmentPlan): string {
   if (plan.schedule_kind === 'weekly') return `每周 ${plan.schedule_days.join('、')}`
   return `每月 ${plan.schedule_days.join('、')} 日`
+}
+
+function nextScheduledDate(plan: InvestmentPlan, now = new Date()): string {
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  const candidates: number[] = []
+  if (plan.schedule_kind === 'weekly') {
+    const todayWeekday = now.getUTCDay() === 0 ? 7 : now.getUTCDay()
+    for (const weekday of plan.schedule_days) {
+      candidates.push(today + ((weekday - todayWeekday + 7) % 7) * 86_400_000)
+    }
+  } else {
+    for (const monthOffset of [0, 1]) {
+      const month = now.getUTCMonth() + monthOffset
+      for (const day of plan.schedule_days) {
+        const candidate = Date.UTC(now.getUTCFullYear(), month, day)
+        if (candidate >= today) candidates.push(candidate)
+      }
+    }
+  }
+  const next = new Date(Math.min(...candidates))
+  if (Number.isNaN(next.getTime())) return '下一次约定日期'
+  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', timeZone: 'UTC' }).format(next)
 }
 
 function formatMoney(currency: string, amount: string): string {

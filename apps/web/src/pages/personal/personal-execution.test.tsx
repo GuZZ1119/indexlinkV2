@@ -169,7 +169,8 @@ describe('personal manual execution loop', () => {
     const api = createApi({ decisions: [] })
     vi.stubGlobal('fetch', api.fetchMock)
     const first = renderPage()
-    expect(await screen.findByRole('heading', { name: '现在没有待执行的建议' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '现在只需要继续等待' })).toBeTruthy()
+    expect(screen.getByText(/下一次计划日/)).toBeTruthy()
     expect(api.requests.some((request) => request.url.includes('manual-executions'))).toBe(false)
     first.unmount()
 

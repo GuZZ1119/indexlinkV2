@@ -402,6 +402,21 @@ export function useCreatePlan() {
   })
 }
 
+/** Create one policy-aware decision audit and refresh every decision-backed view. */
+export function usePreviewAutomaticDecision() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ planId, input = {} }: { planId: string; input?: AutomaticDecisionPreviewRequest }) =>
+      previewAutomaticDecision(planId, input),
+    onSuccess: async (_preview, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['decision-records', variables.planId] }),
+        queryClient.invalidateQueries({ queryKey: ['decision-records', 'all'] }),
+      ])
+    },
+  })
+}
+
 /** Delete a recurring holding and invalidate every plan-backed view. */
 export function useDeletePlan() {
   const queryClient = useQueryClient()

@@ -813,6 +813,75 @@ async fn scheduler_creates_one_due_audit_record_per_plan_and_utc_day() {
     );
 }
 
+/// Verify a persisted due automatic preview satisfies the same day used by the scheduler.
+#[tokio::test]
+async fn due_automatic_preview_prevents_a_second_scheduler_record() {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    let state = ApiState::new(storage, "0.1.0");
+    let app = build_router(state.clone());
+    let day = Utc::now().weekday().number_from_monday();
+    let created = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "Previewed VOO",
+                        "symbol": "VOO",
+                        "base_contribution": "100.00",
+                        "currency": "USD",
+                        "schedule_kind": "weekly",
+                        "schedule_day": day,
+                        "policy": { "id": "fixed_dca", "version": 1 },
+                        "max_single_execution": "100.00"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let created = response_json(created).await;
+    let plan_id = created["id"].as_str().unwrap();
+
+    let preview = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/investment-plans/{plan_id}/automatic-decision-preview"
+                ))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.status(), StatusCode::OK);
+
+    let scheduled = run_due_decisions(&state).await.unwrap();
+    assert_eq!(scheduled.created, 0);
+    assert_eq!(scheduled.already_claimed, 1);
+
+    let records = app
+        .oneshot(
+            Request::builder()
+                .uri(format!("/investment-plans/{plan_id}/decisions"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response_json(records).await.as_array().unwrap().len(), 1);
+}
+
 /// Verify the scheduler executes a weekly plan once when today's weekday is one of several dates.
 #[tokio::test]
 async fn scheduler_executes_weekly_multi_day_plan() {

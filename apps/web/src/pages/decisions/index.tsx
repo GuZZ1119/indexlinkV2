@@ -3,10 +3,11 @@ import { Link, useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 
-import { useAllDecisionRecords, useApproveDecisionPaperOrder, useDecisionRecord, usePlans } from '@/api/queries'
+import { useAllDecisionRecords, useApproveDecisionPaperOrder, useDecisionRecord, useManualExecutions, usePlans } from '@/api/queries'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ManualExecutionHistory } from '@/components/v2_1/manual-execution-history'
 import { actionBadgeClass } from '@/lib/decision'
 import { cn } from '@/lib/utils'
 import type { DecisionAction, DecisionRecord, PersistedMarketSentimentSnapshot } from '@/api/types'
@@ -70,10 +71,11 @@ export default function DecisionsPage() {
 /** Render one full immutable decision record and preserve its approval gate. */
 function DecisionDetail({ record, isPending, error, approvePaperOrder }: { record?: DecisionRecord; isPending: boolean; error: unknown; approvePaperOrder: ReturnType<typeof useApproveDecisionPaperOrder> }) {
   const { t } = useTranslation()
+  const journal = useManualExecutions(record?.id ?? null)
   if (isPending) return <PageMessage message={t('live.history.loadRecord')} />
   if (error || !record) return <PageMessage message={errorMessage(error)} />
   const decision = record.decision_snapshot
-  return <div className="mx-auto w-full max-w-4xl p-4 lg:p-6"><Card><CardHeader><CardTitle className="flex items-center gap-2"><span>{record.symbol}</span><Badge className={cn(actionBadgeClass[decision.action])}>{t(`action.${decision.action}`)}</Badge></CardTitle><CardDescription>{new Date(record.created_at).toLocaleString()}</CardDescription></CardHeader><CardContent className="space-y-4"><p className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">{record.summary}</p><AuditOverview record={record} /><div className="grid gap-4 md:grid-cols-2"><SignalEvidence title={t('live.history.fundamental')} snapshot={record.fundamental_snapshot} /><SignalEvidence title={t('live.history.trend')} snapshot={record.trend_snapshot} /></div>{record.sentiment_snapshot && <SentimentEvidence value={record.sentiment_snapshot} />}<OrderEvidence record={record} approvePaperOrder={approvePaperOrder} /></CardContent></Card></div>
+  return <div className="mx-auto grid w-full max-w-6xl gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_21rem] lg:p-6"><Card><CardHeader><CardTitle className="flex items-center gap-2"><span>{record.symbol}</span><Badge className={cn(actionBadgeClass[decision.action])}>{t(`action.${decision.action}`)}</Badge></CardTitle><CardDescription>{new Date(record.created_at).toLocaleString()}</CardDescription></CardHeader><CardContent className="space-y-4"><p className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">{record.summary}</p><AuditOverview record={record} /><div className="grid gap-4 md:grid-cols-2"><SignalEvidence title={t('live.history.fundamental')} snapshot={record.fundamental_snapshot} /><SignalEvidence title={t('live.history.trend')} snapshot={record.trend_snapshot} /></div>{record.sentiment_snapshot && <SentimentEvidence value={record.sentiment_snapshot} />}<OrderEvidence record={record} approvePaperOrder={approvePaperOrder} /></CardContent></Card><ManualExecutionHistory events={journal.data ?? []} pending={journal.isPending} error={journal.error} onRetry={() => void journal.refetch()} className="self-start" /></div>
 }
 
 /** Render saved Qwen reasoning as readable audit evidence instead of a raw JSON blob. */

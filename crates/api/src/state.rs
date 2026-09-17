@@ -1258,6 +1258,20 @@ impl ApiState {
             .map_err(|_| ApiError::ServiceUnavailable)
     }
 
+    /// Mark an already-persisted operator preview as satisfying today's scheduler run.
+    ///
+    /// Test-only states without the SQLite scheduler ledger deliberately treat this as a no-op.
+    /// A storage failure is logged after the immutable audit has been saved, but does not turn a
+    /// successful preview into an ambiguous client failure that could invite a duplicate retry.
+    pub(crate) async fn mark_scheduled_decision(&self, plan_id: uuid::Uuid, scheduled_for: &str) {
+        let Some(repository) = self.scheduled_decisions.as_ref() else {
+            return;
+        };
+        if let Err(error) = repository.claim(plan_id, scheduled_for).await {
+            tracing::error!(%error, plan_id = %plan_id, scheduled_for, "automatic preview scheduler mark failed");
+        }
+    }
+
     /// Release an unpersisted scheduler claim so a later tick can retry it safely.
     pub(crate) async fn release_scheduled_decision(
         &self,

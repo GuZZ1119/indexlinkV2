@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-17 AEST — Push 5B：Gate 2 最小 Fixed DCA 收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：普通用户最小建计划流程、Decision detail 执行流水、调度幂等补强、聚焦测试与 Gate 状态更新。
+- 涉及文件：`apps/web/src/{api/queries.ts,components/v2_1/manual-execution-history.tsx,pages/{plans/index.tsx,plans/minimal-plan.test.tsx,personal/index.tsx,personal/personal-execution.test.tsx,decisions/index.tsx,decisions/decision-journal.test.tsx}}`、`apps/web/{PLAN.md,vitest.config.ts}`、`crates/api/src/{state.rs,routes/decision_preview.rs}`、`crates/api/tests/decision_preview.rs`、`docs/{reference/api-management.md,plans/v2_1_closeout_hardness.md}`、`CHANGE_LOG.md`。
+- 变更内容：将普通 `/plans` 从高级策略/双桶配置收口为标的、金额、月/周周期和可选名称，隐藏并冻结 `fixed_dca@1`、100% 核心桶、fixed risk、当期失效机会资金和单次金额上限；建立后调用真实自动决策接口，成功进入个人中心，计划已保存但决策准备失败时允许只重试建议而不重复建计划。个人中心在无 `due` 建议时改为解释暂停状态或显示真实节奏与下一计划日。抽取只读 append-only 执行时间线供个人中心和 Decision detail 复用，详情现可同时找回不可变原建议与所有用户报告事件。浏览器重启验收发现自动预览与 Scheduler 使用不同幂等账本会生成同日第二条建议；现由成功的 `due` 自动预览补记同一调度 claim，避免下一 tick/重启重复生成并遮蔽已有 journal，不改变决策公式。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（34 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.37%、Branches 91.26%、Functions 92.61%、Lines 97.28%）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-api --locked --test decision_preview`（15 项通过，含自动预览/调度同日幂等测试）、`cargo test -p indexlink-api --locked --test manual_executions`（3 项通过）、`git diff --check`。浏览器以全新 SQLite 且禁用 AI/OpenD/broker/市场数据完成 `建立 Fixed DCA → 生成 due 建议 → 记录 partial 400 USD → Decision detail 找回 → 服务重启 → 同一 decision 与 journal 仍可找回`。Gate 2 通过，下一阶段仅进行 3–5 位目标用户任务验证。
+
 ### 2026-09-17 AEST — Push 5：个人中心真实手工执行闭环
 
 - 执行模型：GPT-5 Codex。
