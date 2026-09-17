@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-17 AEST — Push 5：个人中心真实手工执行闭环
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端真实 API 映射、人工执行确认交互、append-only 历史展示、可访问状态与产品化文案。
+- 涉及文件：`apps/web/src/{api/{types.ts,queries.ts},pages/{personal/index.tsx,personal/personal-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/plans/v2_1_closeout_hardness.md`、`CHANGE_LOG.md`。
+- 变更内容：个人中心移除演示金额、静态近期变化与浏览器会话完成状态，改为从真实 plan 和最新 `due` DecisionRecord 展示本期金额、普通话行动解释与计划事实。新增完成、部分执行、跳过三种二次确认，允许填写实际金额、当地发生时间和可选备注；客户端事件 UUID 在当前表单重试期间保持不变，成功后使对应 journal query 失效刷新，`409 conflict` 按已存在记录重新读取。右侧执行历史读取真实 `GET /decisions/:id/manual-executions`，明确标记为用户报告；不存在计划、没有待执行建议、核心 API 失败和 journal 局部失败均不以演示数据填充。后端审计英文串只保留在原建议详情，个人中心不暴露 policy/bucket 实现细节；Decimal 输入默认值只在展示层整理为两位金额。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（29 项通过）、`pnpm --dir apps/web test:coverage`（Statements 95.29%、Branches 92.27%、Functions 94.69%、Lines 98.52%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check`。浏览器使用临时 SQLite 和真实 Rust API 完成 `Plan → Fixed DCA due Decision → partial 400 USD → POST journal → GET 历史刷新`，390px 视口无横向溢出且控制台无 warning/error。Gate 2 仍待最小 Plan 表单与 Decision detail journal 完成。
+
 ### 2026-09-16 AEST — Push 4：Append-only Manual Execution Journal
 
 - 执行模型：GPT-5 Codex。

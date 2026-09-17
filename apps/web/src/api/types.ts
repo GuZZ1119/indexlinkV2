@@ -546,3 +546,29 @@ export interface DecisionRecord {
   summary: string
   created_at: string
 }
+
+/** Closed vocabulary for a user-reported manual execution result. */
+export type ManualExecutionOutcome = 'executed' | 'skipped' | 'partial'
+
+/** One append-only execution fact linked to an immutable decision record. */
+export interface ManualExecutionEvent {
+  id: string
+  decision_record_id: string
+  plan_id: string
+  outcome: ManualExecutionOutcome
+  actual_amount?: string
+  currency: string
+  note?: string
+  occurred_at: string
+  recorded_at: string
+  source: 'user_reported'
+}
+
+/** Payload accepted when a person confirms what they actually did. */
+export interface CreateManualExecutionRequest {
+  event_id: string
+  outcome: ManualExecutionOutcome
+  actual_amount?: string
+  occurred_at: string
+  note?: string
+}

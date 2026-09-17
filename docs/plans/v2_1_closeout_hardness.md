@@ -35,7 +35,7 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 
 | 区域 | 当前事实 | 判断 |
 | --- | --- | --- |
-| 普通首页 | `/personal` 已替代旧 Dashboard 作为默认入口，但金额、日期、进度和完成状态仍是前端演示数据 | 视觉壳可复用，M1 未闭环 |
+| 普通首页 | `/personal` 已读取真实 plan 与最新 `due` decision，支持确认完成、部分执行或跳过，并通过真实 journal API 自动刷新当前建议的执行历史；演示金额、浏览器会话完成状态与静态近期变化已移除 | Push 5 已完成个人中心执行闭环；最小建计划与决策详情历史仍待收口 |
 | 旧 MA200 回放 | 普通首页与旧 Dashboard 均不再渲染；旧 API 保留，只有高级实验室可由用户手动触发 disabled query | Push 1 已隔离；端点仅作兼容，产品回测仍须重建 |
 | Plan 与 Decision | Rust API、SQLite 与旧 `/plans`、`/decisions` 页面可用，但没有进入普通首页主流程 | 核心可复用，前端未映射 |
 | 手工执行留痕 | 已有独立 append-only `ManualExecutionEvent`、SQLite migration/repository 与 `POST/GET /decisions/:id/manual-executions`；支持 `executed/skipped/partial`、用户报告来源、重试冲突保护和原决策不变测试 | Push 4 已完成；待 Push 5 接入普通用户界面 |
@@ -164,7 +164,7 @@ Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多�
 5. 决策详情同时显示原建议和所有手工事件；
 6. 无 AI、OpenD、broker 与市场数据时全流程仍可用。
 
-当前状态：**进行中。** Push 4 已关闭后端 journal 阻塞项；事件只能追加，`plan_id/currency` 从原 decision 继承，来源固定为 `user_reported`。Gate 2 尚未通过，因为普通首页、最小 Plan 与 Decision detail 还未在 Push 5 接入真实 API。
+当前状态：**进行中。** Push 4 已关闭后端 journal 阻塞项；Push 5 已将普通首页接入真实 Plan、`due` Decision 和 `GET/POST manual-executions`，三种人工结果及当前建议的执行历史已形成真实闭环。Gate 2 尚未通过，因为现有 `/plans` 仍是高级配置表单，Decision detail 尚未展示全部手工事件；完成这两项后才能进入 3–5 人任务验证。
 
 通过后立即让 3–5 位目标用户完成一次任务，不先扩展策略数量。
 
@@ -204,7 +204,8 @@ Fixed DCA 加一个受限规则策略即可。完整策略目录、三到五个�
 | 2（已完成） | `refactor(server): decouple market and paper broker capabilities` | `apps/server/src/{main,config}.rs`、必要的 `ApiState` capability 契约 | 无 broker 或 broker 失败时核心启动；真实失败不伪装 Mock |
 | 3（已完成） | `build(storage): make PostgreSQL opt in` | workspace Cargo、storage modules/exports/tests | 默认依赖图无 SQLx postgres；显式 feature 仍编译 |
 | 4（已完成） | `feat(execution): add manual execution journal` | 新 domain/service、SQLite migration/repository、API、API 文档 | append-only executed/skipped/partial；DecisionRecord 不变 |
-| 5 | `feat(web): connect minimal Today and Plan flow` | `/personal` 或 `/today`、最小 Plan、Decision detail、React Query hooks | Fixed DCA 真实创建、真实建议、真实手工留痕、真实历史 |
+| 5（已完成） | `feat(web): connect personal execution loop` | `/personal`、manual execution types/hooks/tests；不改 Rust 决策公式 | 已有计划的真实 `due` 建议可记录 executed/skipped/partial，追加后自动刷新真实历史；无演示金额或浏览器会话伪状态 |
+| 5B | `feat(web): close minimal Plan and Decision detail` | 最小 Fixed DCA 建立流程、Decision detail journal；不扩展策略 | 普通用户可建立最小计划；决策详情同时展示原建议与所有手工事件；Gate 2 通过 |
 | 6 | `test(product): run M1 user-task validation` | 验收记录，不扩展功能 | 3–5 位用户证据和 Go/Adjust/Stop 决策 |
 | 7 | 条件 Push | M2 数据、回测与两策略对比 | 仅在 Gate 3 支持后创建 |
 

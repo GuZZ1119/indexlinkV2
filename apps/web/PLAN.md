@@ -10,7 +10,7 @@ The default entry is now a local-first consumer shell: Personal, Strategy Center
 
 | 页面 / Page | V2.1 用户任务 / V2.1 user task | 当前数据边界 / Data boundary |
 | --- | --- | --- |
-| 个人中心 / Personal | 查看正在坚持的策略、下一次行动与近期变化 | 本地演示状态；不伪装为已连接收益或订单数据 |
+| 个人中心 / Personal | 从真实计划读取本期待执行建议，手工确认完成、部分执行或跳过，并查看当前建议的 append-only 执行历史 | 使用 React Query 连接 `/investment-plans`、`/investment-plans/:id/decisions` 与 `GET/POST /decisions/:id/manual-executions`；不自动下单、不覆盖原建议、不显示演示金额 |
 | 策略中心 / Strategy Center | 理解、选用、比较固定定投与 70/20/10 等精选策略 | 路由为 `/strategy-center`，避免与 Rust `/strategies` API 前缀冲突；含 `/strategy-analysis` 二级导航：直观视角按统一起点 100 比较本地示例策略，专业研究视角则按需读取后端已保存 DSL 的固定样本准入指标；公开分享/fork 与通用版本化回测等待后续契约 |
 | 高级实验室 / Advanced Lab | 了解 Docker、Moomoo/OpenD、Qwen、市场数据等可选能力；按需运行旧 MA200 兼容回放 | 配置入口只展示安全边界；旧回放默认不请求且必须手动触发；不保存密钥、不验证账户、不下单 |
 
@@ -34,6 +34,7 @@ The top status strip reads `/health`, `/ready` and `/runtime-status`. It disting
 - React Router 路由页面按需加载，并设置可恢复的 `errorElement`；不得向用户展示框架默认异常页。
 - 中英文翻译键必须完全对齐；Vitest 会验证两套 locale 的键集合与非空值。
 - 服务端数据必须通过 React Query；手动刷新使用 `refetch`，仍写入同一 query cache。
+- 手工执行确认必须复用同一个客户端 `event_id` 完成重试保护；`409 conflict` 视为既有记录并重新读取历史，不能静默重复追加。
 - 不开放自由策略代码编辑器；策略 Studio 只提交后端白名单 DSL。
 - 所有交易交互保持 paper-only；审批模式必须确认已有决策存证，不能重新计算后下单。
 - 普通首页不得预取旧 MA200 回放；兼容回放只能在高级实验室由用户明确触发。
@@ -49,6 +50,6 @@ pnpm --dir apps/web build
 
 ## 后续 / Next
 
-1. 解耦服务端 market-data 与 paper broker 初始化，使可选能力失败不阻止 SQLite 核心启动。
-2. 将 PostgreSQL 从默认依赖图移为显式 opt-in feature。
-3. 实现 append-only 手工执行日志，再把 Fixed DCA 的真实 Plan、Decision 与 Today 接入普通首页。
+1. 把决策详情接入同一执行历史，并将现有复杂计划表单收口为普通用户可完成的最小 Fixed DCA 建立流程。
+2. 让 3–5 位目标用户完成“建立计划 → 找到建议 → 记录执行 → 找回历史”的完整任务并记录证据。
+3. 只有用户反馈支持后，才进入 M2 数据层、第二条策略与公平比较。

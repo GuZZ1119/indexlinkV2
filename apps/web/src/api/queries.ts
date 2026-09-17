@@ -27,6 +27,8 @@ import type {
   CopilotDraftResponse,
   UpdateInvestmentPlanRequest,
   HealthStatus,
+  CreateManualExecutionRequest,
+  ManualExecutionEvent,
   ReadyStatus,
   RuntimeStatus,
 } from './types'
@@ -261,6 +263,22 @@ export function approveDecisionPaperOrder(id: string, idempotencyKey: string) {
   })
 }
 
+/** Read every append-only user-reported execution fact for one immutable decision. */
+export function fetchManualExecutions(decisionId: string): Promise<ManualExecutionEvent[]> {
+  return request(`/decisions/${encodeURIComponent(decisionId)}/manual-executions`)
+}
+
+/** Append one retry-safe manual execution fact without changing the original advice. */
+export function appendManualExecution(
+  decisionId: string,
+  input: CreateManualExecutionRequest,
+): Promise<ManualExecutionEvent> {
+  return request(`/decisions/${encodeURIComponent(decisionId)}/manual-executions`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 /** React Query hook for live plan data. */
 export function usePlans() {
   return useQuery({ queryKey: ['plans'], queryFn: fetchPlans })
@@ -424,6 +442,27 @@ export function useDecisionRecord(id: string | null) {
     queryKey: ['decision-record', id],
     queryFn: () => fetchDecisionRecord(id!),
     enabled: id !== null,
+  })
+}
+
+/** Cache the selected decision's complete append-only manual execution journal. */
+export function useManualExecutions(decisionId: string | null) {
+  return useQuery({
+    queryKey: ['manual-executions', decisionId],
+    queryFn: () => fetchManualExecutions(decisionId!),
+    enabled: decisionId !== null,
+  })
+}
+
+/** Append a manual execution fact then refresh only the affected decision journal. */
+export function useAppendManualExecution() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ decisionId, input }: { decisionId: string; input: CreateManualExecutionRequest }) =>
+      appendManualExecution(decisionId, input),
+    onSuccess: async (_event, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ['manual-executions', variables.decisionId] })
+    },
   })
 }
 

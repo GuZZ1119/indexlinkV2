@@ -24,16 +24,14 @@ describe('V2.1 consumer shell', () => {
   beforeEach(() => setActiveStrategyId('adaptive-70-20-10'))
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-  it('shows one clear monthly action and makes its local-only result visible', () => {
-    const fetchMock = vi.fn()
+  it('does not invent a monthly action when the real API has no plan', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response([]))
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<PersonalPage />)
-    expect(screen.getByRole('heading', { name: '按计划投入 ¥2,200' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '先建立第一个长期计划' })).toBeTruthy()
     expect(screen.queryByText('MA200 一年历史回放')).toBeNull()
-    expect(fetchMock).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '我已完成这次投入' }))
-    expect(screen.getByRole('status').textContent).toContain('当前浏览器会话')
-    expect(screen.getByText('6 / 6 次')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/investment-plans')
   })
 
   it('explains and compares strategies before a user selects one', () => {
