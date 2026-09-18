@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-18 AEST — 本期建议待办/完成视觉状态
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：个人中心执行状态层级、低饱和语义配色、确认反馈动画与聚焦测试。
+- 涉及文件：`apps/web/src/pages/personal/{index.tsx,personal-execution.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：在本期建议卡标题行加入紧凑的真实状态胶囊，未确认显示“本期待办 · 未完成”，已执行显示“本期待办 · 已完成”，跳过与迁移前 partial 记录分别显示已跳过和历史部分完成；读取失败时保持“执行状态待确认”，不把未知状态伪装成待办。建议卡按 journal 真实结果使用低饱和暖褐警示、深森林绿完成与中性深蓝已处理配色，并以 700ms 背景色、边框和阴影过渡响应确认结果；`prefers-reduced-motion` 下禁用过渡。状态完全由 React Query journal 数据派生，不新增浏览器持久状态。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（36 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.63%、Branches 91.48%、Functions 92.76%、Lines 97.13%）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）。浏览器在 1280×720 下分别确认 completed 为 `rgb(23, 48, 39)`、pending 为 `rgb(40, 36, 29)`、过渡时间为 `0.7s`，页面无横向溢出且控制台无 warning/error。
+
 ### 2026-09-18 AEST — 个人中心与“我的计划”执行语义收口
 
 - 执行模型：GPT-5 Codex。

@@ -3,6 +3,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  CircleAlert,
   CircleDollarSign,
   Loader2,
   SkipForward,
@@ -39,10 +40,44 @@ type ExecutionDraft = {
 }
 
 type ConfirmableOutcome = Extract<ManualExecutionOutcome, 'executed' | 'skipped'>
+type AdviceCardState = 'checking' | 'pending' | 'completed' | 'skipped' | 'partial' | 'unavailable'
 
 const outcomeCopy: Record<ConfirmableOutcome, { action: string; confirm: string; history: string }> = {
   executed: { action: '我已执行', confirm: '确认记录完成', history: '已完成' },
   skipped: { action: '这次跳过', confirm: '确认记录跳过', history: '已跳过' },
+}
+
+const adviceCardVisuals: Record<AdviceCardState, { card: string; badge: string; label: string }> = {
+  checking: {
+    card: 'border-white/10 bg-[#102028]',
+    badge: 'border-white/15 bg-white/[0.06] text-slate-300',
+    label: '正在确认状态',
+  },
+  pending: {
+    card: 'border-[#766448] bg-[#28241d] shadow-[0_18px_45px_rgba(74,57,28,0.12)]',
+    badge: 'border-[#a68b5d]/45 bg-[#d9bd88]/10 text-[#ead8b7]',
+    label: '本期待办 · 未完成',
+  },
+  completed: {
+    card: 'border-[#527765] bg-[#173027] shadow-[0_18px_45px_rgba(31,86,65,0.14)]',
+    badge: 'border-[#8eb7a3]/40 bg-[#b8d5c6]/10 text-[#dcece4]',
+    label: '本期待办 · 已完成',
+  },
+  skipped: {
+    card: 'border-slate-500/35 bg-[#17272d]',
+    badge: 'border-slate-300/20 bg-white/[0.06] text-slate-300',
+    label: '本期待办 · 已跳过',
+  },
+  partial: {
+    card: 'border-slate-500/35 bg-[#17272d]',
+    badge: 'border-slate-300/20 bg-white/[0.06] text-slate-300',
+    label: '本期待办 · 历史部分完成',
+  },
+  unavailable: {
+    card: 'border-[#766448] bg-[#20262a]',
+    badge: 'border-[#a68b5d]/35 bg-[#d9bd88]/10 text-[#ead8b7]',
+    label: '执行状态待确认',
+  },
 }
 
 const actionExplanation: Record<DecisionRecord['decision_snapshot']['action'], string> = {
@@ -112,6 +147,8 @@ function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision:
   const [formError, setFormError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const recordedOutcome = journal.data?.[0] ?? null
+  const cardState = adviceCardState(journal.isPending, Boolean(journal.error), recordedOutcome?.outcome)
+  const cardVisual = adviceCardVisuals[cardState]
 
   const beginConfirmation = (outcome: ConfirmableOutcome) => {
     append.reset()
@@ -165,10 +202,19 @@ function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision:
 
   return (
     <>
-      <section className="overflow-hidden rounded-[1.6rem] bg-[#102028] text-white">
+      <section
+        data-advice-state={cardState}
+        className={`overflow-hidden rounded-[1.6rem] border text-white transition-[background-color,border-color,box-shadow] duration-700 ease-out motion-reduce:transition-none ${cardVisual.card}`}
+      >
         <div className="grid gap-8 p-6 sm:p-8 lg:grid-cols-[1.35fr_.65fr] lg:p-10">
           <div>
-            <p className="inline-flex items-center gap-2 text-sm text-[#b8d5c6]"><Sparkles className="size-4" />本期建议</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="inline-flex items-center gap-2 text-sm text-[#b8d5c6]"><Sparkles className="size-4" />本期建议</p>
+              <span aria-label="本期办理状态" className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium ${cardVisual.badge}`}>
+                <AdviceStatusIcon state={cardState} />
+                {cardVisual.label}
+              </span>
+            </div>
             <h2 className="mt-5 max-w-xl text-3xl font-semibold tracking-[-0.045em] sm:text-4xl">
               {decisionTitle(decision)}
             </h2>
@@ -343,6 +389,26 @@ function outcomeLabel(outcome: ManualExecutionOutcome): string {
   if (outcome === 'executed') return '已完成'
   if (outcome === 'skipped') return '已跳过'
   return '部分完成（历史记录）'
+}
+
+function adviceCardState(
+  pending: boolean,
+  unavailable: boolean,
+  outcome?: ManualExecutionOutcome,
+): AdviceCardState {
+  if (pending) return 'checking'
+  if (unavailable) return 'unavailable'
+  if (outcome === 'executed') return 'completed'
+  if (outcome === 'skipped') return 'skipped'
+  if (outcome === 'partial') return 'partial'
+  return 'pending'
+}
+
+function AdviceStatusIcon({ state }: { state: AdviceCardState }) {
+  if (state === 'checking') return <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />
+  if (state === 'completed') return <CheckCircle2 className="size-3.5" />
+  if (state === 'skipped' || state === 'partial') return <SkipForward className="size-3.5" />
+  return <CircleAlert className="size-3.5" />
 }
 
 function scheduleLabel(plan: InvestmentPlan): string {

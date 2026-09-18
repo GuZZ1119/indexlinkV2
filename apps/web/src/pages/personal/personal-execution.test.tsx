@@ -121,6 +121,10 @@ describe('personal manual execution loop', () => {
     expect(screen.getByText(/保持原来的金额和节奏/)).toBeTruthy()
     expect(screen.queryByText(decision.summary)).toBeNull()
     expect(await screen.findByText(/还没有执行记录/)).toBeTruthy()
+    const pendingStatus = screen.getByLabelText('本期办理状态')
+    expect(pendingStatus.textContent).toContain('本期待办 · 未完成')
+    expect(pendingStatus.closest('section')?.getAttribute('data-advice-state')).toBe('pending')
+    expect(pendingStatus.closest('section')?.className).toContain('duration-700')
 
     expect(screen.queryByRole('button', { name: '部分执行' })).toBeNull()
     fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
@@ -138,6 +142,9 @@ describe('personal manual execution loop', () => {
     expect(post?.body?.event_id).toMatch(/^[0-9a-f-]{36}$/)
     expect(screen.queryByRole('button', { name: '我已执行' })).toBeNull()
     expect(screen.getAllByText(/每个计划日只能确认一次/).length).toBeGreaterThan(0)
+    const completedStatus = screen.getByLabelText('本期办理状态')
+    expect(completedStatus.textContent).toContain('本期待办 · 已完成')
+    expect(completedStatus.closest('section')?.getAttribute('data-advice-state')).toBe('completed')
   })
 
   it('validates an executed amount locally and can record one skipped outcome without an amount', async () => {
@@ -165,6 +172,9 @@ describe('personal manual execution loop', () => {
     expect(posts[0].body).not.toHaveProperty('actual_amount')
     expect(await screen.findByText('已跳过')).toBeTruthy()
     expect(screen.queryByRole('button', { name: '这次跳过' })).toBeNull()
+    const skippedStatus = screen.getByLabelText('本期办理状态')
+    expect(skippedStatus.textContent).toContain('本期待办 · 已跳过')
+    expect(skippedStatus.closest('section')?.getAttribute('data-advice-state')).toBe('skipped')
   })
 
   it('keeps the real no-advice and journal failure states explicit', async () => {
@@ -182,8 +192,31 @@ describe('personal manual execution loop', () => {
     vi.stubGlobal('fetch', failed.fetchMock)
     renderPage()
     expect(await screen.findByText('暂时读不到执行历史。')).toBeTruthy()
+    expect(screen.getByLabelText('本期办理状态').textContent).toContain('执行状态待确认')
     fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
     await waitFor(() => expect(failed.requests.filter((request) => request.url.includes('manual-executions'))).toHaveLength(2))
+  })
+
+  it('keeps a legacy partial result visibly resolved without presenting it as completed', async () => {
+    const partial: TestEvent = {
+      id: '30000000-0000-4000-8000-000000000003',
+      decision_record_id: decision.id,
+      plan_id: plan.id,
+      outcome: 'partial',
+      actual_amount: '500.00',
+      currency: 'USD',
+      occurred_at: '2026-09-15T01:00:00Z',
+      recorded_at: '2026-09-15T01:01:00Z',
+      source: 'user_reported',
+    }
+    const api = createApi({ events: [partial] })
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+
+    const status = await screen.findByLabelText('本期办理状态')
+    await waitFor(() => expect(status.textContent).toContain('本期待办 · 历史部分完成'))
+    expect(status.closest('section')?.getAttribute('data-advice-state')).toBe('partial')
+    expect(screen.queryByRole('button', { name: '我已执行' })).toBeNull()
   })
 
   it('supports switching between real plans and shows service failures without mock data', async () => {
