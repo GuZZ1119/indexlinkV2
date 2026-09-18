@@ -7,6 +7,7 @@ export default {
   nav: {
     primary: 'Primary navigation',
     personal: 'My space',
+    myPlans: 'My plans',
     strategiesCenter: 'Strategies',
     strategyAnalysis: 'Strategy analysis',
     lab: 'Advanced lab',

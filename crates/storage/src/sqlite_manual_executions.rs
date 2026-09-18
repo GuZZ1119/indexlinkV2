@@ -157,10 +157,12 @@ where
 }
 
 fn map_sqlx_error(error: sqlx::Error) -> ManualExecutionRepositoryError {
-    if error
-        .as_database_error()
-        .is_some_and(sqlx::error::DatabaseError::is_unique_violation)
-    {
+    if error.as_database_error().is_some_and(|database_error| {
+        database_error.is_unique_violation()
+            || database_error
+                .message()
+                .contains("manual execution outcome already recorded")
+    }) {
         ManualExecutionRepositoryError::AlreadyExists
     } else {
         tracing::warn!(error = %error, "manual execution SQLite operation failed");
@@ -276,22 +278,12 @@ mod tests {
             ))
             .await
             .unwrap();
-        let second = journal
-            .append(input(
-                Uuid::from_u128(102),
-                decision.id,
-                ManualExecutionOutcome::Skipped,
-                None,
-            ))
-            .await
-            .unwrap();
-
         assert_eq!(first.plan_id, decision.plan_id);
         assert_eq!(first.currency, "USD");
         assert_eq!(first.source, ManualExecutionSource::UserReported);
         assert_eq!(
             journal.list_by_decision(decision.id).await.unwrap(),
-            vec![first, second]
+            vec![first]
         );
         assert_eq!(decisions.get(decision.id).await.unwrap(), before);
 
@@ -333,6 +325,17 @@ mod tests {
             journal
                 .append(input(
                     Uuid::from_u128(202),
+                    decision.id,
+                    ManualExecutionOutcome::Skipped,
+                    None,
+                ))
+                .await,
+            Err(ManualExecutionRepositoryError::AlreadyExists)
+        );
+        assert_eq!(
+            journal
+                .append(input(
+                    Uuid::from_u128(203),
                     Uuid::from_u128(999),
                     ManualExecutionOutcome::Skipped,
                     None,

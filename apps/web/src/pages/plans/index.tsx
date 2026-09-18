@@ -97,12 +97,29 @@ export default function PlansPage() {
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8 px-5 py-8 md:px-8 lg:px-10 lg:py-10">
       <PageHeading
-        eyebrow="建立计划"
-        title="把决定做一次，之后按节奏继续"
-        description="V2.1 先只建立固定定投：不看短期行情，不需要 AI、券商连接、Docker 或任何 API Key。"
+        eyebrow="我的计划"
+        title="所有长期计划，都在这里"
+        description="查看正在执行的标的、金额和节奏，或在需要时暂停、继续和删除。新计划从页面下方建立。"
+        action={<a href="#new-plan" className="inline-flex h-10 items-center justify-center rounded-full bg-[#102028] px-4 text-sm font-medium text-white hover:bg-[#18313c] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#b8d5c6]">建立新计划</a>}
       />
 
-      <section className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <PlanList
+        plans={plans.data ?? []}
+        pending={plans.isPending}
+        selectedPlanId={selectedPlanId}
+        busy={update.isPending || remove.isPending}
+        onSelect={setSelectedPlanId}
+        onToggle={(plan) => update.mutate({ planId: plan.id, input: { is_active: !plan.is_active } })}
+        onRemove={(plan) => {
+          if (!globalThis.confirm(`删除“${plan.name}”及其本地记录？`)) return
+          if (selectedPlanId === plan.id) setSelectedPlanId(null)
+          remove.mutate(plan.id)
+        }}
+      />
+
+      <section id="new-plan" className="scroll-mt-24">
+        <div><p className="text-sm font-medium text-[#2d6a57]">建立新计划</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#102028]">从一份简单的固定定投开始</h2><p className="mt-2 text-sm text-slate-500">当前版本只需要标的、金额和日期，不要求任何高级配置。</p></div>
+        <div className="mt-5 grid gap-7 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <form onSubmit={(event) => void submit(event)} className="rounded-[1.6rem] bg-[#102028] p-6 text-white sm:p-8 lg:p-10">
           <div className="max-w-2xl">
             <p className="text-sm text-[#b8d5c6]">你的固定定投</p>
@@ -168,21 +185,8 @@ export default function PlansPage() {
           </ul>
           <p className="border-t border-slate-100 pt-5 text-xs leading-5 text-slate-400">高级策略、机会资金与券商实验仍保留在原 API 中，但不会进入这条普通用户路径。</p>
         </aside>
+        </div>
       </section>
-
-      <PlanList
-        plans={plans.data ?? []}
-        pending={plans.isPending}
-        selectedPlanId={selectedPlanId}
-        busy={update.isPending || remove.isPending}
-        onSelect={setSelectedPlanId}
-        onToggle={(plan) => update.mutate({ planId: plan.id, input: { is_active: !plan.is_active } })}
-        onRemove={(plan) => {
-          if (!globalThis.confirm(`删除“${plan.name}”及其本地记录？`)) return
-          if (selectedPlanId === plan.id) setSelectedPlanId(null)
-          remove.mutate(plan.id)
-        }}
-      />
     </div>
   )
 }
@@ -214,17 +218,20 @@ function PlanList({
 }) {
   return (
     <section>
-      <div><h2 className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">已有计划</h2><p className="mt-1 text-sm text-slate-500">选择后，个人中心会显示这个计划的本期安排。</p></div>
+      <div><h2 className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">你的长期计划</h2><p className="mt-1 text-sm text-slate-500">点击一张计划卡，它就会成为个人中心正在查看的计划。</p></div>
       {pending ? <p className="mt-5 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" />正在读取计划…</p> : null}
-      {!pending && plans.length === 0 ? <p className="mt-5 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">还没有计划。上面的四个选择就足够开始。</p> : null}
+      {!pending && plans.length === 0 ? <p className="mt-5 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-600">还没有计划。使用下方的最小表单建立第一份固定定投。</p> : null}
       {!pending && plans.length > 0 ? (
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {plans.map((plan) => (
             <article key={plan.id} className={`rounded-[1.2rem] border bg-white p-5 ${selectedPlanId === plan.id ? 'border-[#2d6a57]' : 'border-slate-200'}`}>
               <button type="button" onClick={() => onSelect(plan.id)} className="w-full text-left focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#b8d5c6]/50">
-                <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[#102028]">{plan.name}</p><p className="mt-1 text-sm text-slate-500">{plan.symbol} · 固定定投</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${plan.is_active ? 'bg-[#e6f1eb] text-[#2d6a57]' : 'bg-slate-100 text-slate-500'}`}>{plan.is_active ? '进行中' : '已暂停'}</span></div>
-                <p className="mt-5 text-xl font-semibold tracking-[-0.03em] text-[#102028]">{formatMoney(plan.currency, plan.base_contribution)}</p>
-                <p className="mt-1 text-xs text-slate-500">{scheduleLabel(plan)}</p>
+                <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[#102028]">{plan.name}</p><p className="mt-1 text-sm text-slate-500">{plan.symbol} · {strategyLabel(plan)}</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${plan.is_active ? 'bg-[#e6f1eb] text-[#2d6a57]' : 'bg-slate-100 text-slate-500'}`}>{plan.is_active ? '进行中' : '已暂停'}</span></div>
+                <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-[#f4f7f6] p-3">
+                  <div><p className="text-xs text-slate-400">每次投入</p><p className="mt-1 font-semibold text-[#102028]">{formatMoney(plan.currency, plan.base_contribution)}</p></div>
+                  <div><p className="text-xs text-slate-400">执行节奏</p><p className="mt-1 font-semibold text-[#102028]">{scheduleLabel(plan)}</p></div>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-slate-500">策略：{strategyLabel(plan)} · 单次上限 {formatMoney(plan.currency, plan.max_single_execution)}</p>
               </button>
               <div className="mt-5 flex gap-2 border-t border-slate-100 pt-4">
                 <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => onToggle(plan)}>{plan.is_active ? <><Pause />暂停</> : <><Play />继续</>}</Button>
@@ -268,6 +275,12 @@ function fixedDcaPayload(draft: MinimalPlanDraft, symbol: string): CreateInvestm
 function scheduleLabel(plan: InvestmentPlan): string {
   if (plan.schedule_kind === 'weekly') return `每周 ${weekdays.find((day) => day.value === plan.schedule_day)?.label ?? plan.schedule_day}`
   return `每月 ${plan.schedule_day} 日`
+}
+
+function strategyLabel(plan: InvestmentPlan): string {
+  if (plan.policy.id === 'fixed_dca') return '固定定投'
+  if (plan.policy.id === 'core_opportunity_v1') return '自适应定投'
+  return '已保存策略'
 }
 
 function formatMoney(currency: string, amount: string): string {

@@ -384,9 +384,9 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 #### `POST /decisions/:id/manual-executions`
 
-向指定 decision record 追加一条用户自行报告的执行事件。该接口不会修改 decision record，也不会调用 broker、重新计算策略或把用户报告冒充为已验证成交。事件只允许追加，不提供更新或删除 API；SQLite 同时拒绝对仍有关联计划的事件做直接 `UPDATE` / `DELETE`。
+向指定 decision record 追加一条用户自行报告的最终执行结果。该接口不会修改 decision record，也不会调用 broker、重新计算策略或把用户报告冒充为已验证成交。事件只允许追加，不提供更新或删除 API；SQLite 同时拒绝对仍有关联计划的事件做直接 `UPDATE` / `DELETE`。
 
-只有 `execution_status == "due"` 的决策可以记录执行结果；`waiting` 或 `inactive` 决策返回 `400 bad_request`。
+只有 `execution_status == "due"` 的决策可以记录执行结果；`waiting` 或 `inactive` 决策返回 `400 bad_request`。同一 decision 最多只能有一个最终结果：已有任意事件后再次提交，即使使用新的 `event_id`，也返回 `409 conflict`。这使计划日确认保持一次性，同时保留原始 append-only 审计语义。
 
 请求示例：
 
@@ -400,9 +400,10 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 }
 ```
 
-- `event_id` 由客户端生成且必须为非 nil UUID；网络重试必须复用同一个值。重复 ID 返回 `409 conflict`，不会追加第二条事件。
+- `event_id` 由客户端生成且必须为非 nil UUID；网络重试必须复用同一个值。重复 ID 或同一 decision 的第二个结果均返回 `409 conflict`，不会追加第二条事件。
 - `outcome` 只接受 `executed`、`skipped`、`partial`。
 - `executed` 与 `partial` 必须提交正数 decimal 字符串 `actual_amount`；`skipped` 必须省略该字段。
+- `partial` 为 API 与既有审计记录的兼容值；V2.1 普通用户界面不再提供新增“部分执行”的入口，只提供 `executed` 与 `skipped`。
 - `occurred_at` 必须为带时区的 RFC 3339 时间，保存时规范化为 UTC。
 - `note` 可省略；提供时去除首尾空白，长度为 `1..=500`。
 - 返回事件中的 `plan_id` 与 `currency` 从不可变 decision record 继承，调用方不能覆盖；`source` 固定为 `user_reported`。
@@ -426,7 +427,7 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 #### `GET /decisions/:id/manual-executions`
 
-按 `recorded_at ASC, id ASC` 返回指定 decision record 的完整手工执行事件历史。不存在的 decision record 返回 `404 not_found`。返回数组为空表示该决策尚未收到用户执行反馈，不能据此推断已经执行或跳过。
+按 `recorded_at ASC, id ASC` 返回指定 decision record 的手工执行事件。不存在的 decision record 返回 `404 not_found`。返回数组为空表示该决策尚未收到用户执行反馈，不能据此推断已经执行或跳过。新数据库约束下数组最多包含一条；迁移前已经存在的多条历史仍按原样只读返回，不会被删除或改写。
 
 #### `POST /decisions/:id/approve-paper-order`
 

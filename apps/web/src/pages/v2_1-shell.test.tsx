@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { MemoryRouter } from 'react-router'
 
 import { StrategyCard } from '@/components/v2_1/strategy-card'
+import { AppSidebar } from '@/components/layout/app-sidebar'
 import { findConsumerStrategy } from '@/features/v2_1/model'
 import i18n from '@/i18n'
 import LabPage from '@/pages/lab'
@@ -32,6 +33,15 @@ describe('V2.1 consumer shell', () => {
     expect(screen.queryByText('MA200 一年历史回放')).toBeNull()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0][0])).toContain('/investment-plans')
+  })
+
+  it('exposes plan management as My plans directly below Personal', () => {
+    renderPage(<AppSidebar />)
+    const personal = screen.getByRole('link', { name: '个人中心' })
+    const plans = screen.getByRole('link', { name: '我的计划' })
+
+    expect(plans.getAttribute('href')).toBe('/plans')
+    expect(personal.compareDocumentPosition(plans) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('explains and compares strategies before a user selects one', () => {

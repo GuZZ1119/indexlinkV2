@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-18 AEST — 个人中心与“我的计划”执行语义收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：消费级信息层级、计划管理导航、一次性手工确认约束、兼容迁移、聚焦测试与文档同步。
+- 涉及文件：`apps/web/src/{components/{layout/app-sidebar.tsx,v2_1/page-heading.tsx},i18n/locales/{zh.ts,en.ts},pages/{personal/index.tsx,personal/personal-execution.test.tsx,plans/index.tsx,plans/minimal-plan.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`crates/{api/tests/manual_executions.rs,storage/src/sqlite_manual_executions.rs}`、`migrations/sqlite/20260918090000_limit_manual_execution_to_one_per_decision.sql`、`docs/{plans/v2_1_closeout_hardness.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：解除个人中心页头与计划选择器的同排宽度竞争，标题和说明恢复完整内容宽度；新增醒目的“正在查看 + 计划名”上下文。侧边栏在个人中心下新增“我的计划”，`/plans` 改为先展示真实计划详情和管理动作、再建立新 Fixed DCA 计划，个人中心移除误导性的“管理计划”链接。普通执行确认删除“部分执行”，仅保留“我已执行/这次跳过”；前端只对真实 `due` 建议开放操作，读取到任意既有结果后隐藏按钮。新增 SQLite trigger，保证同一 decision 即使更换事件 ID 也只能追加一个最终结果并返回 `409 conflict`；迁移前多条历史及 `partial` API 值保持只读兼容，不删除、不改写原记录。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（35 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.18%、Branches 90.96%、Functions 92.61%、Lines 96.97%）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-storage --locked`（33 项通过）、`cargo test -p indexlink-api --locked --test manual_executions`（3 项通过）、`git diff --check`。浏览器在 1280×720 下确认页头与说明各为一行、无横向溢出、“正在查看”与 18px 计划选择器形成连续主信息；“我的计划”可从侧边栏进入并先展示真实卡片，既有结果下无“我已执行/部分执行”按钮，控制台无 warning/error。
+
 ### 2026-09-17 AEST — Push 5B：Gate 2 最小 Fixed DCA 收口
 
 - 执行模型：GPT-5 Codex。

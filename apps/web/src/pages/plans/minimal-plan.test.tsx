@@ -131,7 +131,12 @@ describe('minimal fixed DCA plan setup', () => {
     }))
     renderPage()
 
+    expect(screen.getByRole('heading', { name: '所有长期计划，都在这里' })).toBeTruthy()
     expect(await screen.findByText('每周 星期三')).toBeTruthy()
+    expect(screen.getByText(/策略：固定定投 · 单次上限/)).toBeTruthy()
+    const planHeading = screen.getByRole('heading', { name: '你的长期计划' })
+    const createHeading = screen.getByRole('heading', { name: '从一份简单的固定定投开始' })
+    expect(planHeading.compareDocumentPosition(createHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.change(screen.getByLabelText('执行节奏'), { target: { value: 'weekly' } })
     expect(screen.getByLabelText('每周哪一天')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '暂停' }))
@@ -147,7 +152,7 @@ describe('minimal fixed DCA plan setup', () => {
       const url = String(input)
       const method = init?.method ?? 'GET'
       requests.push({ method, url })
-      if (method === 'GET') return jsonResponse([{ ...createdPlan, base_contribution: 'unknown', is_active: false }])
+      if (method === 'GET') return jsonResponse([{ ...createdPlan, base_contribution: 'unknown', policy: { id: 'core_opportunity_v1', version: 1 }, is_active: false }])
       if (method === 'POST' && url.endsWith('/investment-plans')) return jsonResponse({ error: { code: 'invalid', message: 'invalid' } }, 400)
       throw new Error(`unexpected request: ${method} ${url}`)
     }))
@@ -155,6 +160,7 @@ describe('minimal fixed DCA plan setup', () => {
 
     expect(await screen.findByText(`每月 ${createdPlan.schedule_day} 日`)).toBeTruthy()
     expect(screen.getByText('USD unknown')).toBeTruthy()
+    expect(screen.getAllByText(/自适应定投/).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: '继续' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
     expect(requests.some((request) => request.method === 'DELETE')).toBe(false)

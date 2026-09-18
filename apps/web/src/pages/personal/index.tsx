@@ -4,7 +4,6 @@ import {
   Check,
   CheckCircle2,
   CircleDollarSign,
-  Clock3,
   Loader2,
   SkipForward,
   Sparkles,
@@ -33,15 +32,16 @@ import { setSelectedPlanId, uiStore } from '@/stores/ui'
 
 type ExecutionDraft = {
   eventId: string
-  outcome: ManualExecutionOutcome
+  outcome: ConfirmableOutcome
   amount: string
   occurredAt: string
   note: string
 }
 
-const outcomeCopy: Record<ManualExecutionOutcome, { action: string; confirm: string; history: string }> = {
+type ConfirmableOutcome = Extract<ManualExecutionOutcome, 'executed' | 'skipped'>
+
+const outcomeCopy: Record<ConfirmableOutcome, { action: string; confirm: string; history: string }> = {
   executed: { action: '我已执行', confirm: '确认记录完成', history: '已完成' },
-  partial: { action: '部分执行', confirm: '确认记录部分执行', history: '部分完成' },
   skipped: { action: '这次跳过', confirm: '确认记录跳过', history: '已跳过' },
 }
 
@@ -64,26 +64,33 @@ export default function PersonalPage() {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8 px-5 py-8 md:px-8 lg:px-10 lg:py-10">
-      <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-        <PageHeading
-          eyebrow="个人中心"
-          title="今天，只做计划要求的事"
-          description="建议、你的确认和执行历史都来自本机记录。这里不替你下单，也不会改写原来的建议。"
-        />
-        {(plans.data?.length ?? 0) > 1 ? (
-          <label className="grid min-w-56 gap-1.5 text-sm font-medium text-[#102028]">
-            查看计划
-            <select
-              aria-label="查看计划"
-              className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus-visible:border-[#2d6a57] focus-visible:ring-3 focus-visible:ring-[#b8d5c6]/50"
-              value={activePlan?.id ?? ''}
-              onChange={(event) => setSelectedPlanId(event.target.value)}
-            >
-              {plans.data?.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
-            </select>
-          </label>
-        ) : null}
-      </div>
+      <PageHeading
+        eyebrow="个人中心"
+        title="今天，只做计划要求的事"
+        description="建议、你的确认和执行历史都来自本机记录。这里不替你下单，也不会改写原来的建议。"
+      />
+
+      {activePlan ? (
+        <section aria-label="当前查看计划" className="rounded-[1.2rem] border border-[#b8d5c6] bg-white px-5 py-4 shadow-[0_10px_30px_rgba(16,32,40,0.05)]">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+            <p className="shrink-0 text-lg font-semibold tracking-[-0.025em] text-[#2d6a57]">正在查看</p>
+            {(plans.data?.length ?? 0) > 1 ? (
+              <label className="grid min-w-64 flex-1 gap-1.5 text-sm font-medium text-[#102028]">
+                <span className="sr-only">正在查看的计划</span>
+                <select
+                  aria-label="正在查看的计划"
+                  className="h-12 rounded-xl border border-slate-200 bg-[#f4f7f6] px-4 text-lg font-semibold tracking-[-0.02em] text-[#102028] outline-none focus-visible:border-[#2d6a57] focus-visible:ring-3 focus-visible:ring-[#b8d5c6]/50"
+                  value={activePlan?.id ?? ''}
+                  onChange={(event) => setSelectedPlanId(event.target.value)}
+                >
+                  {plans.data?.map((plan) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                </select>
+              </label>
+            ) : <p className="text-lg font-semibold tracking-[-0.02em] text-[#102028]">{activePlan.name}</p>}
+          </div>
+          <p className="mt-2 text-sm text-slate-500 sm:ml-[6.8rem]">个人中心只显示这份计划的当前建议和执行记录。</p>
+        </section>
+      ) : null}
 
       {plans.isPending || (activePlan && decisions.isPending) ? <LoadingState /> : null}
       {!plans.isPending && requestError ? <RequestErrorState /> : null}
@@ -104,8 +111,9 @@ function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision:
   const [draft, setDraft] = useState<ExecutionDraft | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const recordedOutcome = journal.data?.[0] ?? null
 
-  const beginConfirmation = (outcome: ManualExecutionOutcome) => {
+  const beginConfirmation = (outcome: ConfirmableOutcome) => {
     append.reset()
     setFeedback(null)
     setFormError(null)
@@ -167,12 +175,24 @@ function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision:
             <p className="mt-4 max-w-2xl text-[0.95rem] leading-7 text-slate-300">{actionExplanation[decision.decision_snapshot.action]}</p>
             <p className="mt-3 text-xs leading-5 text-slate-400">这是已保存的建议，不是自动下单。请在券商侧操作后，再回来如实记录结果。</p>
 
-            <div className="mt-7 flex flex-wrap gap-3" aria-label="记录执行结果">
-              <button type="button" onClick={() => beginConfirmation('executed')} className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-[#102028] transition-colors hover:bg-[#dcece4] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/50">我已执行</button>
-              <button type="button" onClick={() => beginConfirmation('partial')} className="rounded-full border border-white/25 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/40">部分执行</button>
-              <button type="button" onClick={() => beginConfirmation('skipped')} className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/40">这次跳过</button>
-              <Link to={`/decisions/${decision.id}`} className="inline-flex items-center gap-1 rounded-full px-3 py-2.5 text-sm font-medium text-[#b8d5c6] hover:text-white">查看原建议 <ArrowRight className="size-3.5" /></Link>
-            </div>
+            {journal.isPending ? <p className="mt-7 text-sm text-slate-400">正在确认本次建议是否已经记录…</p> : null}
+            {!journal.isPending && journal.error ? <p className="mt-7 rounded-xl border border-amber-200/20 bg-amber-100/10 px-4 py-3 text-sm text-amber-50">暂时无法确认执行状态，因此不会开放重复记录。请在执行历史中重新读取。</p> : null}
+            {!journal.isPending && !journal.error && recordedOutcome ? (
+              <div className="mt-7 rounded-xl border border-[#b8d5c6]/35 bg-[#dcece4]/10 px-4 py-4" role="status">
+                <p className="font-medium text-white">本次建议已记录为“{outcomeLabel(recordedOutcome.outcome)}”</p>
+                <p className="mt-1 text-sm leading-6 text-slate-300">每个计划日只能确认一次，原记录不会被覆盖，也不能再次追加。</p>
+              </div>
+            ) : null}
+            {!journal.isPending && !journal.error && !recordedOutcome ? (
+              <div className="mt-7">
+                <p className="mb-3 text-xs leading-5 text-slate-400">当前是这份计划的执行日。本次建议只能确认一次。</p>
+                <div className="flex flex-wrap gap-3" aria-label="记录执行结果">
+                  <button type="button" onClick={() => beginConfirmation('executed')} className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-[#102028] transition-colors hover:bg-[#dcece4] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/50">我已执行</button>
+                  <button type="button" onClick={() => beginConfirmation('skipped')} className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/40">这次跳过</button>
+                </div>
+              </div>
+            ) : null}
+            <Link to={`/decisions/${decision.id}`} className="mt-4 inline-flex items-center gap-1 rounded-full text-sm font-medium text-[#b8d5c6] hover:text-white">查看原建议 <ArrowRight className="size-3.5" /></Link>
 
             {draft ? (
               <ConfirmationForm
@@ -199,20 +219,14 @@ function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision:
 
       <section className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="rounded-[1.35rem] border border-slate-200 bg-white p-5 sm:p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">你的计划</h2>
-              <p className="mt-1 text-sm text-slate-500">这里显示真实计划配置，不用盯住行情。</p>
-            </div>
-            <Link to="/plans" className="text-sm font-medium text-[#2d6a57]">管理计划</Link>
-          </div>
+          <div><h2 className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">计划摘要</h2><p className="mt-1 text-sm text-slate-500">完整计划和新建入口已集中到侧边栏的“我的计划”。</p></div>
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <PlanFact icon={<CircleDollarSign />} label="常规金额" value={formatMoney(plan.currency, plan.base_contribution)} />
             <PlanFact icon={<CalendarDays />} label="执行节奏" value={scheduleLabel(plan)} />
             <PlanFact icon={<CheckCircle2 />} label="当前状态" value={plan.is_active ? '正在坚持' : '已暂停'} />
           </div>
           <div className="mt-6 rounded-xl bg-[#f4f7f6] px-4 py-3 text-sm leading-6 text-slate-600">
-            原建议会一直保持不变。每次确认只会在它后面新增一条由你报告的事实记录。
+            原建议会一直保持不变。每个计划日只能确认一次，结果会作为由你报告的事实记录保存。
           </div>
         </div>
 
@@ -243,7 +257,7 @@ function ConfirmationForm({
     <form onSubmit={onSubmit} className="mt-5 max-w-2xl rounded-2xl border border-white/15 bg-white/[0.07] p-4 sm:p-5">
       <div className="flex items-center justify-between gap-4">
         <div><p className="font-medium">{outcomeCopy[draft.outcome].action}</p><p className="mt-1 text-xs text-slate-400">确认后会新增一条记录，历史不能编辑。</p></div>
-        {draft.outcome === 'executed' ? <Check className="size-5 text-[#b8d5c6]" /> : draft.outcome === 'partial' ? <Clock3 className="size-5 text-[#b8d5c6]" /> : <SkipForward className="size-5 text-[#b8d5c6]" />}
+        {draft.outcome === 'executed' ? <Check className="size-5 text-[#b8d5c6]" /> : <SkipForward className="size-5 text-[#b8d5c6]" />}
       </div>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         {draft.outcome !== 'skipped' ? (
@@ -323,6 +337,12 @@ function decisionTitle(decision: DecisionRecord): string {
   return decision.planned_contribution
     ? `按建议投入 ${formatMoney(decision.currency, decision.planned_contribution)}`
     : '查看本期建议'
+}
+
+function outcomeLabel(outcome: ManualExecutionOutcome): string {
+  if (outcome === 'executed') return '已完成'
+  if (outcome === 'skipped') return '已跳过'
+  return '部分完成（历史记录）'
 }
 
 function scheduleLabel(plan: InvestmentPlan): string {

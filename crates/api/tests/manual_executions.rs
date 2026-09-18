@@ -134,7 +134,7 @@ async fn appends_and_lists_user_reported_partial_execution() {
 }
 
 #[tokio::test]
-async fn validates_outcome_contract_and_rejects_duplicate_event_ids() {
+async fn validates_outcome_contract_and_rejects_a_second_outcome() {
     let (app, decision_id) = app_with_decision().await;
     let event_id = Uuid::from_u128(302);
     let valid = json!({
@@ -151,6 +151,23 @@ async fn validates_outcome_contract_and_rejects_duplicate_event_ids() {
     let duplicate = post_event(app.clone(), decision_id, valid).await;
     assert_eq!(duplicate.status(), StatusCode::CONFLICT);
     assert_eq!(response_json(duplicate).await["error"]["code"], "conflict");
+
+    let second_outcome = post_event(
+        app.clone(),
+        decision_id,
+        json!({
+            "event_id": Uuid::from_u128(307),
+            "outcome": "executed",
+            "actual_amount": "1000.00",
+            "occurred_at": "2026-09-16T00:05:00Z"
+        }),
+    )
+    .await;
+    assert_eq!(second_outcome.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        response_json(second_outcome).await["error"]["code"],
+        "conflict"
+    );
 
     let skipped_with_amount = json!({
         "event_id": Uuid::from_u128(303),

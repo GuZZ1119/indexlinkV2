@@ -7,6 +7,7 @@ export default {
   nav: {
     primary: '主要导航',
     personal: '个人中心',
+    myPlans: '我的计划',
     strategiesCenter: '策略中心',
     strategyAnalysis: '策略分析',
     lab: '高级实验室',
