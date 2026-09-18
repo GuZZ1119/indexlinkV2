@@ -1,4 +1,4 @@
-import { Languages } from 'lucide-react'
+import { Languages, Menu } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 
@@ -12,7 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SidebarTrigger } from '@/components/ui/sidebar'
 
 export function AppHeader() {
   const { t, i18n } = useTranslation()
@@ -22,21 +21,16 @@ export function AppHeader() {
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
-      <SidebarTrigger aria-label={t('header.toggleSidebar')} />
-      <Link to="/" className="flex items-center gap-2">
-        <img
-          src="/logo.png"
-          alt=""
-          aria-hidden="true"
-          className="size-40 object-contain"
-        />
+    <header className="sticky top-0 z-20 flex h-[4.5rem] shrink-0 items-center gap-3 border-b border-slate-200/80 bg-[#f6f8f6]/90 px-5 backdrop-blur md:px-8">
+      <Menu className="size-5 text-slate-500 lg:hidden" aria-hidden="true" />
+      <Link to="/personal" className="flex items-center gap-2.5">
+        <span className="grid size-8 place-items-center rounded-[0.7rem] bg-[#102028] text-sm font-semibold text-white">I</span>
+        <span className="text-[1rem] font-semibold tracking-[-0.04em] text-[#102028]">IndexLink</span>
       </Link>
 
-      <div className="ml-auto flex items-center gap-1">
+      <div className="ml-auto flex items-center gap-1.5">
         <Button
-          variant="ghost"
-          size="sm"
+          variant="ghost" size="sm"
           onClick={toggleLanguage}
           aria-label={t('header.switchLanguage')}
         >
@@ -59,9 +53,7 @@ export function AppHeader() {
             <DropdownMenuLabel>
               <div className="flex flex-col">
                 <span>{t('live.localDemo')}</span>
-                <span className="text-xs font-normal text-muted-foreground">
-                  {t('live.localOnly')}
-                </span>
+              <span className="text-xs font-normal text-muted-foreground">{t('live.localOnly')}</span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

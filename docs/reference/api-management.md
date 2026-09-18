@@ -9,6 +9,7 @@
 - UUID 路径参数非法时返回 `400 bad_request`。
 - 资源不存在时返回 `404 not_found`。
 - 已发送订单但未收到可信回执时返回 `409 order_outcome_unknown`；客户端不得自动重试。
+- 重复提交已存在的不可变资源标识时返回 `409 conflict`。
 - 服务依赖不可用时返回 `503 service_unavailable`。
 
 统一错误响应：
@@ -50,6 +51,30 @@
 {
   "status": "ready",
   "database": "ok"
+}
+```
+
+#### `GET /runtime-status`
+
+返回 SQLite 核心、可选 adapter 与调度器的展示安全状态，不会主动调用外部行情、AI 或 broker。`market_data` 与 `paper_broker` 均为三态：`not_configured` 表示运营方未启用，`configured` 表示 adapter 已装配，`unavailable` 表示已启用但初始化失败。可选能力不可用不会改变核心服务的存活状态；依赖这些能力的具体路由会返回 `503 service_unavailable`。
+
+响应示例：
+
+```json
+{
+  "service": "running",
+  "database": "ready",
+  "market_data": "not_configured",
+  "qwen": "not_configured",
+  "ai_provider_profiles": [],
+  "paper_broker": "unavailable",
+  "scheduler": {
+    "enabled": true,
+    "tick_interval_seconds": 60,
+    "last_tick_at": null,
+    "last_summary": null,
+    "last_error_at": null
+  }
 }
 ```
 
@@ -252,7 +277,7 @@ Dashboard 与最小 Scheduler 使用的默认入口。请求体**不接受**人�
 }
 ```
 
-服务端使用当前 UTC 月内日期。70/20 市场源不可用时返回统一 `503 service_unavailable`，不创建伪造的决策或审计记录；Qwen 不可用时仍创建记录并明确标记 `sentiment_unavailable` / `90/10/0`。响应新增 `audit_record_id`，可用 `GET /decisions/:id` 读取可读证据。省略 `paper_order` 时绝不下单。
+服务端使用当前 UTC 月内日期。70/20 市场源不可用时返回统一 `503 service_unavailable`，不创建伪造的决策或审计记录；Qwen 不可用时仍创建记录并明确标记 `sentiment_unavailable` / `90/10/0`。响应新增 `audit_record_id`，可用 `GET /decisions/:id` 读取可读证据。省略 `paper_order` 时绝不下单。若本次自动预览在计划日成功保存为 `due`，它会同时占用相同的 `(plan_id, scheduled_for)` 调度标记，防止后台 Scheduler 在服务重启或下一 tick 为同一计划日重复生成建议。
 
 server 默认启用周期 Scheduler：每 `SCHEDULER_TICK_SECONDS`（默认 60）秒检查一次，按每个 active plan 的 `monthly`/`weekly` `schedule_days` 与 UTC 日历创建自动决策存证。SQLite 的 `(plan_id, scheduled_for)` claim 阻止重启或下一 tick 重复存证；重启时仅补跑当前月或当前周尚未 claim 的日期。补跑不自动下单，且使用恢复时可用的数据生成存证；`approval` 计划仍须用户确认。
 
@@ -357,6 +382,52 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 按 ID 查询单条 decision record。不存在时返回 `404 not_found`。
 
+#### `POST /decisions/:id/manual-executions`
+
+向指定 decision record 追加一条用户自行报告的执行事件。该接口不会修改 decision record，也不会调用 broker、重新计算策略或把用户报告冒充为已验证成交。事件只允许追加，不提供更新或删除 API；SQLite 同时拒绝对仍有关联计划的事件做直接 `UPDATE` / `DELETE`。
+
+只有 `execution_status == "due"` 的决策可以记录执行结果；`waiting` 或 `inactive` 决策返回 `400 bad_request`。
+
+请求示例：
+
+```json
+{
+  "event_id": "00000000-0000-0000-0000-000000000301",
+  "outcome": "partial",
+  "actual_amount": "750.00",
+  "occurred_at": "2026-09-16T08:30:00+10:00",
+  "note": "本次只完成了部分投入"
+}
+```
+
+- `event_id` 由客户端生成且必须为非 nil UUID；网络重试必须复用同一个值。重复 ID 返回 `409 conflict`，不会追加第二条事件。
+- `outcome` 只接受 `executed`、`skipped`、`partial`。
+- `executed` 与 `partial` 必须提交正数 decimal 字符串 `actual_amount`；`skipped` 必须省略该字段。
+- `occurred_at` 必须为带时区的 RFC 3339 时间，保存时规范化为 UTC。
+- `note` 可省略；提供时去除首尾空白，长度为 `1..=500`。
+- 返回事件中的 `plan_id` 与 `currency` 从不可变 decision record 继承，调用方不能覆盖；`source` 固定为 `user_reported`。
+
+成功返回 `201 Created`：
+
+```json
+{
+  "id": "00000000-0000-0000-0000-000000000301",
+  "decision_record_id": "00000000-0000-0000-0000-000000000001",
+  "plan_id": "00000000-0000-0000-0000-000000000002",
+  "outcome": "partial",
+  "actual_amount": "750.00",
+  "currency": "USD",
+  "note": "本次只完成了部分投入",
+  "occurred_at": "2026-09-15T22:30:00Z",
+  "recorded_at": "2026-09-16T00:00:00Z",
+  "source": "user_reported"
+}
+```
+
+#### `GET /decisions/:id/manual-executions`
+
+按 `recorded_at ASC, id ASC` 返回指定 decision record 的完整手工执行事件历史。不存在的 decision record 返回 `404 not_found`。返回数组为空表示该决策尚未收到用户执行反馈，不能据此推断已经执行或跳过。
+
 #### `POST /decisions/:id/approve-paper-order`
 
 仅允许对已持久化且状态为 `due` 的 `approval` 模式 decision record 进行一次人工确认模拟下单。请求体只接受非空 `idempotency_key`；服务端从该记录的不可变双桶快照读取推荐金额，再以本机最新可信价格换算整股数量，**不会重新运行 70/20/10、Qwen 或接受调用方自填金额/数量**。
@@ -452,7 +523,7 @@ curl -X POST 'http://127.0.0.1:8080/market-sentiment/preview?profile_id=qwen-def
 
 ### Futu/Moomoo OpenD Paper Trading API
 
-已具备 broker port、MockBroker、OpenD raw TCP paper session 与下单 adapter。server 未设置 `OPEND_PROVIDER` 时保留 MockBroker；设置 `futu` 或 `moomoo` 后，server 在启动时连接本机 loopback OpenD 并注入真实 `OpenDPaperBroker`。启动失败会安全失败，绝不会静默降级到 mock broker。
+已具备 broker port、测试专用 MockBroker、OpenD raw TCP paper session 与下单 adapter。生产 server 未配置 broker 时不会安装 Mock；设置 `OPEND_PROVIDER` 后，可通过 `OPEND_MARKET_DATA_ENABLED` 与 `OPEND_PAPER_BROKER_ENABLED` 独立装配只读行情和模拟 broker。任一 adapter 初始化失败只会将对应 capability 标记为 `unavailable`，不会阻止 SQLite、Plan、Decision、Audit 或 HTTP server 启动，也绝不会静默降级到 Mock。
 
 真实 OpenD 下单暂不需要单独 HTTP endpoint；它复用 `POST /investment-plans/:id/decision-preview` 的 `paper_order`，以确保订单必须经过计划、执行日和决策保护。
 
@@ -507,11 +578,13 @@ OPEND_PROVIDER=futu
 OPEND_HOST=127.0.0.1
 OPEND_PORT=11111
 OPEND_ACCOUNT_ID='<paper-account-id>'
+OPEND_MARKET_DATA_ENABLED=true
+OPEND_PAPER_BROKER_ENABLED=true
 ```
 
 - 配置仅接受 `futu` / `moomoo` 和 loopback host（`127.0.0.1`、`::1`、`localhost`）。
 - server 配置层只构造 `Paper` adapter；没有 live environment 或 live gate 配置项。
-- 未设置 `OPEND_PROVIDER` 时，演示继续使用 paper-only `MockBroker`。
+- 两个 capability 开关未显式设置时保持旧配置兼容：存在 `OPEND_PROVIDER` 即默认同时启用；也可分别设为 `false`。未配置或初始化失败的 broker 路由统一返回 `503 service_unavailable`，不会生成 `MOCK-*` 回执。
 - 真实 smoke 是忽略式测试，必须显式确认且提供唯一 idempotency key、symbol 与 quantity；它不读取、不传输 OpenD 登录密码或 token。
 
 真实 smoke 前先在 OpenD GUI 中登录并确认选择的是虚拟账户；以下命令会提交一笔 paper market order，不应在 CI 中执行：
@@ -551,13 +624,15 @@ OPEND_SMOKE_CONFIRM=submit-paper-order \
 9. `POST /signals/trend/preview`
 10. `GET /investment-plans/:id/decisions`
 11. `GET /decisions/:id`
-12. `POST /decisions/:id/approve-paper-order`
-13. `GET /paper-performance/actual`
-14. `GET /market-data/holdings?period=1y`
-14. `GET /paper-performance/historical-backtest`
-15. `GET /strategies`
-16. `GET /strategies/:policy_id/:policy_version`
-17. `GET /strategies/:policy_id/:policy_version/admission`
+12. `POST /decisions/:id/manual-executions`
+13. `GET /decisions/:id/manual-executions`
+14. `POST /decisions/:id/approve-paper-order`
+15. `GET /paper-performance/actual`
+16. `GET /market-data/holdings?period=1y`
+17. `GET /paper-performance/historical-backtest`
+18. `GET /strategies`
+19. `GET /strategies/:policy_id/:policy_version`
+20. `GET /strategies/:policy_id/:policy_version/admission`
 
 ## 当前 MVP 缺口优先级
 

@@ -39,6 +39,21 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+  dependency-graph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Assert default server graph excludes PostgreSQL
+        run: |
+          if cargo tree -p indexlink-server --locked | grep -Fq "sqlx-postgres v"; then
+            echo "sqlx-postgres must not be present in the default server dependency graph"
+            exit 1
+          fi
+      - name: Assert storage PostgreSQL feature includes PostgreSQL
+        run: cargo tree -p indexlink-storage --locked --features postgres | grep -F "sqlx-postgres v"
+
   coverage:
     runs-on: ubuntu-latest
     steps:

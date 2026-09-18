@@ -201,6 +201,28 @@ async fn runtime_status_distinguishes_ready_database_from_optional_unconfigured_
 }
 
 #[tokio::test]
+async fn runtime_status_reports_configured_but_unavailable_optional_dependencies() {
+    let state = ApiState::with_readiness(Arc::new(FakeReadiness { available: true }), "0.1.0")
+        .with_market_data_unavailable()
+        .with_paper_broker_unavailable();
+    let response = build_router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/runtime-status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["market_data"], "unavailable");
+    assert_eq!(body["paper_broker"], "unavailable");
+    assert_eq!(body["database"], "ready");
+}
+
+#[tokio::test]
 async fn configured_cors_origin_is_returned_for_preflight_request() {
     let app = build_router_with_cors(
         ApiState::with_readiness(Arc::new(FakeReadiness { available: true }), "0.1.0"),

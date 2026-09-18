@@ -1,27 +1,18 @@
-import type { CSSProperties } from 'react'
 import { Outlet } from 'react-router'
 
 import { AppHeader } from './app-header'
 import { AppSidebar } from './app-sidebar'
-import { NewsTicker } from './news-ticker'
-import { RuntimeStatus } from './runtime-status'
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 
 export function AppLayout() {
   return (
-    <SidebarProvider
-      className="h-svh min-h-0 flex-col"
-      style={{ '--app-chrome-height': '5.75rem' } as CSSProperties}
-    >
-      <NewsTicker />
+    <div className="min-h-svh bg-[#f6f8f6] text-[#102028]">
       <AppHeader />
-      <RuntimeStatus />
-      <div className="flex min-h-0 flex-1">
+      <div className="mx-auto flex min-h-[calc(100svh-4.5rem)] w-full max-w-[1440px]">
         <AppSidebar />
-        <SidebarInset className="min-h-0 overflow-y-auto">
+        <main className="min-w-0 flex-1 overflow-x-hidden">
           <Outlet />
-        </SidebarInset>
+        </main>
       </div>
-    </SidebarProvider>
+    </div>
   )
 }

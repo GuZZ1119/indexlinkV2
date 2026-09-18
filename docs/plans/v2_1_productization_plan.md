@@ -1,169 +1,347 @@
-# IndexLink V2.1 产品化与前端重构计划 / Productization and Frontend Plan
+# IndexLink V2.1 本地优先发布过渡计划
 
-> 状态 / Status：**计划中 / Planned**。本文件定义下一阶段的产品定位、前端信息架构和上线门槛；不改变当前 V2 的策略或交易行为。
+> 状态：**计划中**。本文件将 V2.1 定义为从现有单用户策略运行与审计 MVP 过渡到 V3 策略网络前的正式可发布版本。它收束产品和工程范围，不改变当前 V2 的确定性策略、审计与 paper-only 安全边界。
 
-## 1. 定位修正 / Positioning
+> 2026-09-15 执行基线：项目负责人已确认《IndexLink V2.1 Codex 收口执行手册》。当前先完成 M0 工程收敛和 M1 的 `Plan → readable Decision → user-reported execution → Audit`，再由 3–5 位目标用户的任务证据决定是否进入策略比较、Simple Builder、扩展数据源与 Tauri。具体停止条件、文件 ownership 和 Push 顺序以 [`v2_1_closeout_hardness.md`](./v2_1_closeout_hardness.md) 为准；本文件其余章节描述产品能力地图，不代表可以并行启动全部能力。
 
-IndexLink V2.1 不与 QMT、PTrade 或券商终端竞争“任意代码策略、全市场行情、实盘自动交易和低延迟执行”。这些是券商与专业量化基础设施的能力边界。
+## 1. 发布定位
 
-V2.1 的定位是：
+IndexLink V2.1 是一个面向长期 ETF 投资者的**本地优先策略库、回测与手动执行工作台**。
 
-> **面向长期指数投资者的、本地优先的策略治理、决策审计与 paper-trading 工作台。**
+用户选择受审查的官方策略，理解其历史研究结果与风险，把它安装为自己的计划，并在每个周期获得清晰、可审计的手动操作建议。用户仍在自己的券商 App 中完成交易，IndexLink 记录计划、策略版本、建议、实际操作和复盘。
 
-产品负责让计划、预算、策略版本、证据、审批、订单意图和复盘相互可追溯；Broker、OpenD、QMT/PTrade 等系统只可作为未来的可替换账户或执行适配器。
+V2.1 的发布承诺是：
 
-IndexLink V2.1 is not a replacement for a general-purpose quantitative trading terminal. It is a **local-first policy governance, decision-audit, and paper-trading workspace for long-term index investors**.
+> 我可以在自己的设备上选择一个看得懂的长期策略，知道本月该做什么，并在之后准确回看当时的版本、依据和实际操作。
 
-## 2. 目标用户与待验证假设 / Target User and Hypothesis
+它不是多用户 SaaS、公开策略社区、通用量化平台或自动交易终端。V3 才负责 Public Strategy、Creator、Fork Lineage、Hosted Cloud 与多用户 ownership。
 
-首个目标用户不是高频或 Python 量化交易者，而是：
+## 2. 目标用户与核心闭环
 
-- 有稳定现金流、维护 1–5 个 ETF/指数定投计划的长期投资者；
-- 不希望把账户密码或全部投资数据托管给第三方；
-- 希望理解每次建议、预算变化和是否执行，而不是接受黑箱买卖指令；
-- 可以接受固定 DCA 作为默认基准，并只在明确审阅后使用自定义机会桶规则；
-- 需要按月/周查看计划、决策记录和模拟执行结果。
+首个目标用户是有稳定现金流、维护少量长期 ETF/指数计划、希望理解和坚持投入纪律的个人投资者。他们不需要写 Python、DSL 或连接券商权限，也不应被要求理解策略运行时、调度器或技术指标。
 
-需要通过 10–15 次用户访谈验证的核心问题：
-
-1. 用户是否确实会因计划分散、预算不透明或“为什么本次建议不同”而感到管理负担？
-2. 用户是否愿意每月花约五分钟审阅决策存证，而不是只依赖券商的自动定投？
-3. 用户真正需要的是账户只读聚合、可读决策解释、策略比较，还是自动交易？
-4. 若用户主要需要任意策略代码、Tick 数据或无人值守实盘，IndexLink 不应把该人群当作目标市场。
-
-The product hypothesis is deliberately narrow: users value transparent plan governance and review more than unrestricted strategy coding or automatic execution.
-
-## 3. 产品原则与非目标 / Principles and Non-goals
-
-| 原则 / Principle | V2.1 落地 / Product consequence |
-| --- | --- |
-| 本地优先 / Local first | SQLite、策略版本和审计记录默认保留在用户设备；云端同步只能是以后明确授权的可选能力。 |
-| Fixed DCA 为基准 | 新计划默认 `fixed_dca@1`；任何策略比较必须显示匹配的 Fixed DCA 对照。 |
-| 策略先验证再启用 | DSL 草案需要校验、固定样本准入、人工保存与计划激活。 |
-| AI 无交易授权 | AI 只能解释、提示风险、生成只读受限 DSL 草案；不能保存、激活、下单或绕过预算。 |
-| 人工掌握执行权 | scheduler 只生成存证；审批模式必须确认既有决策记录才可提交 paper order。 |
-| 证据优先 / Evidence first | 决策保留策略版本、`as_of`、数据来源、AI 降级原因、推荐与订单回执。 |
-
-明确不做 / Explicit non-goals：
-
-- 任意 Python/JavaScript 策略代码执行；
-- 高频、Tick、盘口、算法拆单或自动报撤；
-- 默认实盘自动交易；
-- 把回测或 AI 输出包装为收益承诺；
-- 复制 QMT/PTrade 的行情终端、策略 IDE 或券商基础设施；
-- 将券商密码、API Key 或交易凭据交给浏览器。
-
-## 4. V2.1 信息架构 / Information Architecture
+V2.1 的唯一主闭环是：
 
 ```text
-今日 / Today
-├─ 我的计划 / Plans
-├─ 决策与审批 / Decisions
-├─ 组合与表现 / Portfolio
-├─ 策略实验室 / Strategy Lab (advanced)
-└─ 设置与连接 / Settings & Connections
+选择官方策略 → 看懂适用范围与风险 → 安装为本地计划
+→ 获得本月行动 → 在券商手动操作 → 完成/调整/跳过并留痕 → 回看
 ```
 
-| 页面 / Page | 面向用户的内容 / User-facing purpose | 复用的现有能力 / Existing capability |
+若一个需求不能改善这条闭环，它不应阻塞 V2.1 发布。
+
+## 3. 单人可控的产品边界
+
+### V2.1 必须做
+
+1. **普通用户信息架构**
+   - 首页回答“我本月该做什么、为什么、是否完成”。
+   - 用“策略”“计划”“行动记录”替代默认暴露的 `Policy`、`DSL`、`Admission` 等工程术语。
+   - 70/20/10、`CoreOpportunityV1`、技术指标、Copilot 与 OpenD 留在高级/实验入口。
+
+2. **官方策展策略库**
+   - 首发只收录 3–5 个高质量策略，包括 Fixed DCA 与少量受限规则策略。
+   - 每张策略卡展示适用人群、资产范围、投入方式、风险、版本、来源、许可证与历史研究边界。
+   - “采用策略”创建用户自己的本地计划或关联计划组；后续模板更新不能静默改写已采用版本。
+
+3. **统一的回测准入与展示**
+   - 任何进入策略库的策略都必须使用确定性 runtime、版本化数据和固定假设完成回测。
+   - 必须显示 Fixed DCA 对照、现金流、成本、成交时点、数据覆盖、最大回撤、波动和最差窗口。
+   - 结果是研究信息，不构成收益预测或推荐。
+
+4. **Manual-first 行动记录**
+   - 行动清单至少包含标的、金额、日期、策略版本和简短理由。
+   - 用户可追加“完成、调整、跳过”和备注；planned 与 actual 必须同时保留，不能覆盖原始建议。
+   - 不配置 AI、市场数据或券商时，Fixed DCA 的计划、行动和历史仍完整可用。
+
+5. **可发布的本地体验**
+   - SQLite 默认自动创建并可通过页面导出备份。
+   - 无 Qwen、无 OpenD、无外部 API Key 的基础流程可运行。
+   - README、演示数据、截图、已知限制、Docker 启动说明和 Release Notes 完整。
+
+### V2.1 明确不做
+
+- 多用户、登录、公开策略发布、Discover、评论、关注与收益率排行榜；
+- PostgreSQL Cloud、对象存储、策略 marketplace 或 creator 收益分成；
+- 任意 Python、JavaScript、Pine Script 或外部仓库代码执行；
+- 全市场、Tick、盘口、高频、自动报撤或算法交易；
+- IBKR、QMT、Alpaca 等新券商生产接入；
+- 实盘自动下单、托管资金或 AI 自动修改/执行策略；
+- 通用多资产组合引擎、复杂再平衡、税务与公司行动处理。
+
+## 4. 用户配置与部署原则
+
+普通用户只配置“我想怎么投”，不配置基础设施。
+
+| 配置类别 | 普通用户 | 高级用户 | 部署者/开发者 |
+| --- | --- | --- | --- |
+| 必填 | 策略、投入金额、周期、执行日期 | 同左 | 同左 |
+| 默认自动处理 | SQLite、本地备份、Fixed DCA、Mock/Paper 状态 | 同左 | 端口与日志可覆盖 |
+| 可选 | 无 | Qwen 解释、本机 Moomoo/Futu OpenD 模拟账户 | Docker、环境变量、备份路径 |
+| 永不要求 | API Key、券商密码、数据库 URL、Docker 参数 | 浏览器保存券商凭据 | 向浏览器暴露密钥 |
+
+Docker 是分发/自托管方式，不是产品配置。V2.1 的基础 Compose 路径必须在没有 `.env`、Qwen 或 OpenD 的条件下启动，并使用 SQLite、Fixed DCA 与安全默认值。AI 与 OpenD 通过独立的高级覆盖配置或设置流程启用。
+
+## 5. 策略库与来源治理
+
+V2.1 提供的是**策展策略库**，不是开源代码搜索和执行器。
+
+每个候选策略按以下流程收录：
+
+```text
+发现公开思路 → 记录来源与许可证 → 翻译为内置 Policy 或受限 DSL
+→ 领域校验与回归测试 → 统一回测 → 人工审阅 → 发布策略卡
+```
+
+收录记录必须至少保存：原始链接、作者/组织、许可证或使用条件、固定来源版本/commit、IndexLink 实现版本、可用资产与数据覆盖范围。来源不清晰、许可证不兼容、无法映射到受限运行时、无法使用相同口径回测的策略不得进入库。
+
+V2.1 不执行第三方代码。保留当前 DSL 白名单、预算边界、核心桶保护和无 IO runtime；需要任意代码执行的策略属于 V3 之后的独立安全评审问题，而不是 V2.1 范围。
+
+## 6. 回测与数据边界
+
+“所有已收录策略都可以回测”是 V2.1 的策略库门槛，不表示支持任意数据或任意策略。
+
+### 回测契约
+
+每份结果应由以下版本组成：
+
+```text
+strategy_version + dataset_version + assumptions_version → BacktestResult
+```
+
+结果必须复用生产确定性 runtime，使用因果 `as_of` 输入、明确现金流、成本和严格成交时点；同一版本组合重复运行应产生相同结论。Fixed DCA 永远作为匹配现金流的公平基准。
+
+### 数据策略
+
+- 首发限定少量、明确支持的 US ETF/指数代理与日线/月线节奏。
+- 回测数据源与 Broker adapter 分离；“可以连接券商”不等于其数据可被重分发或用于研究。
+- 每个数据集保存来源、获取时间、覆盖范围、缺失规则和内容 hash；需要扩展资产 universe 时单独审查数据质量与使用条件。
+- 在通用市场数据契约完成前，策略库仅收录当前版本化历史夹具能完整支持的策略，不能用不完整数据扩大宣传范围。
+
+## 7. 执行与连接边界
+
+V2.1 的默认执行模式是 Manual-first：系统输出明确行动，用户在自己的券商中执行并回到 IndexLink 记录结果。
+
+| 能力 | V2.1 发布要求 | 说明 |
 | --- | --- | --- |
-| 今日 | 下一次执行、最新建议、是否需审批、简短风险与运行状态 | Decision Preview、scheduler、AI Evidence、runtime status |
-| 我的计划 | 标的、预算、周期、策略、风险模式、启停 | Investment Plans、策略绑定、周期与双桶配置 |
-| 决策与审批 | 可读解释、证据、策略版本、差异、订单状态与 paper 确认 | Decision Records、approval paper order |
-| 组合与表现 | 本地 paper 持仓、订单、成交、轨迹与空状态 | OpenD/Mock、ledger、performance API |
-| 策略实验室 | DSL、Copilot 草案、证据、准入和 Fixed DCA 对照 | Strategy Studio、admission、AI provider registry |
-| 设置与连接 | API、SQLite、Qwen、OpenD 状态与本地连接说明 | health、ready、runtime-status |
+| 行动建议 | 必须 | 基于已持久化策略、计划和输入生成；显示版本与理由。 |
+| 手动完成记录 | 必须 | 追加记录 planned/actual、调整、跳过和备注。 |
+| Mock paper | 保留 | 用于无外部账户的演示和测试。 |
+| Moomoo/Futu OpenD paper | 可选高级能力 | 仅本机 loopback、模拟账户、显式人工确认和幂等提交。 |
+| IBKR 等新 adapter | 不阻塞发布 | 作为后续独立版本，先完成数据、权限、失败恢复和安全审查。 |
+| 实盘自动交易 | 明确不做 | scheduler 永远不得自动下单。 |
 
-`CoreOpportunityV1`、70/20/10 分层指标和旧历史回放属于**研究/兼容能力**，不应占据普通用户的首页；它们应只在策略详情或 Strategy Lab 中出现。
+现有 OpenD 适配器的作用是证明可替换执行边界，而不是 V2.1 的核心卖点。未配置、不可用或登录失败时，计划、回测、行动建议和审计不得被阻塞。
 
-## 5. 现有页面迁移 / Current-page Migration
+## 8. 信息架构与既有能力迁移
 
-| 当前能力 | V2.1 去向 | 处理方式 |
+```text
+今日
+├─ 策略库
+├─ 我的计划
+├─ 行动记录
+└─ 高级设置
+   ├─ 策略实验室
+   ├─ 研究与回测细节
+   └─ AI / OpenD 连接
+```
+
+| 现有 V2 能力 | V2.1 去向 | 用户表达 |
 | --- | --- | --- |
-| Dashboard 的自动决策与运行状态 | 今日 | 保留，并改成单一“下一步行动”主任务。 |
-| Dashboard 的市场输入、70/20/10 卡片 | Strategy Lab / 旧策略详情 | 从首页移除；标记为历史研究策略证据。 |
-| Dashboard 的 OpenD、账本、轨迹、价格图 | 组合与表现 | 统一显示模拟账户、已确认成交与“暂无数据”。 |
-| Dashboard 的一年 replay | Strategy Lab | 与策略准入明确区分，不能作为日常收益承诺。 |
-| Plans 参数表单 | 我的计划向导 + 高级设置 | 默认只展示标的、预算、周期和策略；双桶/现金/风险折叠。 |
-| Decisions 详情 | 决策与审批 | 保持审计核心，隐藏原始 JSON，仅在高级视图显示技术证据。 |
-| Strategy Studio / Copilot | 策略实验室 | 保持受限 DSL 和人工准入，不开放自由代码。 |
+| Dashboard 决策与运行状态 | 今日 | “本月下一步”与安全状态。 |
+| Investment Plans | 我的计划 | 已采用策略、投入金额、周期和启停。 |
+| Decision Records | 行动记录 | 建议、实际操作、原因和历史。 |
+| Strategy Studio / DSL / Copilot | 策略实验室 | 高级实验功能，不是主入口。 |
+| Admission / 历史评估 | 策略详情与研究细节 | 回测假设和风险，不做收益营销。 |
+| Mock/OpenD 与 paper ledger | 高级设置或行动详情 | 可选模拟执行状态。 |
+| CoreOpportunityV1 / 70/20/10 | 历史研究策略 | 明确标注兼容/研究，不替代 Fixed DCA 默认值。 |
 
-## 6. 交付拆分 / Delivery Sequence
+## 9. 产品能力分解与合并门槛
 
-### Push 1 — 产品壳与首页收束
+以下 P0–P5 用于说明完整产品能力，不是当前可并行执行的队列。实际执行必须先通过 Hardness 的 Gate 0–3；M1 用户验证前不以 P2、P3 或完整 P5 阻塞第一次交付。
 
-- 新建 `Today / Plans / Decisions / Portfolio / Strategy Lab / Settings` 路由与导航。
-- 首页只显示计划状态、下一执行日、最新建议、审批 CTA 与安全运行状态。
-- 保留旧 URL 的兼容跳转；完整中英文案。
-- 不改 Rust 策略、数据库或下单逻辑。
+### P0 — 发布边界与回归基线
 
-### Push 2 — 计划向导与计划详情
+- 锁定 V2 的策略 runtime、现有 SQLite schema 和审计读取兼容行为。
+- 编写 V2.1 验收清单和非目标；所有新需求先用主闭环审查。
+- 对当前计划、策略版本、决策记录和 scheduler 运行聚焦回归测试。
 
-- 将计划创建改为“标的与预算 → 周期与执行方式 → 策略”的三步流程。
-- 默认展示 Fixed DCA；`CoreOpportunityV1` 标记为历史研究策略。
-- 将双桶、滚存、周期上限和风险模式放到高级设置。
+**完成条件：** 现有 V2 行为不变，V2.1 的范围与不做事项写入文档和 issue/PR 模板。
 
-### Push 3 — 决策中心与审批体验
+### P1 — 普通用户壳与行动中心
 
-- 决策记录以“本次为何建议这样做”为主叙事。
-- 显示计划预算、核心/机会金额、策略版本、`as_of`、AI 解释、风险提示和订单回执。
-- 审批计划只能通过“确认提交模拟订单”推进同一份存证。
+- 重构路由、导航和首页；保留旧 URL 兼容跳转。
+- 将行动、原因、完成状态作为首页第一优先级。
+- 将 DSL、技术证据、OpenD 和 AI 收入高级区域；补齐中英文案与前端测试。
 
-### Push 4 — 组合与表现
+**完成条件：** 非技术用户能不接触 DSL 创建 Fixed DCA 计划、找到建议并理解待执行状态。
 
-- 统一 OpenD/Mock、订单、持仓、成交和本地账本的展示。
-- 区分模拟账户实际已确认成交、本地 ledger 与历史研究；没有成交时显示明确空状态。
-- 历史回放从该页面移出。
+### P2 — 官方策略库与本地采用
 
-### Push 5 — Strategy Lab 收束
+- 定义只读策略卡/来源 metadata 与策略采用关系。
+- 先发布 3–5 个经过审阅的模板；采用时固化策略版本和来源快照。
+- 若策略包含多个标的，先实现为受控的关联计划组，不提前引入通用 Portfolio runtime。
 
-- 将 DSL、Copilot、技术证据、准入和 Fixed DCA 对照集中到高级页面。
-- 将所有回测数字标为研究结果和假设，不作为收益预测。
+**完成条件：** 用户可从策略库采用一个策略，且后续模板变化不会改变其已采用计划。
 
-### Push 6 — 设置与连接
+### P3 — 统一回测结果与有限数据 universe
 
-- 清楚显示 API、SQLite、Qwen、scheduler 与 OpenD 的本机状态。
-- 设计“检测本机 OpenD → 选择模拟账户 → 本地绑定”的体验；浏览器不接收券商密码。
-- 后端仅在此阶段按真实 UI 缺口补充聚合读取或本地账户绑定 API。
+- 将既有评估能力包装为版本化 `BacktestResult`，并在策略详情展示假设与 Fixed DCA 对照。
+- 为收录策略补齐数据/假设/因果性/成本/现金流测试。
+- 确定首发数据 universe；不满足数据契约的策略不收录。
 
-## 7. 产品上线标准 / Product Launch Gates
+**完成条件：** 每一张策略卡都有可复跑、可解释且不误导的研究结果。
 
-### 必须满足 / Required
+### P4 — Manual Action Tracker
 
-1. 用户可在无 Qwen、无 OpenD、无云服务条件下创建 Fixed DCA 计划、生成本地决策记录并查看历史。
-2. 任何可执行建议都可显示计划、策略 ID/版本、预算、`as_of`、证据来源、动作、金额和安全降级原因。
-3. scheduler 永不自动下单；`approval` 模式只能确认已持久化的决策记录，并仅提交 paper order。
-4. Fixed DCA 与任意已激活 DSL 策略均使用相同的计划预算和执行约束；策略准入结果不构成收益承诺。
-5. OpenD 未配置/未登录时，核心计划、审计和研究功能仍可用，并给出清楚状态，而非阻塞或伪造账户数据。
-6. 浏览器和 API 响应不得返回 API Key、券商密码、endpoint、账户凭据或底层 provider 错误细节。
-7. 中英文切换覆盖全部用户可见文案；路由有可恢复错误页；服务端状态使用 React Query 管理。
-8. 前端 lint、build、测试覆盖率门槛和相关 Rust 聚焦测试均通过；新增行为具有可读的审计/回归测试。
+- 新增行动建议到用户实际完成结果的 append-only 记录。
+- 支持完成、调整、跳过和备注；展示 planned 与 actual 的差异。
+- 确保历史策略版本、原建议和输入快照不能被后续操作覆盖。
 
-### Beta 验证门槛 / Beta Validation Gates
+**完成条件：** 用户可完整走通“采用 → 本月行动 → 手动完成 → 历史回看”。
 
-1. 完成至少 10–15 次目标用户访谈，并记录上述四项问题的结论。
-2. 至少 5 位非开发者能在不看源码的情况下完成：创建计划 → 查看建议 → 理解原因 → 找到决策记录。
-3. 至少 3 位用户能正确区分“Fixed DCA、研究策略、模拟订单和已成交记录”。
-4. 若多数用户主要索取高频、任意代码或无人值守实盘，停止向该方向扩张，改为将 IndexLink 定位为可选的审计/研究上层工具。
+### P5 — 可选模拟连接与发布加固
 
-## 8. 后端收束原则 / Backend Follow-up
+- 保留并收束 Mock/OpenD paper 体验；它永远不能阻塞基础工作流。
+- 将基础 Docker 启动改为零密钥、零 `.env` 的 SQLite 默认体验。
+- 提供页面备份导出、演示数据、README、截图、Release Notes 和已知限制。
 
-前端重构期间不推倒现有 Hexagonal Architecture + Modular Monolith，也不重写策略 runtime。后端只在 UI 出现真实重复请求或语义缺口时补充：
+**完成条件：** 空白环境可启动，未配置 AI/OpenD 时主闭环可用，配置后仍保持 paper-only 和显式确认。
 
-- 面向“今日”的聚合只读 API，减少前端拼接多个请求；
-- 本机账户绑定持久化，替代单一 `.env` 固定账户 ID；
-- 将过大的应用编排逐步拆为 `PolicyExecutionService`、`DecisionAuditService`、`PortfolioReadService`、`AiEvidenceService` 与 `SchedulerService`；
-- 将现有 PostgreSQL adapter 降为 feature-gated 的未来云端能力，SQLite 继续是 V2 默认单用户存储。
+## 10. V2.1 发布门槛
 
-这些是演进项，不是本轮前端上线的前置条件。
+发布 `v2.1.0` 前必须满足：
 
-## 9. 成功定义 / Definition of Success
+1. 用户在干净环境中可通过官方发布方式启动，不需要配置数据库、Docker 参数、AI Key 或券商凭据。
+2. 无 Qwen、无 OpenD、无外部 API Key 时，Fixed DCA → 决策/行动 → 手动记录 → 历史回看完整可用。
+3. 首发 3–5 个策略均具备来源、许可证、版本、数据范围、回测假设和 Fixed DCA 对照。
+4. 每个收录策略均经领域校验、策略回归、回测因果性和 UI 展示测试。
+5. scheduler 不自动下单；任何 paper 提交均来自已持久化建议并需明确人工确认。
+6. SQLite 备份可导出；浏览器、API、审计和日志不泄露密钥、账户或 Broker 凭据。
+7. Rust 聚焦测试、前端 lint/test/build、迁移测试和 `git diff --check` 通过。
+8. 发布页清楚说明本地优先、研究边界、paper-only 边界、已知限制与不构成投资建议。
 
-V2.1 的成功不是声称跑赢市场，而是让目标用户在一次定投周期内可以回答：
+## 11. 发布后验证与 V3 交接
 
-1. 我有什么计划、下一步是什么？
-2. 这次建议投入多少，为什么？
-3. 这条建议使用了哪个策略版本和哪些截至当时的数据？
-4. 我是否已经确认模拟订单，它是否成交？
-5. 如果我不满意，如何退回 Fixed DCA 或停用策略？
+V2.1 发布后，邀请至少 5 位非技术用户完成：选择策略 → 理解风险 → 安装计划 → 找到本月行动 → 记录完成。观察他们是否能在不阅读源码或理解 DSL 的情况下完成闭环。
 
-If the product makes these answers clear without requiring users to write code, trust opaque AI, or surrender broker credentials, V2.1 meets its productization goal.
+若用户愿意持续使用策略卡、行动记录和版本回看，V3 再引入多用户、公开策略、Fork Lineage、Hosted Cloud、Paper Portfolio 和 Verified Forward Track。V2.1 的策略来源、版本快照、BacktestResult 与 Manual Action 记录将成为这些能力的迁移基础。
+
+V2.1 的成功不是跑赢市场或连接更多券商，而是证明一个普通长期投资者能持续理解、执行并复盘自己的策略。
+
+## 12. 2026-09 当前实施账本：后端映射缺口与执行顺序
+
+本节是当前 V2.1 的执行基线，优先级高于“继续丰富前端壳”的需求。现有 Rust 后端不是废弃系统，而是 V2 管理控制台和策略运行内核；问题在于 V2.1 主导航尚未把这些能力翻译为普通用户的策略库、我的计划与行动记录。
+
+### 12.1 后端已有、但 V2.1 主前端尚未正确映射的能力
+
+| 后端 API / 能力 | 当前可见前端 | 当前状态 | V2.1 的正确归宿 |
+| --- | --- | --- | --- |
+| `GET/POST/PATCH/DELETE /investment-plans*` | 仅直链旧 `/plans` 页面 | 可管理计划，但不在主导航，也不来自策略采用 | “我的计划”：采用官方策略后创建并冻结用户参数快照 |
+| `POST /investment-plans/:id/execution-preview` | 无 query、无页面入口 | 真实执行预览未映射 | 个人中心“本月该做什么”的基础数据 |
+| `POST /investment-plans/:id/{automatic-}decision-preview` 与 scheduler | 旧 Dashboard 有代码但 `/dashboard` 已无路由 | 真实决策、理由与审计被隐藏 | 行动建议与行动历史；scheduler 仍不得自动下单 |
+| `GET /decisions*` 与 `POST /decisions/:id/approve-paper-order` | 仅直链旧 `/decisions` | 审计与 paper 确认可用但不产品化 | 行动记录；普通模式只显示建议、实际操作与原因 |
+| `GET /strategies*`、validate/create、Copilot、admission、activate | 仅直链 `/strategy-studio`；专业研究暂时也直接选 DSL | 内部 DSL 工具被错误暴露为策略中心数据入口 | 高级实验室；官方策略库必须封装其实现细节 |
+| `GET /strategies/:id/:version/admission` | 专业研究视角仅能读取已保存 DSL | 已有 XIRR、回撤、波动率、Sortino、现金使用率与滚动窗口，但不覆盖内置策略 | 统一 `BacktestResult` 的一个来源，所有官方策略均须可读取 |
+| `/signals/*`、`/market-sentiment/preview`、`/ai/providers` | 旧 Dashboard / Studio 可用，主路径不可见 | 研究与高级控制台能力 | 仅作为策略解释或高级设置，不阻塞 Fixed DCA 主闭环 |
+| `/paper-portfolio`、`/paper-performance/*`、`/market-data/holdings` | 只在未路由的旧 Dashboard 中使用 | Mock/OpenD paper、价格与轨迹能力被隐藏 | 高级设置或行动详情；不作为 V2.1 基础流程依赖 |
+| `/health`、`/ready`、`/runtime-status` | `RuntimeStatus` 组件未挂入当前布局 | 安全运行状态没有可见入口 | 高级设置中的简化本机健康状态 |
+
+以下能力不是“前端漏接”，而是当前后端尚未提供，必须作为 V2.1 新契约实现：官方策略目录、官方策略与研究版本映射、内置策略统一研究结果、策略采用关系、append-only 手动行动记录、SQLite 页面备份导出，以及面向普通用户聚合的“本月行动”读取模型。
+
+### 12.2 当前没有闭环、不得对外当作已完成的功能
+
+| 用户表述 | 当前实际状态 | 关闭条件 |
+| --- | --- | --- |
+| “我选用了一个策略” | 策略中心只改变浏览器 Valtio 状态 | 创建/绑定 SQLite plan，并保存 `strategy_version + 用户参数快照` |
+| “我正在坚持一个计划” | 个人中心的金额、日期、收益和进度是演示数据 | 从真实 plan、execution preview、decision record 与 manual action 读取 |
+| “我完成了本月投入” | 仅当前浏览器会话状态，刷新后消失 | append-only 保存完成、调整、跳过、备注及 planned/actual |
+| “我比较了策略表现” | 直观视角使用确定性前端示例曲线 | 读取同一策略版本、数据集、假设下的真实 `BacktestResult` |
+| “我看到了专业指标” | 当前仅已保存 DSL 可读取准入报告 | 官方目录中的每张可采用策略均有专业研究结果；无结果即不可采用 |
+| “我配置了 Docker / Moomoo / Qwen / 数据” | 高级实验室仅展示静态预览 | 基础流程保持零配置；高级状态只读取服务端安全状态，不在浏览器保存密钥 |
+
+### 12.3 统一策略目录与研究结果契约
+
+普通用户不接触 `Policy`、DSL、Admission 或 OpenD。统一对象是一个官方策略版本：
+
+```text
+StrategyCatalogEntry
+├─ 用户信息：名称、适合谁、规则解释、风险、来源、许可证
+├─ 策略版本：strategy_id + strategy_version
+├─ 执行实现：内置 Rust policy / 受限 DSL / 受控组合模板
+├─ 支持资产与参数 schema
+├─ 研究契约：dataset_version + assumptions_version
+├─ BacktestResult：与 Fixed DCA 同口径的完整研究结果
+└─ Adoption：官方策略版本 + 用户参数快照 = 我的计划
+```
+
+`BacktestResult` 的最小内容为：数据来源与 hash、覆盖范围、复权/总回报口径、现金流、成本、成交时点、XIRR、期末净值、最大回撤、年化波动率、Sortino、现金使用率、Fixed DCA 对照与滚动样本外窗口。前端不得自行生成收益、回撤或专业指标。
+
+### 12.4 M2 条件满足后的策略平台顺序
+
+以下顺序仍用于策略平台建设，但只有 M1 用户任务验证明确支持比较/定制需求后才能启动。它替代“先增加更多静态策略卡”的做法，每一步完成后再进入下一步；不是当前 M0/M1 的执行队列。
+
+#### S1 — 定义统一策略目录与研究结果契约
+
+- 将内置策略、DSL 策略和现有前端静态卡统一到策略版本模型；DSL 仅是内部实现，不是用户概念。
+- 定义官方策略 metadata、来源/许可证快照、参数 schema、`BacktestResult`、数据集和假设版本。
+- 明确 API 边界：策略中心只读取官方目录与研究结果，不直接读取 `/strategies` DSL 列表。
+
+**完成条件：** 有一份可版本化的契约和 API 文档；可明确表示“有研究结果、无研究结果、不可采用”三种状态。
+
+#### S2 — 接通两条真实策略
+
+- 接通 `fixed_dca@1` 与现有 `core_opportunity_v1@1` 的官方目录条目、运行实现和研究结果。
+- Fixed DCA 是公平基准，同时提供自身可读的基础研究信息。
+- 自适应策略的历史结果必须明确标注为 `90/10/0` 情绪不可用降级口径；不得称为完整历史 `70/20/10` 回测。
+
+**完成条件：** 两条策略均可从同一后端契约读取版本、数据范围、假设和专业指标；结果由后端确定性 runtime 计算。
+
+#### S3 — 改造策略中心前端为真实 API 驱动
+
+- 卡片、策略详情、直观视角与专业视角统一读取官方策略 API。
+- 专业视角天然跟随当前策略，不再出现“选择 DSL 策略”的产品入口。
+- 没有真实研究结果的策略显示“研究尚未收录”，并禁用采用；移除或隔离现有前端演示收益曲线与静态专业数字。
+
+**完成条件：** 策略中心不再把前端模拟数据表示为策略研究；任一可采用策略都有真实专业视角。
+
+#### S4 — 建立“我的计划”，而非自由策略编辑器
+
+- 用户从官方策略采用，配置资产、金额、周期、执行日及少量受限风险参数。
+- 保存 `官方策略版本 + 用户参数快照`；官方模板更新不得静默改变既有计划。
+- 将真实 `execution-preview`、决策理由与计划状态接入个人中心。
+
+**完成条件：** 新用户可不接触 DSL 建立 Fixed DCA 计划，并在个人中心看到真实的下一步。
+
+#### S5 — 加入第一个新增官方策略：200 日均线趋势保护定投
+
+- 先完成来源、许可证、受限原生实现、价格数据契约、费用/成交时点假设与 Fixed DCA 公平回测。
+- 规则保持简单：趋势恶化时只限制机会性加码，基础长期投入不被策略任意否决。
+- 未通过数据与研究审查不得进入可采用目录。
+
+**完成条件：** 它与前两条策略使用同一目录、研究、采用与行动记录链路，而不是单独实现一套页面。
+
+#### S6 — 最后扩展资产与策略类别
+
+- 股债平衡、再平衡、轮动和波动率目标必须等待多资产复权/总回报数据、交易成本、再平衡与现金口径完成。
+- 任何依赖新闻、LLM 或社媒信号的策略，只有在具备有许可、带时间戳和 hash 的历史输入后，才能宣称完整历史回测。
+
+**完成条件：** 每种新增策略类别先通过数据能力与研究契约审查，再进入官方目录；不以静态卡片扩充数量。
+
+### 12.5 当前立即执行顺序
+
+当前收口顺序改为：
+
+```text
+0A 文档与 Hardness
+→ 0B 旧回放和首页错误隔离
+→ 0C 行情与 paper broker 解耦
+→ 0D PostgreSQL 默认关闭
+→ Manual Execution Journal
+→ Fixed DCA 的真实 Today 与最小 Plan
+→ 3–5 位用户任务验证
+→ 按反馈决定是否进入 12.4
+```
+
+当前前端 `/personal`、`/strategy-center` 与 `/strategy-analysis` 是可复用的消费级壳，但其中的计划金额、完成状态、策略采用和直观曲线仍是演示状态。M1 优先把 `/personal` 收束为真实 Today；不先把静态策略卡接成完整策略平台。
+
+Financial-API 暂登记为 M2 的 A 股与 A 股 ETF 可选导入来源候选。它不覆盖首发 US ETF，不进入核心启动路径，不直接成为领域或运行时依赖；在数据授权、历史窗口、复权口径、幂等与冲突处理通过验收前，不得宣称已支持。

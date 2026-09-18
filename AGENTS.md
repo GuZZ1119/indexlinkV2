@@ -2,7 +2,42 @@
 
 ## 项目一句话
 
-> **IndexLink** 是为长期指数投资者设计的自适应定投执行系统：以历史分位锚定估值位置（70%）、趋势节奏（20%）与 AI 语义感知（10%）在定投日微调投入——相对低位加码、相对高位减量、过热延时；只测量价格在历史分布中的位置，不声称判断价值。
+> **IndexLink** 是面向长期指数投资者的本地优先策略与手动执行工作台：用户选择可理解的策略，建立计划，获得可审计的周期建议，在外部券商自行执行，并把完成、调整或跳过记录在本地。70/20/10 是保留的历史研究策略，不是 V2.1 的产品总定义。
+
+## V2.1 当前唯一主线
+
+```text
+Plan → readable Decision → user-reported execution → Audit
+```
+
+- 当前先完成 M0 收敛与 M1 最小人工执行闭环，再由 3–5 位目标用户的真实任务反馈决定是否进入策略比较、Simple Builder、扩展数据源与桌面发行。
+- Fixed DCA 是强制基线；它在没有市场数据、AI、OpenD、券商或云服务时仍必须可创建计划、生成决策并回看审计。
+- 用户始终保有执行权。V2.1 不做无人值守实盘交易，scheduler 不得自动下单。
+- 手工执行记录与 paper trading 是两本独立账；手工记录只能标注为 `user-reported`，不得伪装为 broker verified，也不得改写原始 `DecisionRecord`。
+- 普通首页不得展示硬编码 MA200 回放或把它描述为当前所选策略表现；70/20/10、DSL、AI、OpenD 与研究实验进入高级区域。
+
+## 产品与架构硬约束
+
+- 保持 modular monolith 与 hexagonal boundary；领域 crate 不包含 IO。
+- SQLite 是默认持久化层。PostgreSQL 只能作为显式 opt-in feature，不得进入默认构建依赖图或正式启动路径。
+- 行情、broker 与 AI 必须通过显式 port 独立配置、独立初始化、独立报告 capability；任一可选能力失败不得阻止 Plan、Decision 与 Audit。
+- 配置过但初始化失败的 broker 必须显示为 unavailable，不得静默退回成看似真实连接的 Mock。
+- 不引入任意用户代码执行，不执行 Python 或 JavaScript 策略；DSL 只是受限内部实现，不是普通用户概念。
+- `DecisionRecord` 是不可变审计证据；执行留痕采用 append-only 事件并保存 planned、actual 与输入快照。
+- 市场数据供应商 SDK 不得泄漏到领域层。策略、Today 与回测只读取本地 `PriceHistoryProvider`；远端来源仅用于显式导入或更新。
+- 市场数据至少保留 provider、market、instrument type、currency、timezone、adjustment type、as-of、dataset version 与 checksum；缺失、过期或冲突数据必须显式失败，不得静默前向填充或混拼。
+- 回测必须复用同一生产确定性 runtime，并保证相同标的、现金流、成本、执行时点、因果 cutoff 与 dataset version；Fixed DCA 始终是同口径对照。
+- 前端不得生成或硬编码对外表示为真实的收益、回撤、波动率或策略结论；服务端数据由 React Query 管理，Valtio 只保存临时 UI 状态。
+- V2.1 不新增云账户、云同步、通用 Portfolio、任意策略代码、IBKR/QMT/Futu/moomoo 自动下单、高频交易、自动优化或未经明确授权的数据再分发。
+
+## 任务与合并 Hardness
+
+- 每个实现任务开始前必须写明 Goal、Current state、Desired behavior、Architecture constraints、Explicit non-goals、Acceptance criteria、Tests 与 Deliverables。
+- 开始前确认基线 commit、相关抽象、调用者、文件 ownership 和回滚方式；不得用“大重构”代替聚焦修复。
+- 有接口依赖的任务串行；可并行任务必须使用独立 worktree，多个 Agent 不得同时在同一个 Local 工作目录修改文件。
+- 每个 worktree 保持 PR-sized；逐个合并，每次 merge 后重跑完整相关检查。金额、migration、backtest 与桌面安全需要独立 reviewer。
+- 不得声称未实际运行的构建或测试已经通过；环境不可运行时必须明确登记为未验证。
+- 当前收口门槛与执行顺序见 `docs/plans/v2_1_closeout_hardness.md`；它和本文件优先于旧的百分比完成度、固定工期或并行全路线图。
 
 ## 必须完成的规范
 

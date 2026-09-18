@@ -468,9 +468,18 @@ async fn preview_automatic_for_plan(
     trigger: DecisionTrigger,
     options: AutomaticDecisionPreviewRequest,
 ) -> Result<DecisionPreviewResponse, ApiError> {
+    let execution_date = Utc::now().date_naive();
     let plan = state.plans().get(plan_id).await?;
     let input = automatic_decision_input(state, &plan, day_of_month, options).await?;
-    preview_decision_input(state, plan_id, input, trigger, Utc::now().date_naive()).await
+    let response = preview_decision_input(state, plan_id, input, trigger, execution_date).await?;
+    if matches!(trigger, DecisionTrigger::AutomaticPreview)
+        && response.execution.status == ExecutionPreviewStatus::Due
+    {
+        state
+            .mark_scheduled_decision(plan_id, &execution_date.to_string())
+            .await;
+    }
+    Ok(response)
 }
 
 /// Resolve automatic market snapshots into the same validated request shape used by the engine.
@@ -1168,7 +1177,7 @@ async fn submit_paper_order(
 ) -> Result<BrokerOrderAck, ApiError> {
     timeout(
         BROKER_SUBMIT_TIMEOUT,
-        state.broker().submit_order(request.clone()),
+        state.broker()?.submit_order(request.clone()),
     )
     .await
     .map_err(|_| ApiError::ServiceUnavailable)?

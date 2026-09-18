@@ -2,6 +2,118 @@
 
 ## Unreleased
 
+### 2026-09-17 AEST — Push 5B：Gate 2 最小 Fixed DCA 收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：普通用户最小建计划流程、Decision detail 执行流水、调度幂等补强、聚焦测试与 Gate 状态更新。
+- 涉及文件：`apps/web/src/{api/queries.ts,components/v2_1/manual-execution-history.tsx,pages/{plans/index.tsx,plans/minimal-plan.test.tsx,personal/index.tsx,personal/personal-execution.test.tsx,decisions/index.tsx,decisions/decision-journal.test.tsx}}`、`apps/web/{PLAN.md,vitest.config.ts}`、`crates/api/src/{state.rs,routes/decision_preview.rs}`、`crates/api/tests/decision_preview.rs`、`docs/{reference/api-management.md,plans/v2_1_closeout_hardness.md}`、`CHANGE_LOG.md`。
+- 变更内容：将普通 `/plans` 从高级策略/双桶配置收口为标的、金额、月/周周期和可选名称，隐藏并冻结 `fixed_dca@1`、100% 核心桶、fixed risk、当期失效机会资金和单次金额上限；建立后调用真实自动决策接口，成功进入个人中心，计划已保存但决策准备失败时允许只重试建议而不重复建计划。个人中心在无 `due` 建议时改为解释暂停状态或显示真实节奏与下一计划日。抽取只读 append-only 执行时间线供个人中心和 Decision detail 复用，详情现可同时找回不可变原建议与所有用户报告事件。浏览器重启验收发现自动预览与 Scheduler 使用不同幂等账本会生成同日第二条建议；现由成功的 `due` 自动预览补记同一调度 claim，避免下一 tick/重启重复生成并遮蔽已有 journal，不改变决策公式。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（34 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.37%、Branches 91.26%、Functions 92.61%、Lines 97.28%）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-api --locked --test decision_preview`（15 项通过，含自动预览/调度同日幂等测试）、`cargo test -p indexlink-api --locked --test manual_executions`（3 项通过）、`git diff --check`。浏览器以全新 SQLite 且禁用 AI/OpenD/broker/市场数据完成 `建立 Fixed DCA → 生成 due 建议 → 记录 partial 400 USD → Decision detail 找回 → 服务重启 → 同一 decision 与 journal 仍可找回`。Gate 2 通过，下一阶段仅进行 3–5 位目标用户任务验证。
+
+### 2026-09-17 AEST — Push 5：个人中心真实手工执行闭环
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端真实 API 映射、人工执行确认交互、append-only 历史展示、可访问状态与产品化文案。
+- 涉及文件：`apps/web/src/{api/{types.ts,queries.ts},pages/{personal/index.tsx,personal/personal-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/plans/v2_1_closeout_hardness.md`、`CHANGE_LOG.md`。
+- 变更内容：个人中心移除演示金额、静态近期变化与浏览器会话完成状态，改为从真实 plan 和最新 `due` DecisionRecord 展示本期金额、普通话行动解释与计划事实。新增完成、部分执行、跳过三种二次确认，允许填写实际金额、当地发生时间和可选备注；客户端事件 UUID 在当前表单重试期间保持不变，成功后使对应 journal query 失效刷新，`409 conflict` 按已存在记录重新读取。右侧执行历史读取真实 `GET /decisions/:id/manual-executions`，明确标记为用户报告；不存在计划、没有待执行建议、核心 API 失败和 journal 局部失败均不以演示数据填充。后端审计英文串只保留在原建议详情，个人中心不暴露 policy/bucket 实现细节；Decimal 输入默认值只在展示层整理为两位金额。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（29 项通过）、`pnpm --dir apps/web test:coverage`（Statements 95.29%、Branches 92.27%、Functions 94.69%、Lines 98.52%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check`。浏览器使用临时 SQLite 和真实 Rust API 完成 `Plan → Fixed DCA due Decision → partial 400 USD → POST journal → GET 历史刷新`，390px 视口无横向溢出且控制台无 warning/error。Gate 2 仍待最小 Plan 表单与 Decision detail journal 完成。
+
+### 2026-09-16 AEST — Push 4：Append-only Manual Execution Journal
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：执行留痕领域契约、SQLite migration/repository、HTTP API、审计不变量与回归测试。
+- 涉及文件：`crates/decision-records/src/lib.rs`、`crates/storage/src/{lib.rs,sqlite.rs,sqlite_manual_executions.rs}`、`crates/api/src/{error.rs,state.rs,routes/{mod.rs,manual_executions.rs}}`、`crates/api/tests/manual_executions.rs`、`migrations/sqlite/20260916090000_create_manual_execution_events.sql`、`docs/{reference/api-management.md,plans/v2_1_closeout_hardness.md}`、`CHANGE_LOG.md`。
+- 变更内容：新增与不可变 DecisionRecord 分离的手工执行事件，支持 `executed`、`skipped`、`partial`，实际金额使用精确 decimal 字符串，发生时间规范化为 UTC，来源固定为 `user_reported`。`plan_id` 与 `currency` 由 SQLite 从原 decision 继承；客户端生成非 nil `event_id`，重复追加返回 `409 conflict`。repository 只暴露 append/list，SQLite trigger 拒绝直接修改和仍有关联计划时的直接删除，同时保留既有计划删除级联契约。新增 `POST/GET /decisions/:id/manual-executions`，不调用 broker、不重算策略、不覆盖原建议。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p decision-records --locked`（14 项通过）、`cargo test -p indexlink-storage --all-features --locked`（47 项通过）、`cargo test -p indexlink-api --locked`（含 3 项新 HTTP 集成测试，全部通过）、`cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`、`cargo test --workspace --locked`（全部通过；网络/真实 OpenD smoke 按设计忽略）、`cargo llvm-cov -p decision-records -p indexlink-storage -p indexlink-api --all-features --summary-only`（新 route 行覆盖 98.31%，新 SQLite repository 行覆盖 98.33%，decision-records crate 行覆盖 94.68%）、`git diff --check`。
+
+### 2026-09-16 AEST — Gate 1 集成验收与状态收口
+
+- 执行模型：GPT-5 Codex（Push 2 / Push 3 采用并行 worktree；子 Agent 使用额度触顶后由主 Agent 完成审查、验证与集成）。
+- 变更类型：V2.1 Gate 状态更新与合并后回归验收。
+- 涉及文件：`docs/plans/v2_1_closeout_hardness.md`、`CHANGE_LOG.md`。
+- 变更内容：将可选能力隔离与 PostgreSQL opt-in 登记为已完成，确认 Gate 1 通过，并把下一项唯一执行目标收束为 Push 4 append-only Manual Execution Journal。
+- 验证：`cargo fmt --all -- --check`、`cargo test --workspace --locked`、`cargo test -p indexlink-storage --locked`（31 项通过）、`cargo test -p indexlink-storage --locked --features postgres`（45 项通过）、`cargo clippy -p indexlink-storage --all-targets --all-features --locked -- -D warnings`、默认/显式 PostgreSQL `cargo tree` 断言、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（22 项通过；Statements 95.83%、Branches 90.00%、Functions 92.94%、Lines 99.22%）、`pnpm --dir apps/web build`、`git diff --check`。
+
+### 2026-09-16 AEST — Push 3：PostgreSQL 改为 storage 显式 opt-in
+
+- 执行模型：GPT-5 Codex（由并行子 Agent 实现并提交，主 Agent 负责集成复核）。
+- 变更类型：Rust 依赖边界、storage feature 隔离与 CI 回归门禁。
+- 涉及文件：`Cargo.toml`、`crates/storage/{Cargo.toml,src/lib.rs}`、`.github/workflows/rust-ci.yml`、`CHANGE_LOG.md`。
+- 变更内容：从 workspace 默认 SQLx features 移除 PostgreSQL；`indexlink-storage` 新增默认空 feature 集合，只有显式启用 `postgres` 时才编译 PostgreSQL 连接、repository adapter 与相关测试。SQLite 仍为 server 默认存储，`StorageError` 仍在默认构建中可用，既有 PostgreSQL/SQLite migrations 未改动。CI 新增依赖图断言，防止默认 server 回归引入 `sqlx-postgres`，并确认 storage 显式 feature 仍包含它。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-storage --locked`（默认 feature，31 项通过）、`cargo test -p indexlink-storage --locked --features postgres`（45 项通过）、`cargo check -p indexlink-server --locked`、`cargo clippy -p indexlink-storage --all-targets --all-features --locked -- -D warnings`、`cargo test --workspace --locked`（沙箱内首次因 localhost 监听权限失败，获准在沙箱外同命令重跑通过）、默认 server 与显式 storage PostgreSQL feature 的两条 `cargo tree` 断言、`git diff --check`。
+
+### 2026-09-16 AEST — Push 2：行情与模拟 Broker capability 解耦
+
+- 执行模型：GPT-5 Codex（多 Agent 实现通道触发使用额度上限后由主 Agent 接管收口）。
+- 变更类型：服务端可选能力隔离、运行状态契约、配置兼容与回归测试。
+- 涉及文件：`apps/server/src/{config.rs,main.rs}`、`crates/api/src/{state.rs,routes/{decision_preview.rs,decision_records.rs,runtime_status.rs}}`、`crates/api/tests/health.rs`、`apps/web/src/{api/types.ts,components/layout/runtime-status.tsx,i18n/locales/{zh.ts,en.ts}}`、`.env.example`、`readme.md`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：将 OpenD 行情和 paper broker 改为独立开关、独立装配与 `not_configured/configured/unavailable` 三态；保留旧 `OPEND_*` 默认兼容。生产 `ApiState` 不再默认安装 MockBroker；未配置或初始化失败的 broker 路由安全返回 503。任一可选 adapter 初始化失败只记录安全状态，不再阻止 SQLite、计划、决策、审计与 HTTP 服务启动。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-api --locked`（全部单元、集成与文档测试通过）、`cargo check -p indexlink-server --locked`、`cargo test -p indexlink-server --locked`（37 项通过、1 项真实 OpenD smoke 按设计忽略）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（22 项通过；Statements 95.83%、Branches 90.00%、Functions 92.94%、Lines 99.22%）、`pnpm --dir apps/web build`、`git diff --check`。
+
+### 2026-09-15 AEST — Push 1：隔离旧 MA200 回放与首页可选错误
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：Web 兼容实验隔离、可选能力错误边界、回归测试与计划状态更新。
+- 涉及文件：`apps/web/src/{components/v2_1/legacy-replay-panel.tsx,pages/{dashboard/index.tsx,lab/index.tsx,v2_1-shell.test.tsx},i18n/locales/{zh.ts,en.ts}}`、`apps/web/{PLAN.md,vitest.config.ts}`、`docs/plans/v2_1_closeout_hardness.md`、`CHANGE_LOG.md`。
+- 变更内容：从旧 Dashboard 移除硬编码 MA200 历史回放，不删除兼容 API，也不改变 Rust 策略公式；回放改为高级实验室中的明确旧实验，只在用户点击后请求。普通 `/personal` 首页不会请求或展示旧回放。Dashboard 不再把市场、AI、组合、模拟收益和实际收益等可选查询错误汇总成页面级错误，而是在对应卡片内局部说明，核心 Plan/Decision 错误仍保留页面级呈现。新增成功、失败和首页零请求回归测试，并将后续顺序收口到服务端 capability 解耦、PostgreSQL opt-in 与 Fixed DCA 人工执行闭环。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（22 项通过；Statements 95.83%、Branches 90.00%、Functions 92.94%、Lines 99.22%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check`。
+
+### 2026-09-15 AEST — V2.1 正式收口 Hardness 与阶段门槛
+
+- 执行模型：GPT-5 Codex（当前环境未提供用户指定的 Aster 6，未声称由其执行）。
+- 变更类型：项目级 Agent 约束、V2.1 收口执行门槛、当前代码进度审查与数据来源候选登记；无生产代码变更。
+- 涉及文件：`AGENTS.md`、`docs/plans/v2_1_closeout_hardness.md`、`docs/plans/v2_1_productization_plan.md`、`docs/README.md`、`CHANGE_LOG.md`。
+- 变更内容：将正式收口手册的主线固化为 `Plan → readable Decision → user-reported execution → Audit`，明确 Fixed DCA、local-first、用户执行权、DecisionRecord 不可变、append-only 手工留痕、可选能力隔离、SQLite 默认、PostgreSQL opt-in、市场数据/回测可复现、前端不得伪造真实结果等 Hardness。以当前 `0ff5920` 对照手册 `0cae8d5` 基线，登记新前端仍为演示壳、OpenD 行情与 broker 初始化仍耦合、价格型 DSL 仍被完整证据阻塞、PostgreSQL 仍在默认依赖图、Manual Execution Journal/产品级本地数据/BacktestService/Tauri 尚未完成。执行顺序改为 0B → 0C → 0D → Manual Journal → 真实 Fixed DCA Today/Plan → 3–5 位用户验证，策略平台 S1–S6 延后到反馈支持的 M2。将 HiThink-Tech Financial-API 登记为 A 股/A 股 ETF 可选导入来源候选，不进入 M0/M1 或核心运行时；要求先关闭授权、历史窗口、复权、幂等、冲突和离线可用性问题。
+- 验证：完整提取并逐页检查 13 页正式 DOCX；核对 `0cae8d5..0ff5920` 文件差异与相关前后端调用路径；核对 Financial-API 官方 README、marketdb 文档和 MIT 软件许可证；运行 `git diff --check` 与文档链接检查。未运行 Rust/前端测试，因为本次仅修改执行文档且用户明确要求不落实生产代码。
+
+### 2026-09-10 CST — V2.1 后端映射审计与统一策略目录实施账本
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：V2.1 产品与技术执行计划、后端 API 映射审计、闭环缺口登记。
+- 涉及文件：`docs/plans/v2_1_productization_plan.md`、`CHANGE_LOG.md`。
+- 变更内容：在既有 V2.1 发布过渡计划中登记后端已有但主前端未正确映射的计划、执行预览、决策、DSL、准入研究、市场/AI、paper、运行状态能力；同时记录前端静态策略、浏览器会话完成状态、演示曲线、专业研究 DSL 入口与高级实验室配置壳等未闭环事实。将后续工作固化为六步顺序：统一策略目录与研究结果契约 → 接通 Fixed DCA 与 `core_opportunity_v1` 两条真实策略并标注 `90/10/0` 历史降级 → 策略中心真实 API 化 → 基于采用与参数快照建立我的计划 → 200 日均线趋势保护定投 → 数据能力就绪后扩展股债/轮动/波动率类别。
+- 验证：`git diff --check` 通过；已核对新增章节层级、S1–S6 顺序与现有 V2.1 发布门槛不冲突。
+
+### 2026-09-10 CST — 策略分析专业研究视角
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端专业研究视图、既有后端准入指标接入、测试与前端计划更新。
+- 涉及文件：`apps/web/src/{components/v2_1/professional-research-panel.tsx,pages/{strategy-analysis/index.tsx,v2_1-shell.test.tsx},vitest.config.ts}`、`apps/web/PLAN.md`、`CHANGE_LOG.md`。
+- 变更内容：策略分析页新增“直观视角 / 专业研究”切换。专业研究视角不复用或包装前端演示曲线，而是按需读取既有 `GET /strategies/:policy_id/:policy_version/admission` 固定样本报告，仅面向已保存 DSL 策略展示策略与 Fixed DCA 的 XIRR、期末净值、最大回撤、年化波动率、Sortino、现金使用率、证据覆盖、观察数和滚动样本外窗口；后端不可用、无策略、准入未通过与样本不足均明确呈现，不伪造数值。内置 Fixed DCA 与 70/20/10 尚无统一公开准入报告，继续与演示曲线严格区分。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（19 项通过；纳入范围 Statements 96.22%、Branches 90.47%、Functions 93.75%、Lines 100%）、`pnpm --dir apps/web build`、`git diff --check` 通过。
+
+### 2026-09-10 CST — V2.1 策略分析与归一化多策略对比
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：消费级策略分析页面、归一化图表交互、导航、测试与前端计划更新。
+- 涉及文件：`apps/web/src/{App.tsx,components/{layout/app-sidebar.tsx,v2_1/{strategy-card.tsx,strategy-center-nav.tsx}},features/v2_1/{model.ts,model.test.ts},pages/{strategy-center/index.tsx,strategy-analysis/index.tsx,v2_1-shell.test.tsx},i18n/locales/{zh.ts,en.ts}}`、`apps/web/{PLAN.md,vitest.config.ts}`、`CHANGE_LOG.md`。
+- 变更内容：在策略中心增加“策略库 / 策略分析”二级导航和侧栏子入口；策略卡可直接进入分析页并把该策略作为初始对比对象。新增策略分析页，复用 Recharts 折线图能力，支持近 1 年、近 3 年和全部样本切换，并可在一张图上选择最多三条策略对比。所有曲线在选定窗口首点重置为 100，摘要显示同口径区间变化与期末指数。当前数据为确定性的本地示例序列，页面与计划均明确其不是真实回测；后续仅替换为带版本、数据集、费用和假设的可复核数据契约。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（17 项通过；纳入范围 Statements 97.52%、Branches 93.10%、Functions 94.64%、Lines 100%）、`pnpm --dir apps/web build`、`git diff --check` 通过；本地浏览器确认多策略选择后折线与摘要同步出现。
+
+### 2026-09-10 CST — V2.1 消费级前端壳交互与布局修正
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端布局缺陷修复、可交互状态反馈与测试更新。
+- 涉及文件：`apps/web/src/{components/v2_1/strategy-card.tsx,pages/{personal/index.tsx,strategy-center/index.tsx,lab/index.tsx,v2_1-shell.test.tsx}}`、`CHANGE_LOG.md`。
+- 变更内容：移除策略卡在个人中心栅格中的强制满高，修复卡片压住下方统计区的问题。已选策略改为明确状态，未选策略改为“选用这个策略”；选用后会更新当前策略并显示同步提示。个人中心的“我已完成这次投入”现在会在当前浏览器会话显示完成状态与统计变化，并明确未写入后端。高级实验室的配置预览改为在被点击的卡片内直接展开/收起，避免在页面下方展开而无可见反馈。将暂未实现的创建策略和风险筛选控件改为非按钮提示，避免不可交互的虚假入口。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（15 项通过；纳入范围 Lines / Statements / Functions / Branches 均为 100%）、`pnpm --dir apps/web build`、`git diff --check` 通过。
+
+### 2026-09-10 CST — V2.1 消费级前端壳：个人中心、策略中心与高级实验室
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：V2.1 前端信息架构、消费级视觉重构、本地演示交互与前端测试。
+- 涉及文件：`apps/web/src/{App.tsx,index.css,stores/ui.ts,components/{layout/**,v2_1/**},features/v2_1/**,pages/{personal/**,strategy-center/**,lab/**,v2_1-shell.test.tsx},i18n/locales/{zh,en}.ts}`、`apps/web/{PLAN.md,vitest.config.ts}`、`CHANGE_LOG.md`。
+- 变更内容：主导航重构为个人中心、策略中心与高级实验室；默认入口改为个人中心，呈现“本月航线”、正在坚持的策略、近期变化和本地演示统计。新增面向普通用户的三条精选策略卡、策略限制说明与本地比较交互；当前示例回测明确标注为界面展示，不伪装为实时收益。新增高级实验室壳，暴露 Docker、本地数据、Moomoo/OpenD、Qwen 与市场数据的配置方向，但不保存浏览器密钥、不验证账号、不连接或提交订单。策略中心使用 `/strategy-center`，明确避开既有 Rust `/strategies` API 的开发代理前缀。旧 Dashboard、计划、决策与 DSL Studio 页面/API 层保留为非主导航的后续集成基础。新增 V2.1 页面模型和交互测试，并将其纳入前端 90% 覆盖率门槛。
+- 验证：`pnpm --dir apps/web test:coverage`（15 项通过；纳入范围 Lines / Statements / Functions / Branches 均为 100%）；桌面与 390px 本地浏览器视觉检查通过，主行动与移动布局可用；其余 lint、build 与差异检查见本次提交。
+
+### 2026-09-10 CST — V2.1 本地优先发布过渡计划
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：产品定位、发布范围与实施计划文档。
+- 涉及文件：`docs/plans/v2_1_productization_plan.md`、`docs/README.md`、`CHANGE_LOG.md`。
+- 变更内容：将 V2.1 从以页面重构为主的计划收束为单人可控的正式发布过渡版本：定位为本地优先的长期 ETF 策略库、回测与手动执行工作台；明确普通用户零基础设施配置、SQLite 默认、Docker 仅作分发/自托管方式、AI/OpenD 仅作高级可选能力。新增受控开源策略收录流程、策略来源与许可证要求、统一回测数据/假设契约、Manual-first 行动记录、Moomoo/Futu paper-only 边界，以及 P0–P5 实施顺序、发布门槛和 V3 交接条件。明确排除多用户 Cloud、任意代码、IBKR、新 broker 生产接入和实盘自动交易。
+- 验证：`git diff --check` 通过；已核对 Markdown 标题层级与文档索引链接。
+
 ### 2026-09-08 CST — V2.1 产品化定位、前端信息架构与上线门槛
 
 - 执行模型：GPT-5 Codex。

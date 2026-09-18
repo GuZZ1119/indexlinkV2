@@ -3,6 +3,10 @@ name = "indexlink-storage"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+postgres = ["sqlx/postgres"]
+
 [dependencies]
 async-trait.workspace = true
 broker.workspace = true

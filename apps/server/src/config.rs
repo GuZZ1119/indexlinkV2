@@ -29,6 +29,8 @@ const OPEND_PROVIDER: &str = "OPEND_PROVIDER";
 const OPEND_HOST: &str = "OPEND_HOST";
 const OPEND_PORT: &str = "OPEND_PORT";
 const OPEND_ACCOUNT_ID: &str = "OPEND_ACCOUNT_ID";
+const OPEND_MARKET_DATA_ENABLED: &str = "OPEND_MARKET_DATA_ENABLED";
+const OPEND_PAPER_BROKER_ENABLED: &str = "OPEND_PAPER_BROKER_ENABLED";
 const DEFAULT_OPEND_HOST: &str = "127.0.0.1";
 const DEFAULT_OPEND_PORT: &str = "11111";
 const SCHEDULER_ENABLED: &str = "SCHEDULER_ENABLED";
@@ -44,7 +46,8 @@ pub(crate) struct Config {
     pub(crate) database_connect_timeout: Duration,
     pub(crate) cors_allowed_origins: Vec<HeaderValue>,
     pub(crate) ai_providers: Vec<AiProviderConfiguration>,
-    pub(crate) opend: Option<OpenDConnectionConfig>,
+    pub(crate) market_data: Option<OpenDConnectionConfig>,
+    pub(crate) paper_broker: Option<OpenDConnectionConfig>,
     pub(crate) scheduler: SchedulerConfig,
 }
 
@@ -153,6 +156,16 @@ impl Config {
             .collect::<Result<Vec<_>, _>>()?;
         let ai_providers = ai_provider_configurations(&mut lookup)?;
         let opend = opend_config(&mut lookup)?;
+        let legacy_enabled = opend.is_some();
+        let market_data_enabled =
+            optional_bool(&mut lookup, OPEND_MARKET_DATA_ENABLED)?.unwrap_or(legacy_enabled);
+        let paper_broker_enabled =
+            optional_bool(&mut lookup, OPEND_PAPER_BROKER_ENABLED)?.unwrap_or(legacy_enabled);
+        if (market_data_enabled || paper_broker_enabled) && opend.is_none() {
+            return Err(ConfigError::InvalidOpenDConfiguration);
+        }
+        let market_data = market_data_enabled.then(|| opend.clone()).flatten();
+        let paper_broker = paper_broker_enabled.then_some(opend).flatten();
         let scheduler = scheduler_config(&mut lookup)?;
 
         Ok(Self {
@@ -162,7 +175,8 @@ impl Config {
             database_connect_timeout: Duration::from_secs(timeout_seconds),
             cors_allowed_origins,
             ai_providers,
-            opend,
+            market_data,
+            paper_broker,
             scheduler,
         })
     }
@@ -460,6 +474,15 @@ fn parse_bool(name: &'static str, value: &str) -> Result<bool, ConfigError> {
     }
 }
 
+fn optional_bool(
+    lookup: &mut impl FnMut(&str) -> Option<String>,
+    name: &'static str,
+) -> Result<Option<bool>, ConfigError> {
+    lookup(name)
+        .map(|value| parse_bool(name, &value))
+        .transpose()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ConfigError {
     #[error("DATABASE_URL must be a non-blank SQLite URL")]
@@ -527,7 +550,8 @@ mod tests {
         assert_eq!(config.database_connect_timeout, Duration::from_secs(5));
         assert!(config.cors_allowed_origins.is_empty());
         assert!(config.ai_providers.is_empty());
-        assert!(config.opend.is_none());
+        assert!(config.market_data.is_none());
+        assert!(config.paper_broker.is_none());
         assert!(config.scheduler.enabled);
         assert_eq!(config.scheduler.tick_interval, Duration::from_secs(60));
     }
@@ -895,7 +919,9 @@ mod tests {
             (OPEND_ACCOUNT_ID, " paper-account "),
         ])
         .unwrap();
-        let opend = config.opend.expect("provider enables OpenD configuration");
+        let opend = config
+            .paper_broker
+            .expect("provider enables OpenD paper configuration");
 
         assert_eq!(opend.provider(), BrokerProvider::Moomoo);
         assert_eq!(opend.host(), DEFAULT_OPEND_HOST);
@@ -903,6 +929,28 @@ mod tests {
         assert_eq!(opend.account_id(), Some("paper-account"));
         assert_eq!(opend.environment(), broker::BrokerEnvironment::Paper);
         assert!(!opend.live_trading_enabled());
+        assert!(config.market_data.is_some());
+    }
+
+    #[test]
+    fn opend_capabilities_can_be_enabled_independently() {
+        let market_only = parse(&[
+            (OPEND_PROVIDER, "futu"),
+            (OPEND_MARKET_DATA_ENABLED, "true"),
+            (OPEND_PAPER_BROKER_ENABLED, "false"),
+        ])
+        .expect("independent market-data configuration should parse");
+        assert!(market_only.market_data.is_some());
+        assert!(market_only.paper_broker.is_none());
+
+        let broker_only = parse(&[
+            (OPEND_PROVIDER, "futu"),
+            (OPEND_MARKET_DATA_ENABLED, "false"),
+            (OPEND_PAPER_BROKER_ENABLED, "true"),
+        ])
+        .expect("independent paper-broker configuration should parse");
+        assert!(broker_only.market_data.is_none());
+        assert!(broker_only.paper_broker.is_some());
     }
 
     /// Verify invalid OpenD provider and non-loopback hosts fail before server startup.
@@ -931,7 +979,7 @@ mod tests {
 
             assert_eq!(
                 config
-                    .opend
+                    .market_data
                     .expect("provider enables OpenD configuration")
                     .host(),
                 expected
