@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 策略中心真实计划来源与浏览态语义修正
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：消费级前端状态来源、策略卡交互反馈、低饱和语义配色与聚焦测试。
+- 涉及文件：`apps/web/src/{components/v2_1/strategy-card.tsx,pages/{personal/index.tsx,strategy-center/index.tsx,v2_1-shell.test.tsx}}`、`CHANGE_LOG.md`。
+- 变更内容：将个人中心未完成建议卡由近黑褐色调亮为仍保持克制的琥珀褐色，并增强边框、状态胶囊与阴影区分；策略中心顶部不再把前端当前查看的静态策略伪装为“正在坚持”，改为读取真实 `GET /investment-plans` 并列出全部 active 计划，点击计划会进入“我的计划”并设置当前查看项。删除策略中心顶部的临时双策略对比入口；策略卡改为整卡可点击，当前浏览卡使用柔和淡绿背景、边框、光晕和“正在查看”反馈，明确浏览状态不会创建或采用计划。移除“选用这个策略 → 个人中心已同步”的虚假前端闭环；由于“稳中有进组合”尚无后端多资产、股债比例及再平衡计划契约，本轮未伪造全策略一键建计划能力。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（36 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.94%、Branches 90.75%、Functions 92.15%、Lines 96.83%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）。浏览器自动验收因当前 in-app Browser 无法接管新建本地标签页而未完成，未将其记为通过。
+
 ### 2026-09-18 AEST — 本期建议待办/完成视觉状态
 
 - 执行模型：GPT-5 Codex。

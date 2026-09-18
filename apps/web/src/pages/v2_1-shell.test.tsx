@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
@@ -44,14 +44,26 @@ describe('V2.1 consumer shell', () => {
     expect(personal.compareDocumentPosition(plans) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('explains and compares strategies before a user selects one', () => {
+  it('shows real active plans and keeps strategy-card exploration separate from adoption', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response([
+      investmentPlan({ id: 'plan-voo', name: 'VOO 长期计划', symbol: 'VOO', policy: { id: 'fixed_dca', version: 1 } }),
+      investmentPlan({ id: 'plan-qqq', name: 'QQQ 自适应计划', symbol: 'QQQ', policy: { id: 'core_opportunity_v1', version: 1 } }),
+      investmentPlan({ id: 'plan-paused', name: '已暂停计划', is_active: false }),
+    ]))
+    vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyCenterPage />)
-    fireEvent.click(screen.getAllByRole('button', { name: '选用这个策略' })[0])
-    expect(screen.getByRole('status').textContent).toContain('个人中心已同步更新')
-    fireEvent.click(screen.getByRole('button', { name: '和其他策略对比' }))
-    expect(screen.getByText('最该知道的限制')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('选择对比策略'), { target: { value: 'defensive-balance' } })
-    expect(screen.getByText('股债平衡')).toBeTruthy()
+
+    expect(await screen.findByText('VOO 长期计划')).toBeTruthy()
+    expect(screen.getByText('QQQ 自适应计划')).toBeTruthy()
+    expect(screen.queryByText('已暂停计划')).toBeNull()
+    expect(screen.queryByRole('button', { name: '和其他策略对比' })).toBeNull()
+
+    const fixedDcaCard = screen.getByRole('button', { name: '查看每月稳步投入' })
+    expect(fixedDcaCard.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(fixedDcaCard)
+    await waitFor(() => expect(screen.getByRole('button', { name: '查看每月稳步投入' }).getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getAllByText('正在查看').length).toBeGreaterThan(0)
+    expect(screen.queryByText('当前正在使用')).toBeNull()
     expect(screen.getAllByRole('link', { name: '分析走势' })[0].getAttribute('href')).toBe('/strategy-analysis')
   })
 
@@ -162,3 +174,27 @@ describe('V2.1 consumer shell', () => {
     expect(screen.queryByText('它会怎么做：')).toBeNull()
   })
 })
+
+function investmentPlan(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'plan-1',
+    name: 'VOO 长期计划',
+    symbol: 'VOO',
+    base_contribution: '1000.00',
+    currency: 'USD',
+    schedule_kind: 'monthly',
+    schedule_day: 18,
+    schedule_days: [18],
+    policy: { id: 'fixed_dca', version: 1 },
+    execution_configuration: {
+      bucket_allocation: { core_ratio: '1.00', opportunity_ratio: '0.00' },
+      risk_mode: 'fixed',
+      opportunity_cash_policy: 'expire_each_period',
+    },
+    max_single_execution: '1000.00',
+    is_active: true,
+    created_at: '2026-09-18T00:00:00Z',
+    updated_at: '2026-09-18T00:00:00Z',
+    ...overrides,
+  }
+}

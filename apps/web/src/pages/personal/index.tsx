@@ -54,8 +54,8 @@ const adviceCardVisuals: Record<AdviceCardState, { card: string; badge: string; 
     label: '正在确认状态',
   },
   pending: {
-    card: 'border-[#766448] bg-[#28241d] shadow-[0_18px_45px_rgba(74,57,28,0.12)]',
-    badge: 'border-[#a68b5d]/45 bg-[#d9bd88]/10 text-[#ead8b7]',
+    card: 'border-[#9a7847] bg-[#352b1d] shadow-[0_18px_45px_rgba(112,78,28,0.16)]',
+    badge: 'border-[#c09a5b]/50 bg-[#e6bd75]/12 text-[#f1d7a6]',
     label: '本期待办 · 未完成',
   },
   completed: {
