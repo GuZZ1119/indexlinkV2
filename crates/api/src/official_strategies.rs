@@ -14,6 +14,7 @@ use crate::ApiError;
 
 pub(crate) const MA200_TREND_GUARD_ID: &str = "dsl_ma200_trend_guard";
 pub(crate) const GROWTH_VOLATILITY_BALANCE_ID: &str = "dsl_growth_volatility_balance";
+pub(crate) const FIXED_DCA_ID: &str = "fixed_dca";
 
 /// Build the immutable server-owned DSL strategy matching an exact policy reference.
 pub(crate) fn strategy(policy: &PolicyRef) -> Result<Option<StrategySpec>, ApiError> {
@@ -32,13 +33,9 @@ pub(crate) fn is_reserved(policy: &PolicyRef) -> bool {
     )
 }
 
-/// Return the official symbol allowlist result, or `None` for non-catalog policies.
-pub(crate) fn supports_symbol(policy: &PolicyRef, symbol: &str) -> Option<bool> {
-    if !is_reserved(policy) {
-        return None;
-    }
-    let symbol = symbol.trim().to_ascii_uppercase();
-    Some(matches!(symbol.as_str(), "SPY" | "VOO"))
+/// Return whether a policy is one of the consumer catalog versions.
+pub(crate) fn is_catalog_policy(policy: &PolicyRef) -> bool {
+    (policy.id().as_str() == FIXED_DCA_ID && policy.version().value() == 1) || is_reserved(policy)
 }
 
 /// Rebuild an official strategy through the persisted-document boundary used by stored DSL specs.
@@ -133,8 +130,7 @@ mod tests {
             assert_eq!(first, rebuilt);
             assert!(is_reserved(&policy));
             assert!(!first.has_fixed_opportunity_amount_action());
-            assert_eq!(supports_symbol(&policy, " voo "), Some(true));
-            assert_eq!(supports_symbol(&policy, "QQQ"), Some(false));
+            assert!(is_catalog_policy(&policy));
         }
     }
 }

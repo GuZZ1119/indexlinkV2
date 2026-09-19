@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 动态多市场计划与 Formula 创建前预检
+
+- 执行模型：GPT-5 Codex（按用户要求启动多 Agent 分工；三个子 Agent 因并发额度中断，主线程逐项审查其残留改动并完成实现。使用 `frontend-design` 保持现有低饱和计划页风格，使用 `vercel-react-best-practices` 保持 React Query 服务端状态与事件驱动表单边界）。
+- 变更类型：官方策略目录契约、动态标的计划创建、Formula 行情预检、计划页市场/币种体验、小幅评估节奏改进、公开 API 文档与 V2.1 计划状态收口。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/{investment_plans.rs,strategy_catalog.rs}}`、`crates/api/tests/strategy_catalog.rs`、`apps/web/src/{api/types.ts,pages/{plans/{index.tsx,minimal-plan.test.tsx},personal/{index.tsx,personal-execution.test.tsx},v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：删除官方 Formula 的 `SPY/VOO` 静态准入列表；`GET /strategy-catalog` 改为声明 US/HK/SH/SZ 支持市场与策略所需的最小日线观测数，并仅保留始终为空的弃用 `supported_symbols`。计划创建由服务端解析 market-qualified symbol、复核市场币种并规范化存储；Fixed DCA 继续在无行情 provider 时可用，Formula 则在落库前通过同一 `HistoricalPriceProvider` 检查最小窗口与十日内最近数据，历史不足/过期返回 `400`，provider 或数据集不可用返回 `503`，不回退 DCA、不保存半成品计划。计划页按代码动态显示 USD/HKD/CNY、数据需求与可理解错误，Formula 将执行文案改为评估文案且周度评估只提供工作日；完整的资金周期/观察频率、交易日历、节假日和周期级幂等仍明确列入后续。同步将策略先行建计划和个人中心方法/预算/下一评估日展示纳入本次提交。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项）、`cargo test -p indexlink-api --locked`（含 6 项动态目录/计划集成测试）、`cargo clippy -p indexlink-api --all-targets --locked -- -D warnings`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（49 项；Statements 92.61%、Branches 90.04%、Functions 92.26%、Lines 96.22%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 多策略建计划与个人中心计划契约
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 技能重整策略先行的建计划层级，使用 `vercel-react-best-practices` 技能保持 React Query 服务端目录状态与事件驱动表单边界）。
+- 变更类型：我的计划创建流程、个人中心策略说明、资金边界、失败态与前端聚焦测试。
+- 涉及文件：`apps/web/src/pages/{plans/{index.tsx,minimal-plan.test.tsx},personal/{index.tsx,personal-execution.test.tsx},v2_1-shell.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：“我的计划”新建区改为先读取服务端官方策略目录并显式选择策略，未选择时不再静默创建 Fixed DCA；不可采用、空目录和目录不可用均保持明确状态。选中后才展开该策略允许的标的、每期基础预算和评估节奏，创建请求始终冻结目录 policy/version 和资金桶边界。个人中心将原“计划摘要”扩展为计划方法契约：显示官方方法、限制、本期/下一评估日、基础预算与执行节奏；Fixed DCA 显示确定金额，Formula 明确拆分固定核心额度、最大弹性额度和单次上限，并说明实际建议只在评估日由当日规则计算。策略目录暂时不可用时使用已冻结计划中的 policy 与资金桶进行保守降级展示，不影响建议和执行历史主链路。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（47 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.43%、Branches 90.18%、Functions 91.71%、Lines 96.21%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）与 `git diff --check` 通过；同时在本地实际页面验证未选择/已选择建计划状态与 Formula 个人中心金额边界。生产构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-19 AEST — 策略运行时行情依赖解耦（回测 Push 5）
 
 - 执行模型：GPT-5 Codex（多 Agent；子 Agent 留下初版后由主线程审查、补齐生产装配、公开契约与验证）。

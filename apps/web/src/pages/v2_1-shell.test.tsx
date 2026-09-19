@@ -30,8 +30,11 @@ describe('V2.1 consumer shell', () => {
     renderPage(<PersonalPage />)
     expect(await screen.findByRole('heading', { name: '先建立第一个长期计划' })).toBeTruthy()
     expect(screen.queryByText('MA200 一年历史回放')).toBeNull()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/investment-plans')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining([
+      expect.stringContaining('/investment-plans'),
+      expect.stringContaining('/strategy-catalog'),
+    ]))
   })
 
   it('exposes plan management as My plans directly below Personal', () => {
@@ -203,9 +206,11 @@ describe('V2.1 consumer shell', () => {
 function strategyCatalog() {
   const base = {
     risk: 'stable' as const,
-    supported_symbols: ['SPY', 'VOO'],
+    supported_symbols: [],
+    supported_markets: ['us', 'hong_kong', 'china_shanghai', 'china_shenzhen'] as Array<'us' | 'hong_kong' | 'china_shanghai' | 'china_shenzhen'>,
     default_plan: { schedule_kind: 'monthly' as const, schedule_day: 18, core_ratio: '1.0', opportunity_ratio: '0.0', risk_mode: 'fixed' as const },
     data_requirements: [],
+    data_requirement: { required_close_observations: 0 },
     adoptable: true,
     research_status: 'reference' as const,
   }

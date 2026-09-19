@@ -9,17 +9,22 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use chrono::{Duration as ChronoDuration, Utc};
 use investment_plans::{
-    BucketAllocationRatio, CreateInvestmentPlan, InvestmentPlan, InvestmentPlanExecutionPreview,
-    OpportunityCashPolicy, PlanExecutionConfiguration, PlanRiskMode,
-    PreviewInvestmentPlanExecution, ScheduleKind, TwoBucketAllocationConfig, UpdateInvestmentPlan,
+    default_fixed_dca_policy, BucketAllocationRatio, CreateInvestmentPlan, InvestmentPlan,
+    InvestmentPlanExecutionPreview, OpportunityCashPolicy, PlanExecutionConfiguration,
+    PlanRiskMode, PreviewInvestmentPlanExecution, ScheduleKind, TwoBucketAllocationConfig,
+    UpdateInvestmentPlan,
 };
+use market_data::{HistoricalPriceRequest, Instrument, MarketDataError};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
 use uuid::Uuid;
 
 use crate::{ApiError, ApiState};
+
+const MAX_OFFICIAL_HISTORY_STALENESS_DAYS: i64 = 10;
 
 /// 创建 investment plan 的入站 DTO。
 #[derive(Debug, Deserialize)]
@@ -379,14 +384,21 @@ async fn create_plan(
     input: Result<Json<CreateInvestmentPlanRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<InvestmentPlan>), ApiError> {
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
-    let input = input.into_domain()?;
-    if let Some(policy) = &input.policy {
-        if crate::official_strategies::supports_symbol(policy, &input.symbol) == Some(false) {
-            return Err(ApiError::BadRequest);
-        }
-        if !state.is_plan_policy_eligible_for_activation(policy).await? {
-            return Err(ApiError::BadRequest);
-        }
+    let mut input = input.into_domain()?.normalize()?;
+    let policy = input
+        .policy
+        .clone()
+        .unwrap_or_else(default_fixed_dca_policy);
+    if crate::official_strategies::is_catalog_policy(&policy) {
+        let instrument =
+            validate_and_normalize_official_instrument(&mut input.symbol, &mut input.currency)?;
+        validate_official_formula_history(&state, &policy, &instrument).await?;
+    }
+    if !state
+        .is_plan_policy_eligible_for_activation(&policy)
+        .await?
+    {
+        return Err(ApiError::BadRequest);
     }
     Ok((
         StatusCode::CREATED,
@@ -419,8 +431,9 @@ async fn update_plan(
     let input = input.into_domain()?;
     if let Some(policy) = &input.policy {
         let plan = state.plans().get(id).await?;
-        if crate::official_strategies::supports_symbol(policy, &plan.symbol) == Some(false) {
-            return Err(ApiError::BadRequest);
+        if crate::official_strategies::is_catalog_policy(policy) {
+            let instrument = validate_official_instrument(&plan.symbol, &plan.currency)?;
+            validate_official_formula_history(&state, policy, &instrument).await?;
         }
         if !state.is_plan_policy_eligible_for_activation(policy).await? {
             return Err(ApiError::BadRequest);
@@ -439,8 +452,9 @@ async fn activate_policy(
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
     let policy = input.policy.into_domain()?;
     let plan = state.plans().get(id).await?;
-    if crate::official_strategies::supports_symbol(&policy, &plan.symbol) == Some(false) {
-        return Err(ApiError::BadRequest);
+    if crate::official_strategies::is_catalog_policy(&policy) {
+        let instrument = validate_official_instrument(&plan.symbol, &plan.currency)?;
+        validate_official_formula_history(&state, &policy, &instrument).await?;
     }
     if !state
         .is_plan_policy_eligible_for_activation(&policy)
@@ -460,6 +474,103 @@ async fn activate_policy(
             )
             .await?,
     ))
+}
+
+/// Validate one official-plan instrument and normalize its storage representation.
+fn validate_and_normalize_official_instrument(
+    symbol: &mut String,
+    currency: &mut String,
+) -> Result<Instrument, ApiError> {
+    let raw_symbol = symbol.trim().to_ascii_uppercase();
+    let instrument = validate_official_instrument(&raw_symbol, currency)?;
+    *symbol = if instrument.market() == market_data::Market::Us && !raw_symbol.starts_with("US.") {
+        instrument.symbol().to_owned()
+    } else {
+        instrument.qualified_symbol()
+    };
+    *currency = instrument.currency().to_owned();
+    Ok(instrument)
+}
+
+/// Reject malformed symbols and client-supplied currencies that disagree with market metadata.
+fn validate_official_instrument(symbol: &str, currency: &str) -> Result<Instrument, ApiError> {
+    let instrument = Instrument::parse(symbol).map_err(map_plan_market_request_error)?;
+    if currency.trim().to_ascii_uppercase() != instrument.currency() {
+        return Err(ApiError::BadRequest);
+    }
+    Ok(instrument)
+}
+
+/// Fail closed before binding an official Formula version to a plan without usable history.
+async fn validate_official_formula_history(
+    state: &ApiState,
+    policy: &PolicyRef,
+    instrument: &Instrument,
+) -> Result<(), ApiError> {
+    let Some(strategy) = crate::official_strategies::strategy(policy)? else {
+        return Ok(());
+    };
+    let required_closes = strategy.required_close_observations();
+    if required_closes == 0 {
+        return Ok(());
+    }
+    let lookback_days = i64::try_from(required_closes.saturating_mul(2).max(30))
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+    let request_end = Utc::now().date_naive();
+    let request_start = request_end
+        .checked_sub_signed(ChronoDuration::days(lookback_days))
+        .ok_or(ApiError::ServiceUnavailable)?;
+    let provider = state.historical_price_provider()?;
+    let adjustment = provider
+        .preferred_adjustment(instrument.market())
+        .map_err(map_plan_market_provider_error)?;
+    let request =
+        HistoricalPriceRequest::new(instrument.clone(), request_start, request_end, adjustment)
+            .map_err(map_plan_market_request_error)?;
+    let dataset = provider
+        .fetch_history(&request)
+        .await
+        .map_err(map_plan_market_provider_error)?;
+    if dataset.instrument() != instrument
+        || dataset.adjustment() != adjustment
+        || dataset.requested_start() != request_start
+        || dataset.requested_end() != request_end
+    {
+        return Err(ApiError::ServiceUnavailable);
+    }
+    if dataset.bars().len() < required_closes {
+        return Err(ApiError::BadRequest);
+    }
+    let latest_close = dataset
+        .bars()
+        .last()
+        .map(|bar| bar.date())
+        .ok_or(ApiError::BadRequest)?;
+    if request_end.signed_duration_since(latest_close).num_days()
+        > MAX_OFFICIAL_HISTORY_STALENESS_DAYS
+    {
+        return Err(ApiError::BadRequest);
+    }
+    Ok(())
+}
+
+fn map_plan_market_request_error(error: MarketDataError) -> ApiError {
+    match error {
+        MarketDataError::InvalidSymbol
+        | MarketDataError::InvalidRange
+        | MarketDataError::UnsupportedRequest => ApiError::BadRequest,
+        _ => ApiError::ServiceUnavailable,
+    }
+}
+
+fn map_plan_market_provider_error(error: MarketDataError) -> ApiError {
+    match error {
+        MarketDataError::InvalidSymbol
+        | MarketDataError::InvalidRange
+        | MarketDataError::UnsupportedRequest
+        | MarketDataError::InsufficientHistory => ApiError::BadRequest,
+        _ => ApiError::ServiceUnavailable,
+    }
 }
 
 /// 删除一个定投标的及其本地关联记录。

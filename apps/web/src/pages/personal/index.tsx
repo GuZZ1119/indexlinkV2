@@ -19,11 +19,13 @@ import {
   useDecisionRecords,
   useManualExecutions,
   usePlans,
+  useStrategyCatalog,
 } from '@/api/queries'
 import type {
   DecisionRecord,
   InvestmentPlan,
   ManualExecutionOutcome,
+  StrategyCatalogEntry,
 } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -92,7 +94,11 @@ const actionExplanation: Record<DecisionRecord['decision_snapshot']['action'], s
 export default function PersonalPage() {
   const { selectedPlanId } = useSnapshot(uiStore)
   const plans = usePlans()
+  const catalog = useStrategyCatalog()
   const activePlan = selectActivePlan(plans.data ?? [], selectedPlanId)
+  const activeStrategy = activePlan
+    ? catalog.data?.find((strategy) => strategy.policy.id === activePlan.policy.id && strategy.policy.version === activePlan.policy.version)
+    : undefined
   const decisions = useDecisionRecords(activePlan?.id ?? null)
   const actionableDecision = decisions.data?.find((decision) => decision.execution_status === 'due') ?? null
   const requestError = plans.error ?? decisions.error
@@ -131,16 +137,19 @@ export default function PersonalPage() {
       {!plans.isPending && requestError ? <RequestErrorState /> : null}
       {!plans.isPending && !requestError && !activePlan ? <NoPlanState /> : null}
       {!plans.isPending && !requestError && activePlan && !decisions.isPending && !actionableDecision ? (
-        <NoDecisionState plan={activePlan} />
+        <div className="space-y-7">
+          <NoDecisionState plan={activePlan} />
+          <PlanStrategySummary plan={activePlan} strategy={activeStrategy} catalogPending={catalog.isPending} />
+        </div>
       ) : null}
       {activePlan && actionableDecision ? (
-        <DecisionExecution key={actionableDecision.id} plan={activePlan} decision={actionableDecision} />
+        <DecisionExecution key={actionableDecision.id} plan={activePlan} decision={actionableDecision} strategy={activeStrategy} catalogPending={catalog.isPending} />
       ) : null}
     </div>
   )
 }
 
-function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision: DecisionRecord }) {
+function DecisionExecution({ plan, decision, strategy, catalogPending }: { plan: InvestmentPlan; decision: DecisionRecord; strategy?: StrategyCatalogEntry; catalogPending: boolean }) {
   const journal = useManualExecutions(decision.id)
   const append = useAppendManualExecution()
   const [draft, setDraft] = useState<ExecutionDraft | null>(null)
@@ -264,17 +273,7 @@ function DecisionExecution({ plan, decision }: { plan: InvestmentPlan; decision:
       </section>
 
       <section className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="rounded-[1.35rem] border border-slate-200 bg-white p-5 sm:p-6">
-          <div><h2 className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">计划摘要</h2><p className="mt-1 text-sm text-slate-500">完整计划和新建入口已集中到侧边栏的“我的计划”。</p></div>
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <PlanFact icon={<CircleDollarSign />} label="常规金额" value={formatMoney(plan.currency, plan.base_contribution)} />
-            <PlanFact icon={<CalendarDays />} label="执行节奏" value={scheduleLabel(plan)} />
-            <PlanFact icon={<CheckCircle2 />} label="当前状态" value={plan.is_active ? '正在坚持' : '已暂停'} />
-          </div>
-          <div className="mt-6 rounded-xl bg-[#f4f7f6] px-4 py-3 text-sm leading-6 text-slate-600">
-            原建议会一直保持不变。每个计划日只能确认一次，结果会作为由你报告的事实记录保存。
-          </div>
-        </div>
+        <PlanStrategySummary plan={plan} strategy={strategy} catalogPending={catalogPending} />
 
         <ManualExecutionHistory events={journal.data ?? []} pending={journal.isPending} error={journal.error} onRetry={() => void journal.refetch()} />
       </section>
@@ -369,6 +368,63 @@ function NoDecisionState({ plan }: { plan: InvestmentPlan }) {
   return <section className="rounded-[1.6rem] bg-[#102028] p-8 text-white"><p className="text-sm text-[#b8d5c6]">{plan.name}</p><h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">{plan.is_active ? '现在只需要继续等待' : '这个计划已经暂停'}</h2><p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">{plan.is_active ? `计划按${scheduleLabel(plan)}执行，下一次计划日是 ${nextDate}。只有到计划日，真实建议才会出现在这里。` : '暂停期间不会产生新的待执行建议；继续计划后，系统会恢复原来的固定节奏。'}</p><Link to="/decisions" className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[#b8d5c6]">查看全部建议 <ArrowRight className="size-3.5" /></Link></section>
 }
 
+function PlanStrategySummary({ plan, strategy, catalogPending }: { plan: InvestmentPlan; strategy?: StrategyCatalogEntry; catalogPending: boolean }) {
+  const fixedAmount = plan.policy.id === 'fixed_dca'
+  const nextDate = nextScheduledDate(plan)
+  const baseAmount = formatMoney(plan.currency, plan.base_contribution)
+  const coreAmount = multiplyMoney(plan.currency, plan.base_contribution, plan.execution_configuration.bucket_allocation.core_ratio)
+  const flexibleAmount = multiplyMoney(plan.currency, plan.base_contribution, plan.execution_configuration.bucket_allocation.opportunity_ratio)
+  const maximumAmount = formatMoney(plan.currency, plan.max_single_execution)
+  const name = strategy?.name ?? strategyLabel(plan)
+  const summary = strategy?.summary ?? fallbackStrategySummary(plan)
+  const rule = strategy?.rule ?? fallbackStrategyRule(plan)
+
+  return (
+    <section className="overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white">
+      <div className="p-5 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-[#2d6a57]">计划方法</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em] text-[#102028]">{catalogPending && !strategy ? '正在读取策略方法…' : name}</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{summary}</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${plan.is_active ? 'bg-[#e6f1eb] text-[#2d6a57]' : 'bg-slate-100 text-slate-500'}`}>{plan.is_active ? '正在坚持' : '已暂停'}</span>
+            <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium ${fixedAmount ? 'bg-[#e8f1f4] text-[#355468]' : 'bg-[#e6f1eb] text-[#2d6a57]'}`}>
+              {fixedAmount ? '固定金额' : '评估日按规则调整'}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <PlanFact icon={<CalendarDays />} label="本期 / 下一评估" value={nextDate} />
+          <PlanFact icon={<CircleDollarSign />} label={fixedAmount ? '每期投入' : '每期基础预算'} value={baseAmount} />
+          <PlanFact icon={<CheckCircle2 />} label="评估节奏" value={scheduleLabel(plan)} />
+        </div>
+
+        <div className="mt-6 grid gap-4 rounded-[1.05rem] bg-[#f4f7f6] p-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(16rem,.8fr)] sm:p-5">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-[#2d6a57]">方法如何做决定</p>
+            <p className="mt-2 text-sm font-medium leading-6 text-[#102028]">{rule}</p>
+            {strategy?.limitation ? <p className="mt-2 text-xs leading-5 text-slate-500">需要知道：{strategy.limitation}</p> : null}
+          </div>
+          <div className="border-t border-slate-200 pt-4 sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0">
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">当期金额怎么确定</p>
+            {fixedAmount ? (
+              <p className="mt-2 text-sm leading-6 text-slate-600">到 {nextDate} 按 <strong className="font-semibold text-[#102028]">{baseAmount}</strong> 生成建议，不读取行情指标。</p>
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-slate-600">到 {nextDate} 先保留 <strong className="font-semibold text-[#102028]">{coreAmount}</strong> 核心投入，再用当日规则判断最多 <strong className="font-semibold text-[#102028]">{flexibleAmount}</strong> 弹性额度。当期总建议不会超过 {maximumAmount}。</p>
+            )}
+          </div>
+        </div>
+
+        <p className="mt-4 text-xs leading-5 text-slate-400">计划日只生成建议，不会自动下单；每期结果只能由你确认一次。
+        </p>
+      </div>
+    </section>
+  )
+}
+
 function PlanFact({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return <div className="rounded-xl border border-slate-100 p-4"><div className="flex items-center gap-2 text-sm text-slate-500">{icon}{label}</div><p className="mt-3 font-medium text-[#102028]">{value}</p></div>
 }
@@ -436,6 +492,31 @@ function nextScheduledDate(plan: InvestmentPlan, now = new Date()): string {
   const next = new Date(Math.min(...candidates))
   if (Number.isNaN(next.getTime())) return '下一次约定日期'
   return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', timeZone: 'UTC' }).format(next)
+}
+
+function strategyLabel(plan: InvestmentPlan): string {
+  if (plan.policy.id === 'fixed_dca') return '每月稳步投入'
+  if (plan.policy.id === 'dsl_ma200_trend_guard') return '200 日均线趋势保护'
+  if (plan.policy.id === 'dsl_growth_volatility_balance') return '增长与波动平衡'
+  if (plan.policy.id === 'core_opportunity_v1') return '旧自适应策略'
+  return '自定义策略'
+}
+
+function fallbackStrategySummary(plan: InvestmentPlan): string {
+  if (plan.policy.id === 'fixed_dca') return '在约定日期按固定金额生成投入建议，不根据短期涨跌改变计划。'
+  return '这份计划保留固定核心投入，并在计划日使用已冻结的策略版本计算弹性额度。'
+}
+
+function fallbackStrategyRule(plan: InvestmentPlan): string {
+  if (plan.policy.id === 'fixed_dca') return '每个计划日使用同一份金额，不读取市场或 AI 信号。'
+  return '只调整机会桶，不改写核心投入和单次金额上限。'
+}
+
+function multiplyMoney(currency: string, amount: string, ratio: string): string {
+  const numericAmount = Number(amount)
+  const numericRatio = Number(ratio)
+  if (!Number.isFinite(numericAmount) || !Number.isFinite(numericRatio)) return '按计划比例计算'
+  return formatMoney(currency, String(numericAmount * numericRatio))
 }
 
 function formatMoney(currency: string, amount: string): string {

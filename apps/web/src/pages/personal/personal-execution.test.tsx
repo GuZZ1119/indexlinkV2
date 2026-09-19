@@ -42,6 +42,38 @@ const decision = {
   created_at: '2026-09-15T00:00:00Z',
 }
 
+const fixedCatalogEntry = {
+  policy: { id: 'fixed_dca', version: 1 },
+  name: '每月稳步投入',
+  summary: '在固定日期，用固定金额持续买入宽基指数。',
+  rule: '无论市场涨跌，按计划投入。',
+  limitation: '市场极端高估时仍会按原金额买入。',
+  risk: 'stable',
+  supported_symbols: [],
+  supported_markets: ['us', 'hong_kong', 'china_shanghai', 'china_shenzhen'],
+  default_plan: { schedule_kind: 'monthly', schedule_day: 18, core_ratio: '1.00', opportunity_ratio: '0.00', risk_mode: 'fixed' },
+  data_requirements: [],
+  data_requirement: { required_close_observations: 0 },
+  adoptable: true,
+  research_status: 'available',
+}
+
+const formulaCatalogEntry = {
+  policy: { id: 'dsl_ma200_trend_guard', version: 1 },
+  name: '200 日均线趋势保护',
+  summary: '保留固定核心投入，在价格低于 200 日均线时暂停当期弹性投入。',
+  rule: '每期检查价格相对 200 日均线的位置；低于均线时弹性桶为 0。',
+  limitation: '均线具有滞后性。',
+  risk: 'stable',
+  supported_symbols: [],
+  supported_markets: ['us', 'hong_kong', 'china_shanghai', 'china_shenzhen'],
+  default_plan: { schedule_kind: 'monthly', schedule_day: 18, core_ratio: '0.70', opportunity_ratio: '0.30', risk_mode: 'approval' },
+  data_requirements: ['daily_close_200'],
+  data_requirement: { required_close_observations: 200 },
+  adoptable: true,
+  research_status: 'available',
+}
+
 type TestEvent = {
   id: string
   decision_record_id: string
@@ -70,6 +102,7 @@ function createApi(options: {
   plans?: unknown[]
   decisions?: unknown[]
   events?: TestEvent[]
+  catalog?: unknown[]
   failHistory?: boolean
   postStatus?: number
 } = {}) {
@@ -80,6 +113,7 @@ function createApi(options: {
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
     requests.push({ url, method, body })
+    if (url.endsWith('/strategy-catalog')) return jsonResponse(options.catalog ?? [fixedCatalogEntry])
     if (url.endsWith('/investment-plans')) return jsonResponse(options.plans ?? [plan])
     if (url.includes('/investment-plans/') && url.includes('/decisions')) return jsonResponse(options.decisions ?? [decision])
     if (url.includes(`/decisions/${decision.id}/manual-executions`) && method === 'POST') {
@@ -119,6 +153,9 @@ describe('personal manual execution loop', () => {
 
     expect(await screen.findByRole('heading', { name: /按建议投入/ })).toBeTruthy()
     expect(screen.getByText(/保持原来的金额和节奏/)).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '每月稳步投入' })).toBeTruthy()
+    expect(screen.getByText('无论市场涨跌，按计划投入。')).toBeTruthy()
+    expect(screen.getAllByText(/US\$1,000/).length).toBeGreaterThan(0)
     expect(screen.queryByText(decision.summary)).toBeNull()
     expect(await screen.findByText(/还没有执行记录/)).toBeTruthy()
     const pendingStatus = screen.getByLabelText('本期办理状态')
@@ -184,6 +221,7 @@ describe('personal manual execution loop', () => {
     const first = renderPage()
     expect(await screen.findByRole('heading', { name: '现在只需要继续等待' })).toBeTruthy()
     expect(screen.getByText(/下一次计划日/)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '每月稳步投入' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: '我已执行' })).toBeNull()
     expect(api.requests.some((request) => request.url.includes('manual-executions'))).toBe(false)
     first.unmount()
@@ -195,6 +233,58 @@ describe('personal manual execution loop', () => {
     expect(screen.getByLabelText('本期办理状态').textContent).toContain('执行状态待确认')
     fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
     await waitFor(() => expect(failed.requests.filter((request) => request.url.includes('manual-executions'))).toHaveLength(2))
+  })
+
+  it('explains a formula plan with its next evaluation and bounded amount instead of a fake fixed contribution', async () => {
+    const formulaPlan = {
+      ...plan,
+      name: 'VOO 200 日均线趋势保护',
+      policy: { id: 'dsl_ma200_trend_guard', version: 1 },
+      execution_configuration: {
+        bucket_allocation: { core_ratio: '0.70', opportunity_ratio: '0.30' },
+        risk_mode: 'approval',
+        opportunity_cash_policy: 'expire_each_period',
+      },
+      max_single_execution: '1000.00',
+    }
+    const api = createApi({ plans: [formulaPlan], decisions: [], catalog: [formulaCatalogEntry] })
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: '200 日均线趋势保护' })).toBeTruthy()
+    expect(screen.getByText(/每期检查价格相对 200 日均线/)).toBeTruthy()
+    const amountExplanation = screen.getByText(/先保留/)
+    expect(amountExplanation.textContent).toContain('US$700')
+    expect(amountExplanation.textContent).toContain('US$300')
+    expect(amountExplanation.textContent).toContain('不会超过 US$1,000')
+    expect(screen.getByText('每期基础预算')).toBeTruthy()
+  })
+
+  it('keeps plan semantics understandable when catalog metadata is temporarily unavailable', async () => {
+    const fixed = createApi({ decisions: [], catalog: [] })
+    vi.stubGlobal('fetch', fixed.fetchMock)
+    const first = renderPage()
+    expect(await screen.findByRole('heading', { name: '每月稳步投入' })).toBeTruthy()
+    expect(screen.getByText('每个计划日使用同一份金额，不读取市场或 AI 信号。')).toBeTruthy()
+    first.unmount()
+
+    const legacyPlan = {
+      ...plan,
+      name: '历史自适应计划',
+      base_contribution: 'unknown',
+      policy: { id: 'core_opportunity_v1', version: 1 },
+      execution_configuration: {
+        bucket_allocation: { core_ratio: 'unknown', opportunity_ratio: 'unknown' },
+        risk_mode: 'approval',
+        opportunity_cash_policy: 'expire_each_period',
+      },
+    }
+    const legacy = createApi({ plans: [legacyPlan], decisions: [], catalog: [] })
+    vi.stubGlobal('fetch', legacy.fetchMock)
+    renderPage()
+    expect(await screen.findByRole('heading', { name: '旧自适应策略' })).toBeTruthy()
+    expect(screen.getByText('只调整机会桶，不改写核心投入和单次金额上限。')).toBeTruthy()
+    expect(screen.getAllByText('按计划比例计算')).toHaveLength(2)
   })
 
   it('keeps a legacy partial result visibly resolved without presenting it as completed', async () => {
@@ -257,6 +347,15 @@ describe('personal manual execution loop', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('没有通过校验')
   })
 
+  it('shows a retryable message for a non-validation journal failure', async () => {
+    const api = createApi({ postStatus: 503 })
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认记录完成' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('暂时没有记录成功')
+  })
+
   it('renders server action wording and real weekly paused plan facts', async () => {
     const weeklyPlan = { ...plan, schedule_kind: 'weekly', schedule_days: [1, 4], is_active: false }
     const skippedDecision = { ...decision, planned_contribution: undefined, decision_snapshot: { ...decision.decision_snapshot, action: 'skip' } }
@@ -292,6 +391,7 @@ describe('personal manual execution loop', () => {
       const method = init?.method ?? 'GET'
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
       api.requests.push({ url, method, body })
+      if (url.endsWith('/strategy-catalog')) return jsonResponse([fixedCatalogEntry])
       if (url.endsWith('/investment-plans')) return jsonResponse([plan])
       if (url.includes(`/investment-plans/${plan.id}/decisions`)) return jsonResponse([decision])
       if (url.includes('manual-executions') && method === 'POST') {

@@ -15,9 +15,12 @@ struct StrategyCatalogEntry {
     rule: &'static str,
     limitation: &'static str,
     risk: StrategyRisk,
+    supported_markets: &'static [&'static str],
+    /// Deprecated compatibility field. An empty list means symbols are validated dynamically.
     supported_symbols: &'static [&'static str],
     default_plan: DefaultPlan,
     data_requirements: &'static [&'static str],
+    data_requirement: StrategyDataRequirement,
     adoptable: bool,
     research_status: ResearchStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,6 +28,13 @@ struct StrategyCatalogEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     research: Option<strategy_evaluation::StrategyAdmissionReport>,
 }
+
+#[derive(Debug, Serialize)]
+struct StrategyDataRequirement {
+    required_close_observations: usize,
+}
+
+const SUPPORTED_MARKETS: &[&str] = &["us", "hong_kong", "china_shanghai", "china_shenzhen"];
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -95,7 +105,8 @@ fn fixed_dca_entry() -> Result<StrategyCatalogEntry, ApiError> {
         rule: "每个计划日建议投入计划金额，不读取市场指标。",
         limitation: "不会主动降低回撤，也可能在市场高位继续买入。",
         risk: StrategyRisk::Stable,
-        supported_symbols: &["SPY", "VOO", "QQQ"],
+        supported_markets: SUPPORTED_MARKETS,
+        supported_symbols: &[],
         default_plan: DefaultPlan {
             schedule_kind: "monthly",
             schedule_day: 18,
@@ -104,6 +115,9 @@ fn fixed_dca_entry() -> Result<StrategyCatalogEntry, ApiError> {
             risk_mode: "fixed",
         },
         data_requirements: &[],
+        data_requirement: StrategyDataRequirement {
+            required_close_observations: 0,
+        },
         adoptable: true,
         research_status: ResearchStatus::Reference,
         formula: None,
@@ -124,6 +138,9 @@ async fn dsl_entry(
 ) -> Result<StrategyCatalogEntry, ApiError> {
     let policy = policy(id)?;
     let stored = state.get_strategy_spec(&policy).await?;
+    let required_close_observations = official_strategies::strategy(&policy)?
+        .ok_or(ApiError::ServiceUnavailable)?
+        .required_close_observations();
     let research = state.strategy_admission_report(&policy).await?;
     let adoptable = research.eligible;
     Ok(StrategyCatalogEntry {
@@ -133,7 +150,8 @@ async fn dsl_entry(
         rule,
         limitation,
         risk,
-        supported_symbols: &["SPY", "VOO"],
+        supported_markets: SUPPORTED_MARKETS,
+        supported_symbols: &[],
         default_plan: DefaultPlan {
             schedule_kind: "monthly",
             schedule_day: 18,
@@ -142,6 +160,9 @@ async fn dsl_entry(
             risk_mode: "approval",
         },
         data_requirements,
+        data_requirement: StrategyDataRequirement {
+            required_close_observations,
+        },
         adoptable,
         research_status: if adoptable {
             ResearchStatus::Available

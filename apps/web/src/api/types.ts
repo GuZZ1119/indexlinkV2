@@ -158,7 +158,10 @@ export interface StrategyCatalogEntry {
   rule: string
   limitation: string
   risk: 'stable' | 'balanced'
+  /** Deprecated compatibility field. Plan eligibility must not be inferred from this list. */
   supported_symbols: string[]
+  /** Markets whose qualified instruments can be checked by this strategy at plan creation time. */
+  supported_markets: Array<'us' | 'hong_kong' | 'china_shanghai' | 'china_shenzhen'>
   default_plan: {
     schedule_kind: 'monthly' | 'weekly'
     schedule_day: number
@@ -167,6 +170,10 @@ export interface StrategyCatalogEntry {
     risk_mode: PlanExecutionConfiguration['risk_mode']
   }
   data_requirements: string[]
+  /** Machine-readable minimum history needed before a market-dependent plan can be admitted. */
+  data_requirement: {
+    required_close_observations: number
+  }
   adoptable: boolean
   research_status: 'reference' | 'available' | 'blocked'
   formula?: StrategySpecDocument
