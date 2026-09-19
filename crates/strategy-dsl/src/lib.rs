@@ -433,12 +433,12 @@ impl StrategySpec {
             .map(|indicator| match indicator {
                 IndicatorSpec::ClosePrice => 1,
                 IndicatorSpec::PriceReturn(window)
-                | IndicatorSpec::AnnualizedVolatility(window) => usize::from(window.days()) + 1,
+                | IndicatorSpec::AnnualizedVolatility(window)
+                | IndicatorSpec::RelativeStrengthIndex(window) => usize::from(window.days()) + 1,
                 IndicatorSpec::PricePercentile(window)
                 | IndicatorSpec::MovingAverageDistance(window)
                 | IndicatorSpec::SimpleMovingAverage(window)
                 | IndicatorSpec::ExponentialMovingAverage(window)
-                | IndicatorSpec::RelativeStrengthIndex(window)
                 | IndicatorSpec::Drawdown(window) => usize::from(window.days()),
                 IndicatorSpec::Vix => 0,
             })
@@ -2080,6 +2080,28 @@ mod tests {
         .unwrap();
 
         assert_eq!(strategy.required_close_observations(), 253);
+    }
+
+    /// RSI needs one more close than its return window because fourteen changes use fifteen prices.
+    #[test]
+    fn reports_rsi_warmup_as_window_plus_one_close() {
+        let strategy = StrategySpec::new(
+            policy(),
+            "RSI warmup",
+            vec![StrategyRule::new(
+                Condition::compare(
+                    ValueExpression::indicator(IndicatorSpec::RelativeStrengthIndex(
+                        LookbackWindow::new(14).unwrap(),
+                    )),
+                    ComparisonOperator::GreaterThan,
+                    Decimal::new(70, 0),
+                ),
+                PolicyAction::skip_opportunity(),
+            )],
+        )
+        .unwrap();
+
+        assert_eq!(strategy.required_close_observations(), 15);
     }
 
     /// Verify every new public document variant reconstructs through the same invariant checks.

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-20 AEST — Push 2：回测与真实计划资金契约一致
+
+- 执行模型：GPT-5 Codex（多 Agent 并行审计，主线程完成共享工作区实现与验证）。
+- 变更类型：Formula 回测语义、指标预热不变量、聚焦测试与计划文档。
+- 涉及文件：`crates/strategy-dsl/src/lib.rs`、`crates/strategy-evaluation/src/dynamic_backtest.rs`、`docs/plans/dynamic_backtest_push2.md`、`CHANGE_LOG.md`。
+- 变更内容：修复 RSI `N` 日变化实际需要 `N + 1` 个收盘价、而预检少报一根的错误；动态回测不再固定使用 `carry_forward` 与 1.5 倍单次上限，改为与当前消费级建计划请求一致的 `expire_each_period` 和本期基础预算硬上限，因此未使用的机会预算不会在回测中滚存，超过 1.0 的机会桶倍率也不会产生真实计划无法执行的虚假加码。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p strategy-dsl`、`cargo test -p strategy-evaluation`、`cargo test -p core-domain` 与 `git diff --check` 通过；新增 RSI 15 根预热和 1.2 倍动作被真实单期上限约束的回归测试。
+
 ### 2026-09-20 AEST — Push 1：统一官方策略注册表
 
 - 执行模型：GPT-5 Codex（按用户要求启用多 Agent；主线程在共享工作区整合后端注册表改造）。

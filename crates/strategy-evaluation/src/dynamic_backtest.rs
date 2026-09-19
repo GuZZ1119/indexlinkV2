@@ -20,7 +20,6 @@ use time::{Date, Month};
 use crate::{maximum_drawdown, xirr};
 
 const BUY_COST_BPS: f64 = 5.0;
-const MAX_SINGLE_EXECUTION_MULTIPLIER: i64 = 15;
 
 /// One validated adjusted daily closing price supplied to the pure evaluator.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -321,7 +320,6 @@ fn simulate_strategy(
     end_index: usize,
 ) -> Result<BacktestSeries, DynamicBacktestError> {
     let mut state = SimulationState::default();
-    let mut opportunity_cash = Decimal::ZERO;
     let mut schedule_cursor = 0;
     for index in start_index..=end_index {
         let price = request.prices[index];
@@ -330,10 +328,8 @@ fn simulate_strategy(
             let spend = strategy_spend(
                 strategy,
                 request.contribution_amount,
-                opportunity_cash,
                 &request.prices[..index],
             )?;
-            opportunity_cash = spend.next_opportunity_cash;
             state.buy(spend.amount, price.adjusted_close)?;
             schedule_cursor += 1;
         }
@@ -344,19 +340,16 @@ fn simulate_strategy(
 
 struct StrategySpend {
     amount: Decimal,
-    next_opportunity_cash: Decimal,
 }
 
 fn strategy_spend(
     strategy: &BacktestStrategy,
     contribution: Decimal,
-    opportunity_cash: Decimal,
     history: &[BacktestPrice],
 ) -> Result<StrategySpend, DynamicBacktestError> {
     if matches!(strategy, BacktestStrategy::FixedDca) {
         return Ok(StrategySpend {
             amount: contribution,
-            next_opportunity_cash: Decimal::ZERO,
         });
     }
     let BacktestStrategy::Formula(spec) = strategy else {
@@ -374,20 +367,14 @@ fn strategy_spend(
     let context = DecisionContext::new(to_time_date(as_of)?, contribution, evidence)?;
     let recommendation = spec.evaluate(&context)?.recommendation().clone();
     let configuration = formula_configuration()?;
-    let maximum = contribution * Decimal::new(MAX_SINGLE_EXECUTION_MULTIPLIER, 1);
-    let split = TwoBucketContributionSplit::from_decision_with_carry(
+    let split = TwoBucketContributionSplit::from_decision(
         contribution,
-        maximum,
         configuration,
         recommendation.action(),
         recommendation.multiplier(),
-        opportunity_cash,
     )?;
     Ok(StrategySpend {
         amount: split.recommended_contribution(),
-        next_opportunity_cash: (opportunity_cash + split.opportunity_budget()
-            - split.opportunity_contribution())
-        .max(Decimal::ZERO),
     })
 }
 
@@ -399,7 +386,7 @@ fn formula_configuration() -> Result<PlanExecutionConfiguration, DynamicBacktest
     Ok(PlanExecutionConfiguration::new_with_cash_policy(
         allocation,
         PlanRiskMode::Approval,
-        OpportunityCashPolicy::CarryForward,
+        OpportunityCashPolicy::ExpireEachPeriod,
     )?)
 }
 
@@ -607,6 +594,25 @@ mod tests {
         .unwrap()
     }
 
+    fn always_overweight_formula() -> StrategySpec {
+        StrategySpec::new(
+            PolicyRef::new(
+                PolicyId::new("dsl_test_overweight").unwrap(),
+                PolicyVersion::new(1).unwrap(),
+            ),
+            "Always overweight",
+            vec![StrategyRule::new(
+                Condition::compare(
+                    ValueExpression::indicator(IndicatorSpec::ClosePrice),
+                    ComparisonOperator::GreaterThan,
+                    Decimal::ZERO,
+                ),
+                PolicyAction::set_opportunity_multiplier(Multiplier::new_clamped(1.2)),
+            )],
+        )
+        .unwrap()
+    }
+
     #[test]
     fn compares_formula_and_dca_on_one_common_normalized_window() {
         let history = prices(500);
@@ -710,6 +716,23 @@ mod tests {
         assert_eq!(
             baseline_result.series[0].metrics.total_invested,
             shocked_result.series[0].metrics.total_invested
+        );
+    }
+
+    #[test]
+    fn formula_backtest_uses_the_same_expiring_one_period_budget_as_new_plans() {
+        let history = prices(40);
+        let spend = strategy_spend(
+            &BacktestStrategy::Formula(always_overweight_formula()),
+            Decimal::new(1_000, 0),
+            &history,
+        )
+        .unwrap();
+
+        assert_eq!(spend.amount, Decimal::new(1_000, 0));
+        assert_eq!(
+            formula_configuration().unwrap().opportunity_cash_policy(),
+            OpportunityCashPolicy::ExpireEachPeriod
         );
     }
 }
