@@ -32,6 +32,8 @@ import type {
   ManualExecutionEvent,
   ReadyStatus,
   RuntimeStatus,
+  StrategyBacktestRequest,
+  StrategyBacktestResponse,
 } from './types'
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
@@ -118,6 +120,11 @@ export function fetchStrategies(): Promise<StoredStrategySpec[]> {
 /** Read the versioned, server-owned consumer strategy catalog. */
 export function fetchStrategyCatalog(): Promise<StrategyCatalogEntry[]> {
   return request('/strategy-catalog')
+}
+
+/** Run a real, provider-backed comparison without persisting a plan or placing an order. */
+export function fetchStrategyBacktest(input: StrategyBacktestRequest): Promise<StrategyBacktestResponse> {
+  return request('/strategy-backtests', { method: 'POST', body: JSON.stringify(input) })
 }
 
 /** Validate a form-authored strategy without writing it to SQLite. */
@@ -360,6 +367,16 @@ export function useStrategies() {
 /** Cache the official catalog separately from user-authored Studio strategies. */
 export function useStrategyCatalog() {
   return useQuery({ queryKey: ['strategy-catalog'], queryFn: fetchStrategyCatalog })
+}
+
+/** Cache one immutable backtest request separately from draft UI controls. */
+export function useStrategyBacktest(input: StrategyBacktestRequest | null) {
+  return useQuery({
+    queryKey: ['strategy-backtest', input],
+    queryFn: () => fetchStrategyBacktest(input!),
+    enabled: input !== null,
+    retry: false,
+  })
 }
 
 /** Cache the safe server-side provider registry for the Copilot selector. */

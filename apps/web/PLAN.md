@@ -12,7 +12,7 @@ The default entry is now a local-first consumer shell: Personal, Strategy Center
 | --- | --- | --- |
 | 个人中心 / Personal | 从真实计划读取本期待执行建议，只在计划日手工确认完成或跳过，并查看当前建议的 append-only 执行结果 | 使用 React Query 连接 `/investment-plans`、`/investment-plans/:id/decisions` 与 `GET/POST /decisions/:id/manual-executions`；每条 `due` 建议只能确认一次，不自动下单、不覆盖原建议、不显示演示金额 |
 | 我的计划 / My Plans | 集中查看、选择、暂停、继续和删除真实计划；可直接建立 Fixed DCA，或接收策略中心传入的官方 Formula 版本并冻结其 70/30 桶配置 | 路由为 `/plans`，位于个人中心二级导航；计划卡展示真实标的、金额、周期、状态、策略与单次上限；Formula 计划只接受目录声明的支持标的 |
-| 策略中心 / Strategy Center | 理解并采用 Fixed DCA、MA200 趋势保护与增长/波动平衡三条服务端官方策略 | 路由为 `/strategy-center`，读取 `GET /strategy-catalog`；自适应 70/20/10 暂从普通入口隐藏。含 `/strategy-analysis` 二级导航：直观视角仍明确标为本地示例路径，专业研究视角直接读取目录携带的真实固定样本 admission；公开分享/fork 等待后续契约 |
+| 策略中心 / Strategy Center | 理解并采用 Fixed DCA、MA200 趋势保护与增长/波动平衡三条服务端官方策略；在任意支持的自选标的上运行公平对比 | 路由为 `/strategy-center`，读取 `GET /strategy-catalog`；自适应 70/20/10 暂从普通入口隐藏。`/strategy-analysis` 通过 `POST /strategy-backtests` 读取真实行情、归一化轨迹、专业指标和来源元数据，支持 US/HK/SH/SZ 与 1m/3m/6m/1y/3y/5y/all；不再生成前端演示曲线 |
 | 高级实验室 / Advanced Lab | 了解 Docker、Moomoo/OpenD、Qwen、市场数据等可选能力；按需运行旧 MA200 兼容回放 | 配置入口只展示安全边界；旧回放默认不请求且必须手动触发；不保存密钥、不验证账户、不下单 |
 
 ## 页面与契约 / Pages and contracts
@@ -24,6 +24,7 @@ The default entry is now a local-first consumer shell: Personal, Strategy Center
 | 定投标的 / Holdings | V1.1 周期、多个执行日、桶比例、风险模式、滚存、策略版本创建与编辑 | `/investment-plans` |
 | 决策 / Decisions | 跨标的记录、计划/动作/日期筛选、分页；详情同时保留原建议证据、所有用户报告的执行流水与审批模式 paper order 确认 | `/decisions`, `/investment-plans/:id/decisions`, `/decisions/:id/manual-executions` |
 | 策略 Studio / Strategy Studio | 受限 DSL、验证、准入回测、版本激活 | `/strategies`, `/investment-plans/:id/activate-policy` |
+| 策略分析 / Strategy Analysis | 选择自选标的、1–3 条官方策略和七档时间范围；直观图与专业指标共享同一次真实响应 | `POST /strategy-backtests`；服务端数据使用 React Query，草稿筛选与视角使用 Valtio；无行情时明确失败，不回退演示数据 |
 
 ## 运行可观测性 / Runtime observability
 
@@ -54,4 +55,4 @@ pnpm --dir apps/web build
 
 1. 让 3–5 位目标用户完成“建立计划 → 找到建议 → 记录执行 → 找回历史”的完整任务并记录证据。
 2. 根据阻塞点形成 Go / Adjust / Stop 决策，不在测试前扩展策略。
-3. 只有用户反馈支持后，才进入 M2 数据层、第二条策略与公平比较。
+3. 以真实回测页验证用户能否理解“共同起点、回撤、波动与数据来源”；分享/fork 和复杂外部指标仍等待用户反馈后再进入 M2。

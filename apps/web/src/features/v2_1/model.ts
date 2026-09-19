@@ -75,8 +75,12 @@ export interface ComparisonRow {
 }
 
 export const strategyAnalysisRanges = [
+  { id: '1m', label: '近 1 个月', months: 1 },
+  { id: '3m', label: '近 3 个月', months: 3 },
+  { id: '6m', label: '近 6 个月', months: 6 },
   { id: '1y', label: '近 1 年', months: 12 },
   { id: '3y', label: '近 3 年', months: 36 },
+  { id: '5y', label: '近 5 年', months: 60 },
   { id: 'all', label: '全部样本', months: 60 },
 ] as const
 

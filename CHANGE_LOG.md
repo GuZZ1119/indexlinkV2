@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 自选标的真实回测前端（回测 Push 4）
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 保持现有低饱和消费级视觉，使用 `vercel-react-best-practices` 约束 React Query 服务端状态、Valtio 本地筛选和派生图表数据）。
+- 变更类型：策略分析真实 API 接入、自选标的、七档范围、归一化图表、专业指标、来源披露、错误态与前端测试。
+- 涉及文件：`apps/web/src/{api/{queries.ts,types.ts},features/v2_1/model.ts,pages/{strategy-analysis/index.tsx,v2_1-shell.test.tsx},stores/ui.ts}`、`apps/web/{vite.config.ts,vite.config.test.ts,vitest.config.ts,PLAN.md}`、删除的 `apps/web/src/components/v2_1/professional-research-panel.tsx`、`CHANGE_LOG.md`。
+- 变更内容：策略分析页删除本地确定性演示曲线，改为调用 `POST /strategy-backtests`；支持输入 `US/HK/SH/SZ` 自选标的、选择 1–3 条官方策略，以及 1m/3m/6m/1y/3y/5y/all。直观视角展示同一共同窗口的真实归一化日线和区间摘要，专业视角直接展示同一响应的年化收益、XIRR、最大回撤、波动率、Sortino 与现金使用率。新增紧凑的数据来源条，公开 provider、数据版本、复权、checksum、币种、时区和有效范围；503/400 均明确说明且绝不回退静态图。服务端数据由 React Query 管理，草稿标的/范围/策略/视角与最近提交请求由 Valtio 管理。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（42 项通过）、`pnpm --dir apps/web test:coverage`（Statements 91.83%、Branches 90.07%、Functions 91.08%、Lines 95.82%）和 `pnpm --dir apps/web build` 通过；生产构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-19 AEST — 任意标的真实策略回测 API（回测 Push 3）
 
 - 执行模型：GPT-5 Codex（多 Agent；本 Agent 负责 HTTP 契约、历史行情 port 注入、路由测试和 API 文档）。

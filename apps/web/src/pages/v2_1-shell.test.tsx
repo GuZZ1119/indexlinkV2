@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
@@ -10,7 +10,7 @@ import LabPage from '@/pages/lab'
 import PersonalPage from '@/pages/personal'
 import StrategyAnalysisPage from '@/pages/strategy-analysis'
 import StrategyCenterPage from '@/pages/strategy-center'
-import { setActiveStrategyId } from '@/stores/ui'
+import { resetStrategyAnalysis, setActiveStrategyId } from '@/stores/ui'
 
 const renderPage = (page: React.ReactNode, initialEntry = '/') => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -21,7 +21,7 @@ const response = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 503, js
 
 describe('V2.1 consumer shell', () => {
   beforeAll(async () => { await i18n.changeLanguage('zh') })
-  beforeEach(() => setActiveStrategyId('steady-dca'))
+  beforeEach(() => { setActiveStrategyId('steady-dca'); resetStrategyAnalysis() })
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
   it('does not invent a monthly action when the real API has no plan', async () => {
@@ -81,54 +81,64 @@ describe('V2.1 consumer shell', () => {
     expect(screen.queryByRole('link', { name: '用这个策略建立计划' })).toBeNull()
   })
 
-  it('compares selected strategies on one normalized analysis chart', () => {
+  it('runs selected strategies on one real normalized analysis chart', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(strategyBacktest(['fixed_dca', 'dsl_ma200_trend_guard'])))
+    vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyAnalysisPage />)
-    expect(screen.getByText('演示数据 · 非真实回测')).toBeTruthy()
-    expect(screen.getByText(/当前曲线由前端本地确定性公式生成/)).toBeTruthy()
+    expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
+    expect(screen.queryByText('演示数据 · 非真实回测')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /MA200 保护/ }))
-    expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true'))
     expect(screen.getByRole('button', { name: /固定定投/ }).getAttribute('aria-pressed')).toBe('true')
-    fireEvent.click(screen.getByRole('button', { name: /MA200 保护/ }))
-    expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('false')
-    fireEvent.click(screen.getByRole('button', { name: '近 1 年' }))
-    expect(screen.getByRole('button', { name: '近 1 年' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '近 6 个月' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '近 6 个月' }).getAttribute('aria-pressed')).toBe('true'))
+    fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
     fireEvent.click(screen.getByRole('button', { name: '全部样本' }))
-    expect(screen.getByRole('button', { name: '全部样本' }).getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(screen.getByRole('button', { name: '全部样本' }).getAttribute('aria-pressed')).toBe('true'))
+    const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
+    expect(submitted.strategy_ids).toEqual(['fixed_dca', 'dsl_ma200_trend_guard'])
+    expect(submitted.range).toBe('6m')
   })
 
-  it('opens the requested catalog strategy in the plain analysis view', () => {
+  it('opens the requested catalog strategy in the plain analysis view', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(strategyBacktest(['dsl_ma200_trend_guard']))))
     renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=ma200-trend-guard&view=plain')
+    expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
     expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: /固定定投/ }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByRole('button', { name: '直观视角' }).getAttribute('aria-pressed')).toBe('true')
   })
 
-  it('keeps backend fixed-sample metrics separate from the demo curve in professional research', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(strategyCatalog()))
+  it('uses the same real response for professional metrics', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(strategyBacktest(['fixed_dca'])))
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyAnalysisPage />)
     fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
-    expect(await screen.findByLabelText('选择专业研究策略')).toBeTruthy()
-    expect(await screen.findByText('18.25%')).toBeTruthy()
-    expect(screen.getAllByText('样本不足')).toHaveLength(3)
-    expect(screen.getByText('查看滚动样本外窗口')).toBeTruthy()
+    expect(await screen.findByLabelText('真实专业回测指标')).toBeTruthy()
+    expect(screen.getByText('+8.2%')).toBeTruthy()
+    expect(screen.getByText('-18.4%')).toBeTruthy()
+    expect(screen.getByText(/每条策略均投入 12 次/)).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('explains when professional research has no saved strategy or a rejected report', async () => {
-    const emptyFetch = vi.fn().mockResolvedValue(response([]))
-    vi.stubGlobal('fetch', emptyFetch)
-    const firstRender = renderPage(<StrategyAnalysisPage />)
-    fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
-    expect(await screen.findByText(/当前官方目录没有带固定样本报告/)).toBeTruthy()
-    firstRender.unmount()
-
-    const rejected = strategyCatalog()[1]
-    const rejectedFetch = vi.fn().mockResolvedValue(response([{ ...rejected, adoptable: false, research_status: 'blocked', research: { eligible: false, reason: '预算约束未通过', core_bucket_safe: true, budget_safe: false, assets: [] } }]))
-    vi.stubGlobal('fetch', rejectedFetch)
+  it('never replaces an unavailable provider with a demo chart', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: { code: 'service_unavailable', message: 'offline' } }, false)))
     renderPage(<StrategyAnalysisPage />)
-    fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
-    expect(await screen.findByText('预算约束未通过')).toBeTruthy()
+    expect(await screen.findByText('真实行情暂不可用')).toBeTruthy()
+    expect(screen.queryByText('真实归一化走势')).toBeNull()
+  })
+
+  it('explains an invalid symbol without misreporting the provider as offline', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: { code: 'bad_request', message: 'invalid request' } }),
+    }))
+    renderPage(<StrategyAnalysisPage />)
+    expect(await screen.findByText('这次回测无法完成')).toBeTruthy()
+    expect(screen.getByText(/请检查市场前缀、标的代码/)).toBeTruthy()
+    expect(screen.queryByText('真实行情暂不可用')).toBeNull()
   })
 
   it('opens and closes a local configuration preview without claiming to connect anything', () => {
@@ -238,5 +248,39 @@ function investmentPlan(overrides: Record<string, unknown> = {}) {
     created_at: '2026-09-18T00:00:00Z',
     updated_at: '2026-09-18T00:00:00Z',
     ...overrides,
+  }
+}
+
+function strategyBacktest(strategyIds: string[]) {
+  return {
+    requested_range: '3y',
+    data: {
+      provider: 'opend', market: 'us', instrument_type: 'equity_or_etf', currency: 'USD',
+      timezone: 'America/New_York', adjustment: 'all', fetched_at: '2026-09-19T00:00:00Z',
+      requested_start: '2022-08-15', requested_end: '2026-09-19', dataset_version: 'history-kline-v10',
+      checksum: 'a'.repeat(64),
+    },
+    result: {
+      symbol: 'US.SPY', effective_start: '2023-09-18', effective_end: '2026-09-18', contribution_count: 12,
+      series: strategyIds.map((strategyId) => ({
+        strategy_id: strategyId,
+        strategy_version: 1,
+        strategy_name: strategyId,
+        normalized_points: [{ date: '2023-09-18', value: 100 }, { date: '2026-09-18', value: 108.2 }],
+        metrics: {
+          total_return_percent: 8.2,
+          annualized_return_percent: 2.66,
+          xirr_percent: 7.4,
+          maximum_drawdown_percent: 18.4,
+          annualized_volatility_percent: 12.8,
+          sortino_ratio: 0.74,
+          total_contributed: 12000,
+          total_invested: 12000,
+          cash_utilisation_percent: 100,
+          terminal_wealth: 12984,
+          terminal_cash: 0,
+        },
+      })),
+    },
   }
 }

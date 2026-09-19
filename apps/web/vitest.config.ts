@@ -19,7 +19,6 @@ export default defineConfig({
         'src/components/v2_1/page-heading.tsx',
         'src/components/v2_1/strategy-card.tsx',
         'src/components/v2_1/strategy-center-nav.tsx',
-        'src/components/v2_1/professional-research-panel.tsx',
         'src/components/v2_1/legacy-replay-panel.tsx',
         'src/components/v2_1/manual-execution-history.tsx',
         'src/pages/personal/index.tsx',

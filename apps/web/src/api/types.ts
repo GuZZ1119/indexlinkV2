@@ -173,6 +173,76 @@ export interface StrategyCatalogEntry {
   research?: StrategyAdmissionReport
 }
 
+/** User-facing date window accepted by the real strategy backtest endpoint. */
+export type StrategyBacktestRange = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'all'
+
+/** Read-only request for a fair comparison on one market-qualified instrument. */
+export interface StrategyBacktestRequest {
+  symbol: string
+  strategy_ids: string[]
+  range: StrategyBacktestRange
+  monthly_day: number
+  contribution: string
+}
+
+/** Provider and immutable dataset metadata attached to every real backtest. */
+export interface BacktestDataProvenance {
+  provider: string
+  market: 'us' | 'hong_kong' | 'china_shanghai' | 'china_shenzhen'
+  instrument_type: string
+  currency: string
+  timezone: string
+  adjustment: string
+  fetched_at: string
+  requested_start: string
+  requested_end: string
+  dataset_version: string
+  checksum: string
+}
+
+/** One daily time-weighted point rebased to 100 on the common start date. */
+export interface NormalizedBacktestPoint {
+  date: string
+  value: number
+}
+
+/** Professional metrics calculated from the same trajectory shown in the chart. */
+export interface DynamicBacktestMetrics {
+  total_return_percent: number
+  annualized_return_percent?: number
+  xirr_percent?: number
+  maximum_drawdown_percent: number
+  annualized_volatility_percent?: number
+  sortino_ratio?: number
+  total_contributed: number
+  total_invested: number
+  cash_utilisation_percent: number
+  terminal_wealth: number
+  terminal_cash: number
+}
+
+/** One immutable policy result in an on-demand backtest response. */
+export interface DynamicBacktestSeries {
+  strategy_id: string
+  strategy_version: number
+  strategy_name: string
+  normalized_points: NormalizedBacktestPoint[]
+  metrics: DynamicBacktestMetrics
+}
+
+/** Real backend response used by both the intuitive and professional views. */
+export interface StrategyBacktestResponse {
+  requested_range: StrategyBacktestRange
+  data: BacktestDataProvenance
+  result: {
+    symbol: string
+    effective_start: string
+    effective_end: string
+    contribution_count: number
+    series: DynamicBacktestSeries[]
+  }
+}
+
 /** A server-side investment plan. Decimal values remain JSON strings. */
 export interface InvestmentPlan {
   id: string
