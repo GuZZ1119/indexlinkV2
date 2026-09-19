@@ -3,6 +3,18 @@
 //! 本 crate 只生成 Decision Preview 所需的输入，不提交订单、不读取交易账户，
 //! 也不保存 API 凭据。调用方应在决策记录中保存生成后的输入快照。
 
+mod alpaca;
+mod history;
+mod opend_history;
+
+pub use alpaca::{AlpacaFeed, AlpacaHistoricalPriceProvider};
+pub use history::{
+    Adjustment, CachedHistoricalPriceProvider, DatasetSource, HistoricalPriceBar,
+    HistoricalPriceDataset, HistoricalPriceProvider, HistoricalPriceRequest, Instrument,
+    InstrumentType, Market, PriceHistoryStore, MAX_HISTORY_SPAN_DAYS,
+};
+pub use opend_history::OpenDHistoricalPriceProvider;
+
 use std::{collections::BTreeMap, net::IpAddr, time::Duration};
 
 use async_trait::async_trait;
@@ -104,6 +116,27 @@ pub enum MarketDataError {
     /// 返回的历史不足以计算受支持的指标。
     #[error("market history is insufficient")]
     InsufficientHistory,
+    /// The requested date range is inverted or exceeds a provider safety bound.
+    #[error("market history range is invalid")]
+    InvalidRange,
+    /// The selected provider does not support this market or adjustment.
+    #[error("market history request is unsupported by the provider")]
+    UnsupportedRequest,
+    /// Provider credentials are absent or rejected.
+    #[error("market data provider authentication failed")]
+    AuthenticationFailed,
+    /// Provider request rate was exceeded.
+    #[error("market data provider rate limit exceeded")]
+    RateLimited,
+    /// A remote historical data source is unavailable.
+    #[error("historical market data provider is unavailable")]
+    ProviderUnavailable,
+    /// Provider or local-cache data failed validation/checksum verification.
+    #[error("historical market dataset is invalid")]
+    InvalidDataset,
+    /// The local canonical history store is unavailable.
+    #[error("local historical market data store is unavailable")]
+    StoreUnavailable,
 }
 
 /// 使用本机 OpenD、Shiller CAPE、Cboe VIX 和美国财政部收益率的实际市场信号 provider。

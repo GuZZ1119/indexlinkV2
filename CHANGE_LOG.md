@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 任意标的历史日线来源与本地可复现缓存（回测 Push 1）
+
+- 执行模型：GPT-5 Codex（多 Agent：本 Agent 负责独立行情数据层与 SQLite 缓存；官方文档和兼容许可证开源项目仅作契约/架构参考）。
+- 变更类型：历史行情 port、Alpaca/OpenD adapter、SQLite migration、本地缓存、数据来源审计与聚焦测试。
+- 涉及文件：`crates/market-data/{Cargo.toml,src/{lib.rs,history.rs,alpaca.rs,opend_history.rs}}`、`crates/storage/{Cargo.toml,src/{lib.rs,sqlite.rs,sqlite_market_price_history.rs}}`、`migrations/sqlite/20260919120000_create_market_price_history.sql`、`docs/plans/market_data_push1.md`、`Cargo.lock`、`CHANGE_LOG.md`。
+- 变更内容：新增与供应商无关的 `HistoricalPriceProvider`、`PriceHistoryStore` 和严格校验的日线数据集契约，统一保存 market、symbol、instrument type、currency、timezone、adjustment、requested range、provider、dataset version、fetched-at 与 SHA-256。Alpaca adapter 仅支持美股，显式使用 `1Day`、feed、复权和 `next_page_token`；API key 不进入存储或 Debug。OpenD adapter 仅连接字面 loopback，按官方枚举支持 `US.*`、`HK.*`、`SH.*`、`SZ.*` 及 raw/QFQ/HFQ。SQLite 按 provider + instrument + adjustment + exact range 原子保存独立快照，命中时不访问远端，不跨来源、区间或复权方式混拼。既有 `MarketSignalProvider` 保持兼容。
+- 外部参考：Alpaca 与 Futu OpenD 官方文档作为协议语义来源；参考 `wmzhai/alpaca-data-rs`（MIT OR Apache-2.0）的凭据脱敏与分页边界，不复制实现；`d-e-s-o/apca`（GPL-3.0）仅作生态调研，未复制代码。
+- 验证：`cargo test -p market-data --locked`（14 项通过、1 项需真实 OpenD/公网的 smoke 忽略；其中 2 项 loopback 协议测试由主线程在沙箱外验证）、`cargo test -p indexlink-storage --locked`（34 项通过）、`cargo fmt -p market-data -p indexlink-storage -- --check`、`cargo clippy -p market-data -p indexlink-storage --all-targets --locked -- -D warnings`、`cargo test -p core-domain --locked` 与 `git diff --check` 通过。最终全 workspace fmt check 需在并行 Push 2/API 文件冻结后由主线程统一执行。
+
 ### 2026-09-19 AEST — 计划删除确认与策略分析导航修正
 
 - 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能约束站内确认层、卡片导航语义与服务端状态边界）。
