@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 任意标的统一 Formula 回测内核（回测 Push 2）
+
+- 执行模型：GPT-5 Codex（主线程实现；多 Agent 并行负责行情数据层、HTTP 契约与运行时解耦）。
+- 变更类型：纯函数回测、因果证据、统一现金流、归一化轨迹、专业指标与聚焦测试。
+- 涉及文件：`crates/strategy-evaluation/src/{lib.rs,dynamic_backtest.rs}`、`docs/plans/dynamic_backtest_push2.md`、`CHANGE_LOG.md`。
+- 变更内容：新增与 symbol 和供应商无关的 `run_dynamic_backtest`，接收调用方提供的复权日线，在完全相同的标的、数据快照、月度现金流、5 bps 成本和共同有效窗口中比较 Fixed DCA 与受限 Formula V1。Formula 决策只能读取模拟成交日之前的收盘价；比较必须等所有策略完成指标预热，不能通过默认值或少投周期制造优势。输出共同起止日期、投入次数、每日时间加权归一化指数，以及区间/年化收益、XIRR、最大回撤、年化波动率、Sortino、投入、现金使用率和期末资产。仅有价格时显式拒绝 VIX 等外部指标和精确金额动作，不以 0 冒充真实数据。
+- 验证：`cargo test -p strategy-evaluation dynamic_backtest --no-fail-fast`（3 项通过）、`cargo clippy -p strategy-evaluation --all-targets -- -D warnings` 与 `git diff --check` 通过；全 workspace fmt/回归在并行 API 文件冻结后统一执行。
+
 ### 2026-09-19 AEST — 任意标的历史日线来源与本地可复现缓存（回测 Push 1）
 
 - 执行模型：GPT-5 Codex（多 Agent：本 Agent 负责独立行情数据层与 SQLite 缓存；官方文档和兼容许可证开源项目仅作契约/架构参考）。
