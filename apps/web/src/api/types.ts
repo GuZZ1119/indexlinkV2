@@ -24,12 +24,17 @@ export interface StrategySpecDocument {
 export interface StrategyRuleDocument {
   condition: StrategyConditionDocument
   action:
+    | { kind: 'set_opportunity_fixed_amount'; amount: string }
     | { kind: 'set_opportunity_multiplier'; multiplier: number }
     | { kind: 'skip_opportunity' }
 }
 
 export type StrategyIndicatorDocument =
   | { kind: 'close_price' }
+  | { kind: 'price_return'; lookback_days: number }
+  | { kind: 'annualized_volatility'; lookback_days: number }
+  | { kind: 'price_percentile'; lookback_days: number }
+  | { kind: 'moving_average_distance'; lookback_days: number }
   | { kind: 'simple_moving_average'; lookback_days: number }
   | { kind: 'exponential_moving_average'; lookback_days: number }
   | { kind: 'relative_strength_index'; lookback_days: number }
@@ -143,6 +148,29 @@ export interface StrategyAdmissionRollingWindow {
   observations: number
   strategy: StrategyAdmissionMetrics
   fixed_dca: StrategyAdmissionMetrics
+}
+
+/** One server-owned strategy that ordinary users may inspect and turn into a plan. */
+export interface StrategyCatalogEntry {
+  policy: PolicyReference
+  name: string
+  summary: string
+  rule: string
+  limitation: string
+  risk: 'stable' | 'balanced'
+  supported_symbols: string[]
+  default_plan: {
+    schedule_kind: 'monthly' | 'weekly'
+    schedule_day: number
+    core_ratio: string
+    opportunity_ratio: string
+    risk_mode: PlanExecutionConfiguration['risk_mode']
+  }
+  data_requirements: string[]
+  adoptable: boolean
+  research_status: 'reference' | 'available' | 'blocked'
+  formula?: StrategySpecDocument
+  research?: StrategyAdmissionReport
 }
 
 /** A server-side investment plan. Decimal values remain JSON strings. */

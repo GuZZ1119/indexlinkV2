@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router'
 
 import { StrategyCard } from '@/components/v2_1/strategy-card'
 import { AppSidebar } from '@/components/layout/app-sidebar'
-import { findConsumerStrategy } from '@/features/v2_1/model'
 import i18n from '@/i18n'
 import LabPage from '@/pages/lab'
 import PersonalPage from '@/pages/personal'
@@ -22,7 +21,7 @@ const response = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 503, js
 
 describe('V2.1 consumer shell', () => {
   beforeAll(async () => { await i18n.changeLanguage('zh') })
-  beforeEach(() => setActiveStrategyId('adaptive-70-20-10'))
+  beforeEach(() => setActiveStrategyId('steady-dca'))
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
   it('does not invent a monthly action when the real API has no plan', async () => {
@@ -45,16 +44,19 @@ describe('V2.1 consumer shell', () => {
   })
 
   it('shows real active plans and keeps strategy-card exploration separate from adoption', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response([
-      investmentPlan({ id: 'plan-voo', name: 'VOO 长期计划', symbol: 'VOO', policy: { id: 'fixed_dca', version: 1 } }),
-      investmentPlan({ id: 'plan-qqq', name: 'QQQ 自适应计划', symbol: 'QQQ', policy: { id: 'core_opportunity_v1', version: 1 } }),
-      investmentPlan({ id: 'plan-paused', name: '已暂停计划', is_active: false }),
-    ]))
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/strategy-catalog')) return Promise.resolve(response(strategyCatalog()))
+      return Promise.resolve(response([
+        investmentPlan({ id: 'plan-voo', name: 'VOO 长期计划', symbol: 'VOO', policy: { id: 'fixed_dca', version: 1 } }),
+        investmentPlan({ id: 'plan-qqq', name: 'QQQ 旧计划', symbol: 'QQQ', policy: { id: 'core_opportunity_v1', version: 1 } }),
+        investmentPlan({ id: 'plan-paused', name: '已暂停计划', is_active: false }),
+      ]))
+    })
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyCenterPage />)
 
     expect(await screen.findByText('VOO 长期计划')).toBeTruthy()
-    expect(screen.getByText('QQQ 自适应计划')).toBeTruthy()
+    expect(screen.getByText('QQQ 旧计划')).toBeTruthy()
     expect(screen.queryByText('已暂停计划')).toBeNull()
     expect(screen.queryByRole('button', { name: '和其他策略对比' })).toBeNull()
 
@@ -64,18 +66,32 @@ describe('V2.1 consumer shell', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '查看每月稳步投入' }).getAttribute('aria-pressed')).toBe('true'))
     expect(screen.getAllByText('正在查看').length).toBeGreaterThan(0)
     expect(screen.queryByText('当前正在使用')).toBeNull()
-    expect(screen.getAllByRole('link', { name: '分析走势' })[0].getAttribute('href')).toBe('/strategy-analysis')
+    expect(screen.queryByText('自适应长期计划')).toBeNull()
+    expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })).toHaveLength(3)
+    expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })[1].getAttribute('href')).toContain('policy_id=dsl_ma200_trend_guard')
+    expect(screen.getAllByText('已通过准入').length).toBeGreaterThan(0)
+  })
+
+  it('blocks plan creation when the server catalog has no eligible research result', async () => {
+    const blocked = { ...strategyCatalog()[1], adoptable: false, research_status: 'blocked', research: undefined }
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? [blocked] : [])))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<StrategyCenterPage />)
+
+    expect(await screen.findByText('研究未通过，暂不可创建')).toBeTruthy()
+    expect(screen.getByText('等待完整数据')).toBeTruthy()
+    expect(screen.getByText('暂不可采用')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: '用这个策略建立计划' })).toBeNull()
   })
 
   it('compares selected strategies on one normalized analysis chart', () => {
     renderPage(<StrategyAnalysisPage />)
     expect(screen.getByText(/当前使用本地确定性示例序列来完成交互与视觉验证/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /70 \/ 20 \/ 10/ }))
-    expect(screen.getByRole('button', { name: /70 \/ 20 \/ 10/ }).getAttribute('aria-pressed')).toBe('true')
-    fireEvent.click(screen.getByRole('button', { name: /固定定投/ }))
-    expect(screen.getAllByText('固定定投', { selector: 'span' })).toHaveLength(2)
-    fireEvent.click(screen.getByRole('button', { name: /70 \/ 20 \/ 10/ }))
-    expect(screen.getByRole('button', { name: /70 \/ 20 \/ 10/ }).getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: /MA200 保护/ }))
+    expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: /固定定投/ }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: /MA200 保护/ }))
+    expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('false')
     fireEvent.click(screen.getByRole('button', { name: '近 1 年' }))
     expect(screen.getByRole('button', { name: '近 1 年' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '全部样本' }))
@@ -83,18 +99,15 @@ describe('V2.1 consumer shell', () => {
   })
 
   it('keeps backend fixed-sample metrics separate from the demo curve in professional research', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(response([{ policy: { id: 'dsl_rsi_guard', version: 1 }, name: 'RSI 风险保护', document: {}, created_at: '2026-09-10T00:00:00Z' }]))
-      .mockResolvedValueOnce(response({ eligible: true, core_bucket_safe: true, budget_safe: true, assets: [{ symbol: 'SPY', observations: 120, evidence_start_as_of: '2016-01-01', evidence_end_as_of: '2025-12-31', strategy: { terminal_wealth_usd: 12450, maximum_drawdown_percent: -22.5, cash_utilisation_percent: 98.4 }, fixed_dca: { xirr_percent: 8.2, terminal_wealth_usd: 12110, maximum_drawdown_percent: -24.1, annualized_volatility_percent: 18.25, sortino_ratio: 0.61, cash_utilisation_percent: 100 }, rolling_out_of_sample: [{ start_as_of: '2016-01-01', end_as_of: '2018-01-01', observations: 24, strategy: { terminal_wealth_usd: 2100, maximum_drawdown_percent: -12, cash_utilisation_percent: 99 }, fixed_dca: { terminal_wealth_usd: 2050, maximum_drawdown_percent: -14, cash_utilisation_percent: 100 } }] }] }))
+    const fetchMock = vi.fn().mockResolvedValue(response(strategyCatalog()))
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyAnalysisPage />)
     fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
     expect(await screen.findByLabelText('选择专业研究策略')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '读取固定样本研究' }))
     expect(await screen.findByText('18.25%')).toBeTruthy()
     expect(screen.getAllByText('样本不足')).toHaveLength(3)
     expect(screen.getByText('查看滚动样本外窗口')).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('explains when professional research has no saved strategy or a rejected report', async () => {
@@ -102,17 +115,14 @@ describe('V2.1 consumer shell', () => {
     vi.stubGlobal('fetch', emptyFetch)
     const firstRender = renderPage(<StrategyAnalysisPage />)
     fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
-    expect(await screen.findByText(/还没有已保存的 DSL 策略/)).toBeTruthy()
+    expect(await screen.findByText(/当前官方目录没有带固定样本报告/)).toBeTruthy()
     firstRender.unmount()
 
-    const rejectedFetch = vi.fn()
-      .mockResolvedValueOnce(response([{ policy: { id: 'dsl_guard', version: 1 }, name: '预算保护', document: {}, created_at: '2026-09-10T00:00:00Z' }]))
-      .mockResolvedValueOnce(response({ eligible: false, reason: '预算约束未通过', core_bucket_safe: true, budget_safe: false, assets: [] }))
+    const rejected = strategyCatalog()[1]
+    const rejectedFetch = vi.fn().mockResolvedValue(response([{ ...rejected, adoptable: false, research_status: 'blocked', research: { eligible: false, reason: '预算约束未通过', core_bucket_safe: true, budget_safe: false, assets: [] } }]))
     vi.stubGlobal('fetch', rejectedFetch)
     renderPage(<StrategyAnalysisPage />)
     fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
-    await screen.findByLabelText('选择专业研究策略')
-    fireEvent.click(screen.getByRole('button', { name: '读取固定样本研究' }))
     expect(await screen.findByText('预算约束未通过')).toBeTruthy()
   })
 
@@ -169,11 +179,38 @@ describe('V2.1 consumer shell', () => {
   })
 
   it('renders a compact strategy card without the rule panel', () => {
-    render(<StrategyCard strategy={findConsumerStrategy('steady-dca')} selected={false} variant="compact" onSelect={() => undefined} />)
+    render(<StrategyCard strategy={strategyCatalog()[0]} selected={false} variant="compact" onSelect={() => undefined} />)
     expect(screen.getByText('每月稳步投入')).toBeTruthy()
     expect(screen.queryByText('它会怎么做：')).toBeNull()
   })
 })
+
+function strategyCatalog() {
+  const base = {
+    risk: 'stable' as const,
+    supported_symbols: ['SPY', 'VOO'],
+    default_plan: { schedule_kind: 'monthly' as const, schedule_day: 18, core_ratio: '1.0', opportunity_ratio: '0.0', risk_mode: 'fixed' as const },
+    data_requirements: [],
+    adoptable: true,
+    research_status: 'reference' as const,
+  }
+  const admission = {
+    eligible: true,
+    core_bucket_safe: true,
+    budget_safe: true,
+    assets: [{
+      symbol: 'SP500', observations: 100, evidence_start_as_of: '2016-01-01', evidence_end_as_of: '2025-12-31',
+      strategy: { terminal_wealth_usd: 10000, maximum_drawdown_percent: -20, cash_utilisation_percent: 90 },
+      fixed_dca: { xirr_percent: 8.2, terminal_wealth_usd: 10500, maximum_drawdown_percent: -25, annualized_volatility_percent: 18.25, sortino_ratio: 0.61, cash_utilisation_percent: 100 },
+      rolling_out_of_sample: [{ start_as_of: '2016-01-01', end_as_of: '2018-01-01', observations: 24, strategy: { terminal_wealth_usd: 2100, maximum_drawdown_percent: -12, cash_utilisation_percent: 99 }, fixed_dca: { terminal_wealth_usd: 2050, maximum_drawdown_percent: -14, cash_utilisation_percent: 100 } }],
+    }],
+  }
+  return [
+    { ...base, policy: { id: 'fixed_dca', version: 1 }, name: '每月稳步投入', summary: '固定日期投入。', rule: '按计划金额投入。', limitation: '不会主动降低回撤。' },
+    { ...base, policy: { id: 'dsl_ma200_trend_guard', version: 1 }, name: '200 日均线趋势保护', summary: '管理弹性投入。', rule: '低于均线时暂停弹性桶。', limitation: '均线具有滞后性。', default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
+    { ...base, policy: { id: 'dsl_growth_volatility_balance', version: 1 }, name: '增长与波动平衡', summary: '检查增长与波动。', rule: '按阈值调整弹性桶。', limitation: '震荡期可能切换。', risk: 'balanced' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
+  ]
+}
 
 function investmentPlan(overrides: Record<string, unknown> = {}) {
   return {

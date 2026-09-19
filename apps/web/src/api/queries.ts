@@ -21,6 +21,7 @@ import type {
   StoredStrategySpec,
   StrategySpecDocument,
   StrategyAdmissionReport,
+  StrategyCatalogEntry,
   StrategyValidationResponse,
   AiProviderListResponse,
   CopilotDraftRequest,
@@ -112,6 +113,11 @@ export function updatePlan(planId: string, input: UpdateInvestmentPlanRequest): 
 /** List immutable restricted strategy versions for the Strategy Studio. */
 export function fetchStrategies(): Promise<StoredStrategySpec[]> {
   return request('/strategies')
+}
+
+/** Read the versioned, server-owned consumer strategy catalog. */
+export function fetchStrategyCatalog(): Promise<StrategyCatalogEntry[]> {
+  return request('/strategy-catalog')
 }
 
 /** Validate a form-authored strategy without writing it to SQLite. */
@@ -349,6 +355,11 @@ export function useHoldingPriceHistory(period: '3m' | '6m' | '1y' | '3y') {
 /** React Query hook for Strategy Studio discovery data. */
 export function useStrategies() {
   return useQuery({ queryKey: ['strategies'], queryFn: fetchStrategies })
+}
+
+/** Cache the official catalog separately from user-authored Studio strategies. */
+export function useStrategyCatalog() {
+  return useQuery({ queryKey: ['strategy-catalog'], queryFn: fetchStrategyCatalog })
 }
 
 /** Cache the safe server-side provider registry for the Copilot selector. */

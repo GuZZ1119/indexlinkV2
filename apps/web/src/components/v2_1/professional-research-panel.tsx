@@ -1,7 +1,7 @@
 import { BookOpenCheck, CircleAlert, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
-import { useStrategies, useStrategyAdmission } from '@/api/queries'
+import { useStrategyCatalog } from '@/api/queries'
 import type { StrategyAdmissionAsset, StrategyAdmissionMetrics, StrategyAdmissionReport } from '@/api/types'
 
 type MetricRow = { label: string; value: (metrics: StrategyAdmissionMetrics) => string }
@@ -17,23 +17,22 @@ const metricRows: readonly MetricRow[] = [
 
 /** Read and display only the fixed-fixture admission report already produced by the Rust backend. */
 export function ProfessionalResearchPanel() {
-  const strategies = useStrategies()
-  const admission = useStrategyAdmission()
+  const catalog = useStrategyCatalog()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [requestedKey, setRequestedKey] = useState<string | null>(null)
-  const selectedStrategy = useMemo(() => strategies.data?.find((strategy) => policyKey(strategy.policy) === selectedKey) ?? strategies.data?.[0], [selectedKey, strategies.data])
+  const researchStrategies = useMemo(() => catalog.data?.filter((strategy) => strategy.research) ?? [], [catalog.data])
+  const selectedStrategy = useMemo(() => researchStrategies.find((strategy) => policyKey(strategy.policy) === selectedKey) ?? researchStrategies[0], [researchStrategies, selectedKey])
   const currentKey = selectedStrategy ? policyKey(selectedStrategy.policy) : null
-  const report = requestedKey === currentKey ? admission.data : undefined
+  const report = selectedStrategy?.research
 
   return (
     <section aria-label="专业研究摘要" className="rounded-[1.45rem] border border-[#cfded8] bg-white p-5 shadow-sm sm:p-6">
       <header className="flex flex-col gap-4 border-b border-slate-100 pb-6 lg:flex-row lg:items-end lg:justify-between">
-        <div><p className="inline-flex items-center gap-2 text-sm font-medium text-[#294f60]"><BookOpenCheck className="size-4" />后端固定样本研究</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#102028]">专业视角：策略与 Fixed DCA 同口径对照</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">只读取 Rust 后端已保存 DSL 策略的准入报告；策略、样本、现金流、成本与成交时点由后端固定。它不使用上方的演示曲线。</p></div>
+        <div><p className="inline-flex items-center gap-2 text-sm font-medium text-[#294f60]"><BookOpenCheck className="size-4" />后端固定样本研究</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#102028]">专业视角：策略与 Fixed DCA 同口径对照</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">直接读取官方目录携带的真实准入报告；策略版本、样本、现金流、成本与成交时点由 Rust 后端固定。它不使用上方的演示曲线。</p></div>
         <span className="inline-flex w-fit items-center gap-2 rounded-full bg-[#e5eff4] px-3 py-2 text-xs font-medium text-[#294f60]"><ShieldCheck className="size-3.5" />研究信息，不构成收益承诺</span>
       </header>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(15rem,.7fr)_minmax(0,1.3fr)]">
-        <div className="rounded-[1.2rem] bg-[#f6f8f6] p-4"><p className="text-sm font-medium text-[#102028]">选择已保存的策略版本</p><p className="mt-1 text-xs leading-5 text-slate-500">内置 Fixed DCA 与 70 / 20 / 10 尚未公开统一准入报告；请在高级实验室保存 DSL 后读取其真实研究结果。</p>{strategies.isLoading ? <p className="mt-4 inline-flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" />正在读取已保存策略…</p> : strategies.error ? <Unavailable text="后端尚未连接，暂时无法读取专业研究结果。" /> : !selectedStrategy ? <Unavailable text="还没有已保存的 DSL 策略。可先在高级实验室创建并保存一份受限策略。" /> : <div className="mt-4 space-y-3"><label className="grid gap-1.5 text-sm font-medium text-[#102028]">策略版本<select aria-label="选择专业研究策略" value={currentKey ?? ''} onChange={(event) => { setSelectedKey(event.target.value); setRequestedKey(null) }} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[#2d6a57]">{strategies.data?.map((strategy) => <option key={policyKey(strategy.policy)} value={policyKey(strategy.policy)}>{strategy.name} · {policyKey(strategy.policy)}</option>)}</select></label><button type="button" onClick={() => { if (selectedStrategy) { setRequestedKey(currentKey); admission.mutate(selectedStrategy.policy) } }} disabled={admission.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-[#102028] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#1c343f] disabled:cursor-wait disabled:bg-slate-500">{admission.isPending ? <><LoaderCircle className="size-4 animate-spin" />读取中…</> : '读取固定样本研究'}</button>{admission.error && <Unavailable text="后端未能返回这份策略的研究报告。请确认策略已保存且服务正在运行。" />}</div>}</div>
+        <div className="rounded-[1.2rem] bg-[#f6f8f6] p-4"><p className="text-sm font-medium text-[#102028]">选择官方 Formula 版本</p><p className="mt-1 text-xs leading-5 text-slate-500">Fixed DCA 是右侧统一对照基准；这里只列出带真实固定样本报告的公式策略，不需要额外启用 DSL。</p>{catalog.isLoading ? <p className="mt-4 inline-flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" />正在读取官方研究…</p> : catalog.error ? <Unavailable text="后端尚未连接，暂时无法读取专业研究结果。" /> : !selectedStrategy ? <Unavailable text="当前官方目录没有带固定样本报告的 Formula 策略。" /> : <div className="mt-4"><label className="grid gap-1.5 text-sm font-medium text-[#102028]">策略版本<select aria-label="选择专业研究策略" value={currentKey ?? ''} onChange={(event) => setSelectedKey(event.target.value)} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus-visible:ring-2 focus-visible:ring-[#2d6a57]">{researchStrategies.map((strategy) => <option key={policyKey(strategy.policy)} value={policyKey(strategy.policy)}>{strategy.name} · {policyKey(strategy.policy)}</option>)}</select></label></div>}</div>
 
         <div>{report ? <ResearchReport report={report} strategyName={selectedStrategy?.name ?? '策略'} /> : <EmptyResearch />}</div>
       </div>

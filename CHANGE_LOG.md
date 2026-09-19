@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 策略中心接入真实官方目录（Push 4）
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能约束信息层级、交互反馈与服务端状态边界；多 Agent 尝试因并行额度中断后由主线程完成）。
+- 变更类型：React Query 数据接入、消费级策略卡、真实专业研究、静态自适应入口隐藏与前端聚焦测试。
+- 涉及文件：`apps/web/src/{api/{types.ts,queries.ts},components/v2_1/{strategy-card.tsx,professional-research-panel.tsx},features/v2_1/{model.ts,model.test.ts},pages/{strategy-center/index.tsx,v2_1-shell.test.tsx},stores/ui.ts}`、`CHANGE_LOG.md`。
+- 变更内容：策略中心改读 `GET /strategy-catalog`，删除静态自适应/股债卡与演示年化、回撤；卡片只显示服务端规则、限制、固定样本范围和准入状态，整卡浏览继续保持柔和选中反馈。只有 `adoptable` 策略显示醒目的“用这个策略建立计划”，并通过 policy ID/version 导向“我的计划”。专业视角改为直接读取目录附带的真实 admission 报告，不再要求用户先在高级实验室保存 DSL；Fixed DCA 保持同口径对照列。普通分析示例中的旧 70/20/10 也替换为 MA200 与增长/波动 Formula 名称，避免隐藏入口从其他页面重新出现。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（37 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.10%、Branches 90.71%、Functions 92.90%、Lines 96.94%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check` 通过；构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-19 AEST — 官方 Formula V1 策略目录（Push 3）
 
 - 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。

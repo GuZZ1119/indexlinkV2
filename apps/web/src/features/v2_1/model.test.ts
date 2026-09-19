@@ -8,14 +8,14 @@ describe('consumer strategy model', () => {
     expect(findConsumerStrategy('steady-dca').shortName).toBe('固定定投')
   })
 
-  it('uses the 70/20/10 strategy as a safe default when no selection exists', () => {
-    expect(findConsumerStrategy(null).id).toBe('adaptive-70-20-10')
+  it('uses Fixed DCA as a safe default when no selection exists', () => {
+    expect(findConsumerStrategy(null).id).toBe('steady-dca')
   })
 
   it('builds a small comparison with the strategy limitations included', () => {
-    const rows = compareStrategies('adaptive-70-20-10', 'defensive-balance')
+    const rows = compareStrategies('ma200-trend-guard', 'growth-volatility-balance')
     expect(rows.map((row) => row.label)).toEqual(['适合的人', '执行节奏', '历史年化', '最大回撤', '最该知道的限制'])
-    expect(rows.at(-1)?.left).toContain('预测')
+    expect(rows.at(-1)?.left).toContain('滞后')
   })
 
   it('keeps local-only and unconfigured integrations visually distinct', () => {
@@ -24,11 +24,11 @@ describe('consumer strategy model', () => {
   })
 
   it('rebases every selected strategy to 100 before comparing a shared range', () => {
-    const analysis = buildNormalizedStrategyAnalysis(['steady-dca', 'adaptive-70-20-10'], '3y')
+    const analysis = buildNormalizedStrategyAnalysis(['steady-dca', 'ma200-trend-guard'], '3y')
     expect(analysis.points).toHaveLength(37)
     expect(analysis.points[0]['steady-dca']).toBe(100)
-    expect(analysis.points[0]['adaptive-70-20-10']).toBe(100)
-    expect(analysis.summaries.map((summary) => summary.id)).toEqual(['steady-dca', 'adaptive-70-20-10'])
+    expect(analysis.points[0]['ma200-trend-guard']).toBe(100)
+    expect(analysis.summaries.map((summary) => summary.id)).toEqual(['steady-dca', 'ma200-trend-guard'])
     expect(analysis.summaries[0].endIndex).not.toBe(100)
   })
 })

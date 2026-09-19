@@ -1,32 +1,74 @@
-import { BarChart3, ChevronDown, Loader2, Plus, RotateCcw } from 'lucide-react'
+import { BarChart3, Database, Loader2, Plus, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router'
-import { useSnapshot } from 'valtio'
 
-import { usePlans } from '@/api/queries'
-import type { InvestmentPlan } from '@/api/types'
+import { usePlans, useStrategyCatalog } from '@/api/queries'
+import type { InvestmentPlan, StrategyCatalogEntry } from '@/api/types'
 import { PageHeading } from '@/components/v2_1/page-heading'
 import { StrategyCard } from '@/components/v2_1/strategy-card'
 import { StrategyCenterNav } from '@/components/v2_1/strategy-center-nav'
-import { consumerStrategies, type StrategyId } from '@/features/v2_1/model'
-import { setActiveStrategyId, setSelectedPlanId, uiStore } from '@/stores/ui'
+import { setSelectedPlanId } from '@/stores/ui'
 
 export default function StrategyCenterPage() {
-  const { activeStrategyId } = useSnapshot(uiStore)
   const plans = usePlans()
+  const catalog = useStrategyCatalog()
+  const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null)
   const activePlans = (plans.data ?? []).filter((plan) => plan.is_active)
-  const selectStrategy = (strategyId: StrategyId) => setActiveStrategyId(strategyId)
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8 px-5 py-8 md:px-8 lg:px-10 lg:py-10">
-      <PageHeading eyebrow="策略中心" title="先看懂，再开始坚持" description="每一份策略都明确告诉你它想解决什么、历史上经历过什么，以及最不适合它的情况。" action={<span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-500"><Plus className="size-4" />创建策略将在下一阶段开放</span>} />
+      <PageHeading
+        eyebrow="策略中心"
+        title="先看规则，再决定要不要坚持"
+        description="这里的每一项都来自本机服务：规则有固定版本，历史研究有相同的时间和成本口径，不能运行的策略不会开放创建。"
+        action={<span className="inline-flex items-center gap-2 rounded-full border border-[#cfded8] bg-[#f1f7f4] px-4 py-2.5 text-sm text-[#2d6a57]"><Database className="size-4" />官方 Formula V1 目录</span>}
+      />
       <StrategyCenterNav />
 
       <ActivePlansPanel plans={activePlans} pending={plans.isPending} failed={plans.isError} />
 
-      <section><div className="mb-5 flex items-end justify-between gap-4"><div><h2 className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">从简单的方式开始</h2><p className="mt-1 text-sm text-slate-500">点击整张卡片查看策略；这不会把它伪装成你的真实计划。</p></div><span className="hidden items-center gap-1 text-sm text-slate-400 sm:inline-flex">风险筛选将在策略库上线后开放 <ChevronDown className="size-4" /></span></div><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{consumerStrategies.map((strategy) => <StrategyCard key={strategy.id} strategy={strategy} selected={activeStrategyId === strategy.id} onSelect={selectStrategy}><Link to="/strategy-analysis" onClick={() => setActiveStrategyId(strategy.id)} className="mx-5 mb-5 inline-flex items-center gap-1 text-sm font-medium text-[#294f60] hover:text-[#102028]">分析走势 <BarChart3 className="size-3.5" /></Link></StrategyCard>)}</div></section>
+      <section aria-labelledby="official-strategies-heading">
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div>
+            <h2 id="official-strategies-heading" className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">从能解释清楚的规则开始</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">点击整张卡片查看它的证据状态；“建立计划”才会进入你的个人计划，浏览本身不会改变任何数据。</p>
+          </div>
+        </div>
 
-      <section className="grid gap-4 md:grid-cols-2"><InfoBlock icon={<BarChart3 />} title="回测不是承诺" text="你会看到策略过去经历了什么，也会看到费用、样本范围和最难坚持的阶段。它不能预测下一次市场。" /><InfoBlock icon={<RotateCcw />} title="选用不是复制" text="先从完整理解开始。未来可以 fork 一份策略，改成符合自己投入金额、市场和风险承受能力的个人计划。" /></section>
+        {catalog.isPending ? <div className="flex min-h-48 items-center justify-center rounded-[1.35rem] border border-slate-200 bg-white text-sm text-slate-500"><Loader2 className="mr-2 size-4 animate-spin" />正在读取官方策略目录…</div> : null}
+        {catalog.isError ? <div role="alert" className="rounded-[1.35rem] border border-[#d9c7a9] bg-[#fffaf1] px-5 py-6 text-sm leading-6 text-slate-700"><p className="font-medium text-[#6f511f]">暂时无法读取策略目录</p><p className="mt-1">请确认本机 Rust 服务已经更新并正在运行。页面不会用静态策略或演示收益代替真实响应。</p></div> : null}
+        {catalog.data?.length === 0 ? <div className="rounded-[1.35rem] border border-dashed border-slate-300 bg-white px-5 py-8 text-sm text-slate-600">服务当前没有发布可供普通用户采用的策略。</div> : null}
+        {catalog.data && catalog.data.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {catalog.data.map((strategy) => (
+              <StrategyCard key={`${strategy.policy.id}@${strategy.policy.version}`} strategy={strategy} selected={selectedPolicyId === strategy.policy.id} onSelect={setSelectedPolicyId}>
+                <StrategyAction strategy={strategy} />
+              </StrategyCard>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <InfoBlock icon={<BarChart3 />} title="回测是一次统一体检" text="Formula 策略和固定定投使用相同外部现金流、费用与成交时点。它能暴露规则的缺点，不能承诺未来收益。" />
+        <InfoBlock icon={<RotateCcw />} title="公式只管理执行节奏" text="当前两条 Formula 策略保留 70% 固定核心投入，只调整 30% 弹性额度；确认结果仍由你手工记录。" />
+      </section>
     </div>
+  )
+}
+
+function StrategyAction({ strategy }: { strategy: StrategyCatalogEntry }) {
+  if (!strategy.adoptable) {
+    return <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-500">研究未通过，暂不可创建</span>
+  }
+  const search = new URLSearchParams({
+    policy_id: strategy.policy.id,
+    policy_version: String(strategy.policy.version),
+  })
+  return (
+    <Link to={`/plans?${search.toString()}#new-plan`} className="inline-flex items-center gap-2 rounded-full bg-[#102830] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,40,48,0.16)] transition-colors hover:bg-[#1d3a43] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#8eb7a3]">
+      <Plus className="size-4" />用这个策略建立计划
+    </Link>
   )
 }
 
@@ -57,8 +99,10 @@ function ActivePlansPanel({ plans, pending, failed }: { plans: InvestmentPlan[];
 
 function planStrategyLabel(plan: InvestmentPlan): string {
   if (plan.policy.id === 'fixed_dca') return '固定定投'
-  if (plan.policy.id === 'core_opportunity_v1') return '自适应定投'
-  return '已保存策略'
+  if (plan.policy.id === 'dsl_ma200_trend_guard') return '200 日均线趋势保护'
+  if (plan.policy.id === 'dsl_growth_volatility_balance') return '增长与波动平衡'
+  if (plan.policy.id === 'core_opportunity_v1') return '旧自适应策略'
+  return '自定义策略'
 }
 
 function planScheduleLabel(plan: InvestmentPlan): string {
