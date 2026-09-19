@@ -154,13 +154,21 @@
 
 ### Restricted DSL Strategy Versions
 
+#### `GET /strategy-catalog`
+
+返回面向普通用户的服务端官方策略目录；它与本机用户自行保存的 `/strategies` 列表分离。V2.1 固定返回三个不可变版本：`fixed_dca@1`、`dsl_ma200_trend_guard@1` 与 `dsl_growth_volatility_balance@1`。旧 `core_opportunity_v1@1` 依赖历史 70/20/10 与 AI 降级口径，不进入普通目录，也不能被目录前端误显示为可采用策略。
+
+每项包含 `policy`、普通话名称/摘要、确定性规则、局限、风险标签、支持标的、默认计划配置、数据要求、`adoptable` 与 `research_status`。官方 DSL 项还返回规范化 `formula` 和真实固定样本 `research`；只有 admission 的 `eligible` 为真时 `adoptable` 才为真。Fixed DCA 是对照基准，因此 `research_status` 为 `reference` 且不伪造 DSL 公式或差异化回测。当前官方 Formula V1 研究只覆盖固定样本中的 S&P 500 / Nasdaq Composite 指数代理，目录保守地只允许对应的 `SPY` / `VOO` 建立公式计划。
+
+两个 Formula V1 策略默认使用 70% 核心桶与 30% 弹性桶：规则只能调整弹性桶，不能取消核心投入。目录读取不会保存计划、创建 decision、读取 AI 或提交订单。
+
 #### `GET /strategies`
 
 列出本机 SQLite 中已保存的不可变 DSL 策略版本，按创建时间倒序排列。每个响应包含 `policy`、`name`、经过领域校验的 `document` 与 UTC `created_at`。服务端读取 `document` 后会重新通过 DSL 构造器校验；损坏或不一致的本地数据不会返回给客户端，而是统一返回 `503 service_unavailable`。
 
 #### `POST /strategies/validate` 与 `POST /strategies`
 
-Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应会返回 `valid`、可读校验错误或规范化文档。校验通过后才可 `POST /strategies` 保存为不可变版本。线上 Runtime 支持收盘价、SMA、EMA、RSI、回撤与 VIX；每次运行保存 `as_of`、本机 OpenD 日线/Cboe VIX 来源及所用窗口。没有自由代码、任意脚本或核心桶否决。
+Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应会返回 `valid`、可读校验错误或规范化文档。校验通过后才可 `POST /strategies` 保存为不可变版本。线上 Runtime 支持收盘价、周期收益率、年化历史波动率、价格分位、均线距离、SMA、EMA、RSI、回撤与 VIX；它按策略最长窗口请求行情并与固定样本研究复用同一因果证据构造器。每次运行保存 `as_of`、本机 OpenD 日线/Cboe VIX 来源及所用窗口。没有自由代码、任意脚本或核心桶否决。官方目录占用的 policy ID/version 不允许由本机自定义策略覆盖，冲突返回 `409 conflict`。
 
 #### `POST /strategies/copilot-draft`
 
@@ -192,7 +200,7 @@ Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应
 - `eligible` 与安全的拒绝原因；
 - 每个已覆盖标的在**相同外部现金流、成本、决策/成交时点**下的策略与 `Fixed DCA` 对照：期末净值、最大回撤、年化波动率与现金使用率。
 
-当前不可变 `technical-v1` 已为 Close、SMA、EMA、RSI、Drawdown 与 VIX 提供因果历史证据；策略引用的每个指标都必须在各决策日具有足够预热，否则 admission 明确拒绝激活。服务端不会以合成输入伪造回测。
+当前不可变 `technical-v1` 已为 Close、周期收益率、年化历史波动率、价格分位、均线距离、SMA、EMA、RSI、Drawdown 与 VIX 提供因果历史证据；策略引用的每个指标都必须在各决策日具有足够预热，否则 admission 明确拒绝激活。服务端不会以合成输入伪造回测。
 
 #### `POST /investment-plans/:id/activate-policy`
 
@@ -206,7 +214,7 @@ Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应
 /strategies/dsl_rsi_opportunity_guard/1
 ```
 
-非法策略标识/版本返回 `400 bad_request`，不存在的合法版本返回 `404 not_found`。内置 `fixed_dca` 与 `core_opportunity_v1` 不是 DSL 文档，因此本路由不会把它们伪装成可编辑策略。
+非法策略标识/版本返回 `400 bad_request`，不存在的合法版本返回 `404 not_found`。两条官方 Formula V1 DSL 可通过本路由只读检查，不能覆盖；内置 `fixed_dca` 与旧 `core_opportunity_v1` 不是 DSL 文档，因此本路由不会把它们伪装成可编辑策略。
 
 ### Execution Preview + 双桶
 

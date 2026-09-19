@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 官方 Formula V1 策略目录（Push 3）
+
+- 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。
+- 变更类型：官方策略注册、消费级目录 API、固定样本准入、不可变版本保护、API 文档与集成测试。
+- 涉及文件：`crates/api/src/{lib.rs,state.rs,official_strategies.rs,routes/{mod.rs,strategy_catalog.rs}}`、`crates/api/tests/strategy_catalog.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `GET /strategy-catalog`，只发布 Fixed DCA、200 日均线趋势保护、增长与波动平衡三个版本；两条 Formula V1 策略由服务端通过领域构造器生成，只调整 30% 弹性桶，并在响应中附规范公式和真实固定样本 admission。官方 DSL 版本接入既有读取、准入与运行时解析路径，同时拒绝本机策略覆盖同一 ID/version。依赖 AI 降级口径的 `core_opportunity_v1` 不进入普通目录，但未删除历史运行兼容。
+- 验证：`cargo test -p core-domain --locked` 通过（13 项）；`cargo test -p indexlink-api --locked` 全部通过（含 2 项新目录集成测试）；`cargo clippy -p indexlink-api --all-targets --locked -- -D warnings` 通过；`cargo fmt --all` 与 `git diff --check` 完成。
+
 ### 2026-09-19 AEST — Formula V1 统一研究与实时证据（Push 2）
 
 - 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。

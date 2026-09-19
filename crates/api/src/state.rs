@@ -641,6 +641,9 @@ impl ApiState {
         &self,
         policy: &strategy_policy::PolicyRef,
     ) -> Result<StoredStrategySpec, ApiError> {
+        if let Some(strategy) = crate::official_strategies::stored_strategy(policy)? {
+            return Ok(strategy);
+        }
         self.strategy_specs
             .as_ref()
             .ok_or(ApiError::ServiceUnavailable)?
@@ -659,6 +662,9 @@ impl ApiState {
         &self,
         strategy: &StrategySpec,
     ) -> Result<StoredStrategySpec, ApiError> {
+        if crate::official_strategies::is_reserved(strategy.policy()) {
+            return Err(ApiError::Conflict);
+        }
         self.strategy_specs
             .as_ref()
             .ok_or(ApiError::ServiceUnavailable)?
