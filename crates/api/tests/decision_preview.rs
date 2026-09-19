@@ -1,5 +1,8 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -12,7 +15,7 @@ use axum::{
     http::{header::CONTENT_TYPE, Request, StatusCode},
 };
 use broker::MockBroker;
-use chrono::{Datelike, Utc};
+use chrono::{Datelike, Duration as ChronoDuration, Utc};
 use decision_records::{
     CompleteDecisionRecord, CreateDecisionRecord, DecisionRecord, DecisionRecordListQuery,
     DecisionRecordRepository, DecisionRecordRepositoryError, DecisionRecordService,
@@ -25,9 +28,14 @@ use investment_plans::{
     InvestmentPlanService, OpportunityCashPolicy, PlanExecutionConfiguration, PlanRepositoryError,
     PlanRiskMode, ScheduleKind, TwoBucketAllocationConfig, UpdateInvestmentPlan,
 };
-use market_data::{MarketDataError, MarketPricePoint, MarketSignalInput, MarketSignalProvider};
+use market_data::{
+    Adjustment, DatasetSource, HistoricalPriceBar, HistoricalPriceDataset, HistoricalPriceProvider,
+    HistoricalPriceRequest, Market, MarketDataError, MarketPricePoint, MarketSignalInput,
+    MarketSignalProvider,
+};
 use rust_decimal::Decimal;
 use serde_json::{json, Value};
+use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
 use time::OffsetDateTime;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -129,6 +137,76 @@ impl MarketSignalProvider for StaticMarketData {
             date: "2026-07-19".to_owned(),
             close: 100.0,
         }])
+    }
+}
+
+/// Legacy macro provider that must never be called by a price-only Formula policy.
+struct RejectingMarketData {
+    calls: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl MarketSignalProvider for RejectingMarketData {
+    async fn fetch(&self, _symbol: &str) -> Result<MarketSignalInput, MarketDataError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(MarketDataError::MacroUnavailable)
+    }
+
+    async fn fetch_price_history(
+        &self,
+        _symbol: &str,
+        _lookback_days: i64,
+    ) -> Result<Vec<MarketPricePoint>, MarketDataError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(MarketDataError::MacroUnavailable)
+    }
+}
+
+/// Canonical daily-price fixture used by Formula runtime tests.
+struct StaticHistoricalPrices {
+    calls: Arc<AtomicUsize>,
+    fails: bool,
+}
+
+#[async_trait]
+impl HistoricalPriceProvider for StaticHistoricalPrices {
+    fn provider_id(&self) -> &'static str {
+        "formula-history-test"
+    }
+
+    fn preferred_adjustment(&self, market: Market) -> Result<Adjustment, MarketDataError> {
+        Ok(match market {
+            Market::Us => Adjustment::All,
+            Market::HongKong | Market::ChinaShanghai | Market::ChinaShenzhen => Adjustment::Forward,
+        })
+    }
+
+    async fn fetch_history(
+        &self,
+        request: &HistoricalPriceRequest,
+    ) -> Result<HistoricalPriceDataset, MarketDataError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.fails {
+            return Err(MarketDataError::ProviderUnavailable);
+        }
+        let count = request
+            .end()
+            .signed_duration_since(request.start())
+            .num_days();
+        let bars = (0..=count)
+            .map(|offset| {
+                HistoricalPriceBar::new(
+                    request.start() + ChronoDuration::days(offset),
+                    100.0 + offset as f64 * 0.01,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        HistoricalPriceDataset::new(
+            request,
+            DatasetSource::new("formula-history-test", "fixture-v1")?,
+            Utc::now(),
+            bars,
+        )
     }
 }
 
@@ -462,6 +540,31 @@ fn create_input() -> CreateInvestmentPlan {
     }
 }
 
+/// Build a due official Formula plan that requires only a 200-close price window.
+fn formula_input() -> CreateInvestmentPlan {
+    let mut input = create_input();
+    let today = Utc::now().date_naive();
+    input.name = "SPY Formula".to_owned();
+    input.symbol = "SPY".to_owned();
+    input.schedule_day = i16::try_from(today.day()).unwrap();
+    input.schedule_days = vec![input.schedule_day];
+    input.policy = Some(PolicyRef::new(
+        PolicyId::new("dsl_ma200_trend_guard").unwrap(),
+        PolicyVersion::new(1).unwrap(),
+    ));
+    input.execution_configuration = PlanExecutionConfiguration::new_with_cash_policy(
+        TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(Decimal::new(70, 2)).unwrap(),
+            BucketAllocationRatio::new(Decimal::new(30, 2)).unwrap(),
+        )
+        .unwrap(),
+        PlanRiskMode::Approval,
+        OpportunityCashPolicy::CarryForward,
+    )
+    .unwrap();
+    input
+}
+
 /// Build a valid decision preview payload.
 fn preview_payload(day_of_month: i16, regime: &str) -> Value {
     json!({
@@ -536,6 +639,118 @@ async fn fixed_dca_automatic_preview_does_not_require_market_signals() {
         evidence.recommendation_snapshot["market_signals_used"],
         json!(false)
     );
+}
+
+/// Verify a price-only Formula bypasses the legacy CAPE/Treasury/VIX signal bundle.
+#[tokio::test]
+async fn formula_automatic_preview_reads_only_canonical_price_history() {
+    let repository = Arc::new(FakeRepository::default());
+    let created = repository.create(formula_input()).await.unwrap();
+    let records = Arc::new(FakeDecisionRecordRepository::default());
+    let macro_calls = Arc::new(AtomicUsize::new(0));
+    let history_calls = Arc::new(AtomicUsize::new(0));
+    let state = ApiState::with_readiness_plans_broker_and_decision_records(
+        Arc::new(Ready),
+        InvestmentPlanService::new(repository),
+        Arc::new(MockBroker::paper_only()),
+        DecisionRecordService::new(Arc::clone(&records) as Arc<dyn DecisionRecordRepository>),
+        "0.1.0",
+    )
+    .with_market_data(Arc::new(RejectingMarketData {
+        calls: Arc::clone(&macro_calls),
+    }))
+    .with_historical_price_provider(Arc::new(StaticHistoricalPrices {
+        calls: Arc::clone(&history_calls),
+        fails: false,
+    }));
+
+    let app = build_router(state);
+    let runtime = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/runtime-status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(runtime.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(runtime).await["historical_prices"],
+        "configured"
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/investment-plans/{}/automatic-decision-preview",
+                    created.id
+                ))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["decision"]["policy"]["id"], "dsl_ma200_trend_guard");
+    assert_eq!(body["decision"]["market_signals_used"], true);
+    assert_eq!(macro_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(history_calls.load(Ordering::SeqCst), 1);
+    let persisted = records.records.lock().unwrap();
+    assert_eq!(persisted.len(), 1);
+    let source = &persisted[0].trend_snapshot["source"];
+    assert_eq!(source["kind"], "formula_price_history");
+    assert_eq!(source["provider"], "formula-history-test");
+    assert_eq!(source["dataset_version"], "fixture-v1");
+    assert!(source["checksum"]
+        .as_str()
+        .is_some_and(|value| !value.is_empty()));
+    assert!(source["as_of"].is_string());
+}
+
+/// Verify a due Formula data failure is explicit and never persisted as a waiting decision.
+#[tokio::test]
+async fn formula_price_failure_returns_unavailable_without_waiting_record() {
+    let repository = Arc::new(FakeRepository::default());
+    let created = repository.create(formula_input()).await.unwrap();
+    let records = Arc::new(FakeDecisionRecordRepository::default());
+    let history_calls = Arc::new(AtomicUsize::new(0));
+    let state = ApiState::with_readiness_plans_broker_and_decision_records(
+        Arc::new(Ready),
+        InvestmentPlanService::new(repository),
+        Arc::new(MockBroker::paper_only()),
+        DecisionRecordService::new(Arc::clone(&records) as Arc<dyn DecisionRecordRepository>),
+        "0.1.0",
+    )
+    .with_historical_price_provider(Arc::new(StaticHistoricalPrices {
+        calls: Arc::clone(&history_calls),
+        fails: true,
+    }));
+
+    let response = build_router(state)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/investment-plans/{}/automatic-decision-preview",
+                    created.id
+                ))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(history_calls.load(Ordering::SeqCst), 1);
+    assert!(records.records.lock().unwrap().is_empty());
 }
 
 /// Verify a due executable decision submits one MockBroker paper order.

@@ -129,6 +129,8 @@ pub enum CapabilityStatus {
 pub(crate) struct RuntimeCapabilities {
     /// Market-data adapter composition status; this is not an active health probe.
     pub market_data: CapabilityStatus,
+    /// Canonical historical-price provider composition status used by Formula and backtests.
+    pub historical_prices: CapabilityStatus,
     /// Whether a Qwen/news provider has been composed from local configuration.
     pub qwen_configured: bool,
     /// Credential-free AI profiles registered by the server operator.
@@ -334,6 +336,7 @@ pub struct ApiState {
     strategy_specs: Option<SqliteStrategySpecRepository>,
     scheduler_status: SchedulerStatusHandle,
     market_data_status: CapabilityStatus,
+    historical_price_status: CapabilityStatus,
     paper_broker_status: CapabilityStatus,
     policy_resolver: Arc<BuiltinPolicyResolver>,
     version: Arc<str>,
@@ -390,6 +393,7 @@ impl ApiState {
             strategy_specs: Some(strategy_specs),
             scheduler_status: SchedulerStatusHandle::new(false, 0),
             market_data_status: CapabilityStatus::NotConfigured,
+            historical_price_status: CapabilityStatus::NotConfigured,
             paper_broker_status: CapabilityStatus::NotConfigured,
             policy_resolver: Arc::new(BuiltinPolicyResolver::default()),
             version: version.into(),
@@ -486,6 +490,7 @@ impl ApiState {
             strategy_specs: None,
             scheduler_status: SchedulerStatusHandle::new(false, 0),
             market_data_status: CapabilityStatus::NotConfigured,
+            historical_price_status: CapabilityStatus::NotConfigured,
             paper_broker_status,
             policy_resolver: Arc::new(BuiltinPolicyResolver::default()),
             version: version.into(),
@@ -557,6 +562,18 @@ impl ApiState {
         provider: Arc<dyn HistoricalPriceProvider>,
     ) -> Self {
         self.historical_prices = Some(provider);
+        self.historical_price_status = CapabilityStatus::Configured;
+        self
+    }
+
+    /// Mark an explicitly configured historical-price provider as unavailable.
+    ///
+    /// This state is distinct from `not_configured`: it tells operators that Formula decisions
+    /// and product backtests cannot currently refresh their canonical daily-price evidence.
+    #[must_use]
+    pub fn with_historical_price_provider_unavailable(mut self) -> Self {
+        self.historical_prices = None;
+        self.historical_price_status = CapabilityStatus::Unavailable;
         self
     }
 
@@ -615,6 +632,7 @@ impl ApiState {
     pub(crate) fn runtime_capabilities(&self) -> RuntimeCapabilities {
         RuntimeCapabilities {
             market_data: self.market_data_status,
+            historical_prices: self.historical_price_status,
             qwen_configured: self.market_sentiment.is_some(),
             ai_provider_profiles: self.ai_provider_profiles(),
             paper_broker: self.paper_broker_status,

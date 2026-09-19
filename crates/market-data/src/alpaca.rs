@@ -111,6 +111,15 @@ impl HistoricalPriceProvider for AlpacaHistoricalPriceProvider {
         "alpaca"
     }
 
+    fn preferred_adjustment(&self, market: Market) -> Result<Adjustment, MarketDataError> {
+        match market {
+            Market::Us => Ok(Adjustment::All),
+            Market::HongKong | Market::ChinaShanghai | Market::ChinaShenzhen => {
+                Err(MarketDataError::UnsupportedRequest)
+            }
+        }
+    }
+
     async fn fetch_history(
         &self,
         request: &HistoricalPriceRequest,
@@ -227,6 +236,14 @@ mod tests {
         let output = format!("{provider:?}");
         assert!(!output.contains("public-id"));
         assert!(!output.contains("secret-value"));
+        assert_eq!(
+            provider.preferred_adjustment(Market::Us).unwrap(),
+            Adjustment::All
+        );
+        assert_eq!(
+            provider.preferred_adjustment(Market::HongKong),
+            Err(MarketDataError::UnsupportedRequest)
+        );
         assert!(AlpacaHistoricalPriceProvider::new("bad\nkey", "secret", AlpacaFeed::Iex).is_err());
     }
 

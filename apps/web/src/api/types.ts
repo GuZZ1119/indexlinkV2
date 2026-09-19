@@ -448,6 +448,7 @@ export interface RuntimeStatus {
   service: 'running'
   database: 'ready' | 'unavailable'
   market_data: 'configured' | 'not_configured' | 'unavailable'
+  historical_prices: 'configured' | 'not_configured' | 'unavailable'
   qwen: 'configured' | 'not_configured'
   paper_broker: 'configured' | 'not_configured' | 'unavailable'
   scheduler: SchedulerStatus

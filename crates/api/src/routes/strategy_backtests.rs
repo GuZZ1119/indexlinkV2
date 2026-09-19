@@ -8,7 +8,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{Months, NaiveDate, Utc};
-use market_data::{Adjustment, HistoricalPriceRequest, Instrument, Market, MarketDataError};
+use market_data::{HistoricalPriceRequest, Instrument, MarketDataError};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::{Deserialize, Serialize};
 use strategy_evaluation::{
@@ -122,11 +122,13 @@ async fn run_backtest(
     let import_start = display_start
         .checked_sub_signed(chrono::Duration::days(WARMUP_CALENDAR_DAYS))
         .unwrap_or(display_start);
-    let adjustment = adjustment_for_market(instrument.market());
+    let history_provider = state.historical_price_provider()?;
+    let adjustment = history_provider
+        .preferred_adjustment(instrument.market())
+        .map_err(map_market_request_error)?;
     let price_request = HistoricalPriceRequest::new(instrument, import_start, end, adjustment)
         .map_err(map_market_request_error)?;
-    let dataset = state
-        .historical_price_provider()?
+    let dataset = history_provider
         .fetch_history(&price_request)
         .await
         .map_err(map_market_provider_error)?;
@@ -225,13 +227,6 @@ async fn resolve_strategies(
         ));
     }
     Ok(strategies)
-}
-
-const fn adjustment_for_market(market: Market) -> Adjustment {
-    match market {
-        Market::Us => Adjustment::All,
-        Market::HongKong | Market::ChinaShanghai | Market::ChinaShenzhen => Adjustment::Forward,
-    }
 }
 
 fn map_market_request_error(error: MarketDataError) -> ApiError {

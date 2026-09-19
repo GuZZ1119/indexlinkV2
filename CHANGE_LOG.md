@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 策略运行时行情依赖解耦（回测 Push 5）
+
+- 执行模型：GPT-5 Codex（多 Agent；子 Agent 留下初版后由主线程审查、补齐生产装配、公开契约与验证）。
+- 变更类型：Formula 实时证据、最小数据依赖、运行能力状态、失败语义、API 文档与聚焦测试。
+- 涉及文件：`crates/market-data/src/{history.rs,alpaca.rs,opend_history.rs}`、`crates/api/src/{state.rs,routes/{decision_preview.rs,runtime_status.rs,strategy_backtests.rs}}`、`crates/api/tests/{decision_preview.rs,health.rs,strategies.rs,strategy_backtests.rs}`、`apps/server/src/main.rs`、`apps/web/src/api/types.ts`、`docs/{plans/runtime_data_decoupling_push5.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：自动决策按策略类型读取最小数据依赖：Fixed DCA 继续完全离线；官方 Formula 直接通过统一 `HistoricalPriceProvider` 获取自身指标所需的有界规范化日线，不再先请求旧 CAPE、国债与 VIX 整包；旧 `core_opportunity_v1` 保留原兼容链路。Formula 成功证据保存 provider、dataset version、checksum、复权、区间与证据截止日；历史数据未配置、供应商失败、样本不足或需要尚未独立建模的 VIX 时明确返回 `503`，不生成 `waiting` 或任何 DecisionRecord。新增 provider-neutral 的推荐复权能力，Alpaca 美股声明 `all`、OpenD 各市场声明前复权，修复生产 OpenD 被 API 固定美股 `all` 请求拒绝的问题。`/runtime-status` 新增独立 `historical_prices` 三态，并让生产 server 在已配置 adapter 初始化失败时正确报告 `unavailable`；TypeScript 契约和 API 文档同步更新。Scheduler 当前仍按 UTC 日期运行，本 Push 不引入 plan timezone 或交易日历迁移。
+- 验证：`cargo test -p market-data --locked`（14 项通过、1 项真实 OpenD/公网 smoke 忽略；两项 loopback 协议测试在沙箱外通过）、`cargo test -p indexlink-api --locked`（含 Formula 仅调用历史价格、数据失败不落记录、策略激活与七档真实回测）、`cargo test -p indexlink-server --locked`（37 项通过、1 项真实下单 smoke 忽略）、`cargo test -p core-domain --locked`（13 项）、`cargo clippy -p market-data -p indexlink-api -p indexlink-server --all-targets --locked -- -D warnings`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（42 项）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check` 与 `git diff --check` 通过；前端构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-19 AEST — 自选标的真实回测前端（回测 Push 4）
 
 - 执行模型：GPT-5 Codex（使用 `frontend-design` 保持现有低饱和消费级视觉，使用 `vercel-react-best-practices` 约束 React Query 服务端状态、Valtio 本地筛选和派生图表数据）。

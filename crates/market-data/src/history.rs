@@ -533,6 +533,12 @@ pub trait HistoricalPriceProvider: Send + Sync {
     /// Stable source identifier used as part of the cache key.
     fn provider_id(&self) -> &'static str;
 
+    /// Return the provider's canonical supported adjustment for one market.
+    ///
+    /// Callers must not infer protocol-specific adjustment support from a provider name. The
+    /// returned value is included in the immutable request and provenance snapshot.
+    fn preferred_adjustment(&self, market: Market) -> Result<Adjustment, MarketDataError>;
+
     /// Explicitly download one complete request range.
     async fn fetch_history(
         &self,
@@ -577,6 +583,10 @@ where
 {
     fn provider_id(&self) -> &'static str {
         self.provider.provider_id()
+    }
+
+    fn preferred_adjustment(&self, market: Market) -> Result<Adjustment, MarketDataError> {
+        self.provider.preferred_adjustment(market)
     }
 
     async fn fetch_history(

@@ -10,12 +10,16 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use chrono::Datelike;
+use chrono::{Datelike, Duration as ChronoDuration, Utc};
 use core_domain::Multiplier;
 use http_body_util::BodyExt;
 use indexlink_api::{build_router, ApiState};
 use indexlink_storage::{SqliteStorage, SqliteStrategySpecRepository};
-use market_data::{MarketDataError, MarketPricePoint, MarketSignalInput, MarketSignalProvider};
+use market_data::{
+    Adjustment, DatasetSource, HistoricalPriceBar, HistoricalPriceDataset, HistoricalPriceProvider,
+    HistoricalPriceRequest, Market, MarketDataError, MarketPricePoint, MarketSignalInput,
+    MarketSignalProvider,
+};
 use rust_decimal::Decimal;
 use serde_json::Value;
 use strategy_dsl::{
@@ -123,6 +127,47 @@ impl MarketSignalProvider for StaticMarketData {
                 close: 100.0 + f64::from(day),
             })
             .collect())
+    }
+}
+
+/// Canonical daily closes used by the live Formula decision path.
+struct StaticHistoricalPrices;
+
+#[async_trait]
+impl HistoricalPriceProvider for StaticHistoricalPrices {
+    fn provider_id(&self) -> &'static str {
+        "strategy-test-history"
+    }
+
+    fn preferred_adjustment(&self, market: Market) -> Result<Adjustment, MarketDataError> {
+        Ok(match market {
+            Market::Us => Adjustment::All,
+            Market::HongKong | Market::ChinaShanghai | Market::ChinaShenzhen => Adjustment::Forward,
+        })
+    }
+
+    async fn fetch_history(
+        &self,
+        request: &HistoricalPriceRequest,
+    ) -> Result<HistoricalPriceDataset, MarketDataError> {
+        let count = request
+            .end()
+            .signed_duration_since(request.start())
+            .num_days();
+        let bars = (0..=count)
+            .map(|offset| {
+                HistoricalPriceBar::new(
+                    request.start() + ChronoDuration::days(offset),
+                    100.0 + offset as f64,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        HistoricalPriceDataset::new(
+            request,
+            DatasetSource::new("strategy-test-history", "fixture-v1")?,
+            Utc::now(),
+            bars,
+        )
     }
 }
 
@@ -416,7 +461,9 @@ async fn activates_a_validated_strategy_and_uses_it_for_automatic_audit() {
         .await
         .unwrap();
     let app = build_router(
-        ApiState::new(storage, "0.1.0").with_market_data(std::sync::Arc::new(StaticMarketData)),
+        ApiState::new(storage, "0.1.0")
+            .with_market_data(std::sync::Arc::new(StaticMarketData))
+            .with_historical_price_provider(std::sync::Arc::new(StaticHistoricalPrices)),
     );
     let day = chrono::Utc::now().weekday().number_from_monday();
     let plan = serde_json::json!({

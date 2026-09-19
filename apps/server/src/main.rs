@@ -78,7 +78,7 @@ where
             Ok(provider) => state.with_historical_price_provider(provider),
             Err(error) => {
                 tracing::warn!(%error, "configured historical-price adapter is unavailable");
-                state
+                state.with_historical_price_provider_unavailable()
             }
         },
         None => state,

@@ -15,6 +15,8 @@ pub(crate) struct RuntimeStatusResponse {
     database: &'static str,
     /// Market-data composition state: not configured, configured, or unavailable.
     market_data: CapabilityStatus,
+    /// Historical-price composition state used by Formula decisions and product backtests.
+    historical_prices: CapabilityStatus,
     /// Whether the server composed Qwen/news dependencies from local settings.
     qwen: &'static str,
     /// Credential-free AI profiles available to direct evidence preview.
@@ -37,6 +39,7 @@ pub(crate) async fn runtime_status(State(state): State<ApiState>) -> Json<Runtim
         service: "running",
         database,
         market_data: capabilities.market_data,
+        historical_prices: capabilities.historical_prices,
         qwen: if capabilities.qwen_configured {
             "configured"
         } else {

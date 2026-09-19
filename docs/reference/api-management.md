@@ -56,7 +56,7 @@
 
 #### `GET /runtime-status`
 
-返回 SQLite 核心、可选 adapter 与调度器的展示安全状态，不会主动调用外部行情、AI 或 broker。`market_data` 与 `paper_broker` 均为三态：`not_configured` 表示运营方未启用，`configured` 表示 adapter 已装配，`unavailable` 表示已启用但初始化失败。可选能力不可用不会改变核心服务的存活状态；依赖这些能力的具体路由会返回 `503 service_unavailable`。
+返回 SQLite 核心、可选 adapter 与调度器的展示安全状态，不会主动调用外部行情、AI 或 broker。`market_data`、`historical_prices` 与 `paper_broker` 均为三态：`not_configured` 表示运营方未启用，`configured` 表示 adapter 已装配，`unavailable` 表示已启用但初始化失败。`market_data` 是旧 Core/Opportunity 兼容决策使用的 CAPE、国债、VIX 与技术信号整包；`historical_prices` 是 Formula 实时决策和产品回测使用的规范化历史日线。可选能力不可用不会改变核心服务的存活状态；依赖这些能力的具体路由会返回 `503 service_unavailable`。
 
 响应示例：
 
@@ -65,6 +65,7 @@
   "service": "running",
   "database": "ready",
   "market_data": "not_configured",
+  "historical_prices": "not_configured",
   "qwen": "not_configured",
   "ai_provider_profiles": [],
   "paper_broker": "unavailable",
@@ -301,7 +302,7 @@ Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应
 
 #### `POST /investment-plans/:id/automatic-decision-preview`
 
-Dashboard 与最小 Scheduler 使用的默认入口。请求体**不接受**人工填写的 fundamental 或 trend 字段；后端为计划标的读取 OpenD/CAPE/国债/VIX 输入并计算 70/20。仅当计划绑定旧 `CoreOpportunityV1` 时，服务器默认 AI Evidence profile 的有界情绪分数才会兼容映射为旧 10% 输入；Fixed DCA 与 DSL Runtime 不读取 AI Evidence。双桶比例始终读取已持久化计划配置；请求体只允许经操作者确认的 `paper_order`：
+Dashboard 与最小 Scheduler 使用的默认入口。请求体**不接受**人工填写的 fundamental 或 trend 字段。Fixed DCA 不读取任何行情；Formula 只通过 `HistoricalPriceProvider` 读取公式声明所需的规范化历史日线，并把 provider、数据版本、checksum、复权方式和证据截止日写入审计快照。只有旧 `CoreOpportunityV1` 兼容策略读取 OpenD/CAPE/国债/VIX 整包并计算 70/20；服务器默认 AI Evidence profile 的有界情绪分数也只会为该旧策略兼容映射为 10% 输入。双桶比例始终读取已持久化计划配置；请求体只允许经操作者确认的 `paper_order`：
 
 ```json
 {
@@ -314,7 +315,7 @@ Dashboard 与最小 Scheduler 使用的默认入口。请求体**不接受**人�
 }
 ```
 
-服务端使用当前 UTC 月内日期。70/20 市场源不可用时返回统一 `503 service_unavailable`，不创建伪造的决策或审计记录；Qwen 不可用时仍创建记录并明确标记 `sentiment_unavailable` / `90/10/0`。响应新增 `audit_record_id`，可用 `GET /decisions/:id` 读取可读证据。省略 `paper_order` 时绝不下单。若本次自动预览在计划日成功保存为 `due`，它会同时占用相同的 `(plan_id, scheduled_for)` 调度标记，防止后台 Scheduler 在服务重启或下一 tick 为同一计划日重复生成建议。
+服务端使用当前 UTC 月内日期。策略实际需要的数据源不可用时返回统一 `503 service_unavailable`，不创建 `waiting`、伪造决策或审计记录；当前需要独立 VIX 的自定义 Formula 也会明确失败，不会用零值冒充证据。旧策略的 Qwen 不可用时仍创建记录并明确标记 `sentiment_unavailable` / `90/10/0`。响应新增 `audit_record_id`，可用 `GET /decisions/:id` 读取可读证据。省略 `paper_order` 时绝不下单。若本次自动预览在计划日成功保存为 `due`，它会同时占用相同的 `(plan_id, scheduled_for)` 调度标记，防止后台 Scheduler 在服务重启或下一 tick 为同一计划日重复生成建议。
 
 server 默认启用周期 Scheduler：每 `SCHEDULER_TICK_SECONDS`（默认 60）秒检查一次，按每个 active plan 的 `monthly`/`weekly` `schedule_days` 与 UTC 日历创建自动决策存证。SQLite 的 `(plan_id, scheduled_for)` claim 阻止重启或下一 tick 重复存证；重启时仅补跑当前月或当前周尚未 claim 的日期。补跑不自动下单，且使用恢复时可用的数据生成存证；`approval` 计划仍须用户确认。
 

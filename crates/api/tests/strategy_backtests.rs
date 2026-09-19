@@ -10,8 +10,8 @@ use http_body_util::BodyExt;
 use indexlink_api::{build_router, ApiState};
 use indexlink_storage::SqliteStorage;
 use market_data::{
-    DatasetSource, HistoricalPriceBar, HistoricalPriceDataset, HistoricalPriceProvider,
-    HistoricalPriceRequest, MarketDataError,
+    Adjustment, DatasetSource, HistoricalPriceBar, HistoricalPriceDataset, HistoricalPriceProvider,
+    HistoricalPriceRequest, Market, MarketDataError,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -25,6 +25,13 @@ struct StaticHistory {
 impl HistoricalPriceProvider for StaticHistory {
     fn provider_id(&self) -> &'static str {
         "test-history"
+    }
+
+    fn preferred_adjustment(&self, market: Market) -> Result<Adjustment, MarketDataError> {
+        Ok(match market {
+            Market::Us => Adjustment::All,
+            Market::HongKong | Market::ChinaShanghai | Market::ChinaShenzhen => Adjustment::Forward,
+        })
     }
 
     async fn fetch_history(

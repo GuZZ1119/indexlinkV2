@@ -45,6 +45,10 @@ impl HistoricalPriceProvider for OpenDHistoricalPriceProvider {
         "opend"
     }
 
+    fn preferred_adjustment(&self, _market: Market) -> Result<Adjustment, MarketDataError> {
+        Ok(Adjustment::Forward)
+    }
+
     async fn fetch_history(
         &self,
         request: &HistoricalPriceRequest,
@@ -160,8 +164,13 @@ mod tests {
 
     #[test]
     fn accepts_all_supported_qualified_opend_markets() {
+        let provider = OpenDHistoricalPriceProvider::new("127.0.0.1", 11111).unwrap();
         for symbol in ["US.AAPL", "HK.00700", "SH.600519", "SZ.000001"] {
             let instrument = Instrument::parse(symbol).unwrap();
+            assert_eq!(
+                provider.preferred_adjustment(instrument.market()).unwrap(),
+                Adjustment::Forward
+            );
             HistoricalPriceRequest::new(
                 instrument,
                 NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
@@ -170,7 +179,6 @@ mod tests {
             )
             .unwrap();
         }
-        assert!(OpenDHistoricalPriceProvider::new("127.0.0.1", 11111).is_ok());
         assert!(OpenDHistoricalPriceProvider::new("opend.local", 11111).is_err());
     }
 
