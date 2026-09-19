@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — Formula V1 统一研究与实时证据（Push 2）
+
+- 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。
+- 变更类型：策略证据契约、实时行情窗口、研究/运行一致性与聚焦测试。
+- 涉及文件：`crates/strategy-dsl/src/lib.rs`、`crates/api/src/routes/decision_preview.rs`、`CHANGE_LOG.md`。
+- 变更内容：为策略规格增加最少收盘价观察数推导；收益率和波动率按 `window + 1`，其他滚动指标按完整窗口申请数据。实时 Decision Preview 不再只允许 RSI/VIX，也不再使用固定 366 天窗口，而是按策略最长指标窗口请求保守日历天数，并复用准入回测相同的因果 `DslEvidence` 构造器；预热不足继续安全拒绝，不补默认值、不读取未来数据。
+- 验证：`cargo test -p strategy-dsl --all-features --locked` 通过（16 项）；`cargo test -p strategy-evaluation --locked` 通过（16 项）；`cargo test -p indexlink-api --locked --test decision_preview` 通过（15 项）；`cargo fmt --all` 完成。
+
 ### 2026-09-19 AEST — Formula V1 通用指标领域契约（Push 1）
 
 - 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。

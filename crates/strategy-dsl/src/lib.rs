@@ -422,6 +422,30 @@ impl StrategySpec {
         indicators
     }
 
+    /// 返回构造本策略全部指标所需的最少收盘价观察数。
+    ///
+    /// 收益率和波动率需要 `window + 1` 个价格才能形成 `window` 个区间；其他滚动
+    /// 指标需要完整窗口。VIX 不消耗价格观察，只有 VIX 的策略因此返回零。
+    #[must_use]
+    pub fn required_close_observations(&self) -> usize {
+        self.required_indicators()
+            .into_iter()
+            .map(|indicator| match indicator {
+                IndicatorSpec::ClosePrice => 1,
+                IndicatorSpec::PriceReturn(window)
+                | IndicatorSpec::AnnualizedVolatility(window) => usize::from(window.days()) + 1,
+                IndicatorSpec::PricePercentile(window)
+                | IndicatorSpec::MovingAverageDistance(window)
+                | IndicatorSpec::SimpleMovingAverage(window)
+                | IndicatorSpec::ExponentialMovingAverage(window)
+                | IndicatorSpec::RelativeStrengthIndex(window)
+                | IndicatorSpec::Drawdown(window) => usize::from(window.days()),
+                IndicatorSpec::Vix => 0,
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
     /// 是否包含需要执行层按精确金额处理的机会桶固定金额动作。
     ///
     /// 当前线上 Runtime 仅把 DSL 的倍率或跳过动作映射到既有双桶执行接口；调用方
@@ -2022,6 +2046,40 @@ mod tests {
                 Err(StrategyDslRuntimeError::MissingIndicator)
             );
         }
+    }
+
+    /// Verify live adapters can request enough closes for mixed Formula V1 indicators.
+    #[test]
+    fn reports_the_longest_required_close_history() {
+        let strategy = StrategySpec::new(
+            policy(),
+            "Mixed history requirements",
+            vec![
+                StrategyRule::new(
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::SimpleMovingAverage(
+                            LookbackWindow::new(200).unwrap(),
+                        )),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                    PolicyAction::skip_opportunity(),
+                ),
+                StrategyRule::new(
+                    Condition::compare(
+                        ValueExpression::indicator(IndicatorSpec::PriceReturn(
+                            LookbackWindow::new(252).unwrap(),
+                        )),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                    PolicyAction::skip_opportunity(),
+                ),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(strategy.required_close_observations(), 253);
     }
 
     /// Verify every new public document variant reconstructs through the same invariant checks.

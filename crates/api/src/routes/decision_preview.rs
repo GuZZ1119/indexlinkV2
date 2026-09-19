@@ -569,9 +569,9 @@ async fn automatic_decision_input(
 
 /// Build the current online Runtime evidence profile from one trusted market snapshot.
 ///
-/// The Studio intentionally exposes only RSI(14) and VIX because those are the two raw values
-/// supplied together by the existing automatic market-data adapter.  Other DSL indicators remain
-/// valid for offline research but cannot be activated until a dedicated data adapter is added.
+/// The strategy declares its longest required close window. The adapter requests a conservative
+/// calendar-day envelope for that window, then the same causal `DslEvidence` builder used by fixed
+/// fixture admission computes every indicator. Missing warmup fails closed.
 async fn dsl_evidence_for_live_runtime(
     state: &ApiState,
     strategy: &StrategySpec,
@@ -580,7 +580,10 @@ async fn dsl_evidence_for_live_runtime(
 ) -> Result<DslEvidence, ApiError> {
     let as_of = evidence_as_of(&input.as_of)?;
     let vix = Decimal::from_f64_retain(input.vix_current).ok_or(ApiError::ServiceUnavailable)?;
-    let prices = state.market_price_history(symbol, 366).await?;
+    let required_closes = strategy.required_close_observations();
+    let lookback_days = i64::try_from(required_closes.saturating_mul(2).max(30))
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+    let prices = state.market_price_history(symbol, lookback_days).await?;
     let closes = prices
         .iter()
         .map(|point| {
