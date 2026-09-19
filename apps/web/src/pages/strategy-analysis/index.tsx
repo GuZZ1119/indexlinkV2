@@ -2,6 +2,7 @@ import { BarChart3, Check, CircleAlert, Info } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useSnapshot } from 'valtio'
+import { useSearchParams } from 'react-router'
 
 import { PageHeading } from '@/components/v2_1/page-heading'
 import { ProfessionalResearchPanel } from '@/components/v2_1/professional-research-panel'
@@ -17,9 +18,11 @@ type AnalysisView = 'plain' | 'research'
 
 export default function StrategyAnalysisPage() {
   const { activeStrategyId } = useSnapshot(uiStore)
+  const [searchParams] = useSearchParams()
+  const requestedStrategy = parseStrategyId(searchParams.get('strategy'))
   const [range, setRange] = useState<StrategyAnalysisRange>('3y')
-  const [view, setView] = useState<AnalysisView>('plain')
-  const [strategyIds, setStrategyIds] = useState<StrategyId[]>([activeStrategyId])
+  const [view, setView] = useState<AnalysisView>(() => searchParams.get('view') === 'research' ? 'research' : 'plain')
+  const [strategyIds, setStrategyIds] = useState<StrategyId[]>(() => [requestedStrategy ?? activeStrategyId])
   const analysis = useMemo(() => buildNormalizedStrategyAnalysis(strategyIds, range), [range, strategyIds])
 
   const toggleStrategy = (id: StrategyId) => {
@@ -38,7 +41,7 @@ export default function StrategyAnalysisPage() {
       {view === 'plain' ? <>
       <section className="rounded-[1.45rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-6 border-b border-slate-100 pb-6 lg:flex-row lg:items-end lg:justify-between">
-          <div><p className="inline-flex items-center gap-2 text-sm font-medium text-[#2d6a57]"><BarChart3 className="size-4" />走势对比</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#102028]">归一化指数（起点 = 100）</h2><p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">只比较变化幅度。换一个时间范围，所有已选策略都会在该范围的起点重新归一化。</p></div>
+          <div><div className="flex flex-wrap items-center gap-2"><p className="inline-flex items-center gap-2 text-sm font-medium text-[#2d6a57]"><BarChart3 className="size-4" />走势对比</p><span className="rounded-full border border-[#d9c7a9] bg-[#fff8eb] px-2.5 py-1 text-xs font-medium text-[#7a571d]">演示数据 · 非真实回测</span></div><h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#102028]">归一化指数（起点 = 100）</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">当前曲线由前端本地确定性公式生成，只用于验证归一化比较交互，不连接市场行情，也不能作为策略收益依据。真实固定样本指标请切换到“专业研究”。</p></div>
           <div className="flex flex-wrap gap-2" aria-label="选择时间范围">{strategyAnalysisRanges.map((item) => <button key={item.id} type="button" aria-pressed={range === item.id} onClick={() => setRange(item.id)} className={`rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${range === item.id ? 'bg-[#102028] text-white' : 'border border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}>{item.label}</button>)}</div>
         </div>
 
@@ -55,6 +58,11 @@ export default function StrategyAnalysisPage() {
       </> : <ProfessionalResearchPanel />}
     </div>
   )
+}
+
+function parseStrategyId(value: string | null): StrategyId | null {
+  if (value === 'steady-dca' || value === 'ma200-trend-guard' || value === 'growth-volatility-balance') return value
+  return null
 }
 
 function InfoCard({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {

@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   ArrowRight,
   CalendarDays,
   CheckCircle2,
@@ -9,6 +10,7 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react'
+import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useState, type FormEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useSnapshot } from 'valtio'
@@ -59,6 +61,7 @@ export default function PlansPage() {
   const [draft, setDraft] = useState<MinimalPlanDraft>(initialDraft)
   const [savedWithoutAdvice, setSavedWithoutAdvice] = useState<InvestmentPlan | null>(null)
   const [selectionError, setSelectionError] = useState<string | null>(null)
+  const [planPendingDelete, setPlanPendingDelete] = useState<InvestmentPlan | null>(null)
   const requestedPolicyId = searchParams.get('policy_id')
   const requestedVersion = Number(searchParams.get('policy_version'))
   const hasRequestedPolicy = requestedPolicyId !== null
@@ -130,11 +133,19 @@ export default function PlansPage() {
         busy={update.isPending || remove.isPending}
         onSelect={setSelectedPlanId}
         onToggle={(plan) => update.mutate({ planId: plan.id, input: { is_active: !plan.is_active } })}
-        onRemove={(plan) => {
-          if (!globalThis.confirm(`删除“${plan.name}”及其本地记录？`)) return
-          if (selectedPlanId === plan.id) setSelectedPlanId(null)
-          remove.mutate(plan.id)
-        }}
+        onRemove={setPlanPendingDelete}
+      />
+
+      <DeletePlanDialog
+        plan={planPendingDelete}
+        pending={remove.isPending}
+        onCancel={() => setPlanPendingDelete(null)}
+        onConfirm={(plan) => remove.mutate(plan.id, {
+          onSuccess: () => {
+            if (selectedPlanId === plan.id) setSelectedPlanId(null)
+            setPlanPendingDelete(null)
+          },
+        })}
       />
 
       <section id="new-plan" className="scroll-mt-24">
@@ -211,6 +222,25 @@ export default function PlansPage() {
         </div>
       </section>
     </div>
+  )
+}
+
+function DeletePlanDialog({ plan, pending, onCancel, onConfirm }: { plan: InvestmentPlan | null; pending: boolean; onCancel: () => void; onConfirm: (plan: InvestmentPlan) => void }) {
+  return (
+    <DialogPrimitive.Root open={plan !== null} onOpenChange={(open) => { if (!open && !pending) onCancel() }}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[#102028]/25 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 motion-reduce:animate-none" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-[1.4rem] border border-[#ead8bd] bg-[#fffdf8] p-6 shadow-[0_24px_70px_rgba(16,32,40,0.24)] outline-none sm:p-7 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 motion-reduce:animate-none">
+          <span className="grid size-10 place-items-center rounded-full bg-[#f6e9d5] text-[#8a5a20]"><AlertTriangle className="size-5" /></span>
+          <DialogPrimitive.Title className="mt-5 text-xl font-semibold tracking-[-0.03em] text-[#102028]">删除“{plan?.name}”？</DialogPrimitive.Title>
+          <DialogPrimitive.Description className="mt-2 text-sm leading-6 text-slate-600">这会删除该计划及其本地建议、执行记录和纸面数据，无法恢复；不会影响券商账户中的持仓或订单。</DialogPrimitive.Description>
+          <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" disabled={pending} onClick={onCancel} className="rounded-full">保留计划</Button>
+            <Button type="button" disabled={pending || !plan} onClick={() => { if (plan) onConfirm(plan) }} className="rounded-full bg-[#8c3f35] text-white hover:bg-[#743229]">{pending ? <><Loader2 className="animate-spin" />正在删除…</> : <><Trash2 />确认删除</>}</Button>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }
 

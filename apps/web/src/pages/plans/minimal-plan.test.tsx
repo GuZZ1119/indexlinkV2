@@ -179,7 +179,6 @@ describe('minimal fixed DCA plan setup', () => {
 
   it('keeps weekly cadence understandable and manages existing plans', async () => {
     const requests: Array<{ method: string; url: string; body?: Record<string, unknown> }> = []
-    vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       const method = init?.method ?? 'GET'
@@ -203,12 +202,15 @@ describe('minimal fixed DCA plan setup', () => {
     fireEvent.click(screen.getByRole('button', { name: '暂停' }))
     await waitFor(() => expect(requests.some((request) => request.method === 'PATCH' && request.body?.is_active === false)).toBe(true))
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: `删除“${createdPlan.name}”？` })).toBeTruthy()
+    expect(requests.some((request) => request.method === 'DELETE')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(requests.some((request) => request.method === 'DELETE')).toBe(true))
   })
 
   it('shows a paused monthly plan and keeps a rejected create or delete safe', async () => {
     const requests: Array<{ method: string; url: string }> = []
-    vi.stubGlobal('confirm', vi.fn(() => false))
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       const method = init?.method ?? 'GET'
@@ -224,6 +226,10 @@ describe('minimal fixed DCA plan setup', () => {
     expect(screen.getAllByText(/旧自适应策略/).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: '继续' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(requests.some((request) => request.method === 'DELETE')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '保留计划' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
     expect(requests.some((request) => request.method === 'DELETE')).toBe(false)
 
     fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'VOO' } })

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 计划删除确认与策略分析导航修正
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能约束站内确认层、卡片导航语义与服务端状态边界）。
+- 变更类型：计划管理交互、策略分析深链、演示数据披露与前端聚焦测试。
+- 涉及文件：`apps/web/src/{components/v2_1/strategy-card.tsx,pages/{plans/{index.tsx,minimal-plan.test.tsx},strategy-center/index.tsx,strategy-analysis/index.tsx,v2_1-shell.test.tsx}}`、`CHANGE_LOG.md`。
+- 变更内容：“我的计划”删除操作不再调用浏览器原生确认框，改为带遮罩、计划名、不可恢复范围和券商边界说明的站内确认层；用户确认前不会发送 DELETE，删除进行中锁定关闭与重复提交。策略中心的策略主卡改为语义化链接，直接携带策略 ID 进入“策略分析 / 直观视角”，不再保留没有后续作用的“正在查看”局部状态；采用按钮仍作为独立入口进入建计划。直观视角顶部新增醒目的“演示数据 · 非真实回测”标记，并明确曲线来自前端确定性公式、不连接市场行情；专业研究继续显示后端目录返回的真实固定样本聚合指标。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（41 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.18%、Branches 90.18%、Functions 92.16%、Lines 96.37%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-19 AEST — 修复策略目录开发代理
 
 - 执行模型：GPT-5 Codex。

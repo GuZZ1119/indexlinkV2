@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
@@ -12,9 +12,9 @@ import StrategyAnalysisPage from '@/pages/strategy-analysis'
 import StrategyCenterPage from '@/pages/strategy-center'
 import { setActiveStrategyId } from '@/stores/ui'
 
-const renderPage = (page: React.ReactNode) => {
+const renderPage = (page: React.ReactNode, initialEntry = '/') => {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><MemoryRouter>{page}</MemoryRouter></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[initialEntry]}>{page}</MemoryRouter></QueryClientProvider>)
 }
 
 const response = (body: unknown, ok = true) => ({ ok, status: ok ? 200 : 503, json: async () => body })
@@ -60,12 +60,9 @@ describe('V2.1 consumer shell', () => {
     expect(screen.queryByText('已暂停计划')).toBeNull()
     expect(screen.queryByRole('button', { name: '和其他策略对比' })).toBeNull()
 
-    const fixedDcaCard = screen.getByRole('button', { name: '查看每月稳步投入' })
-    expect(fixedDcaCard.getAttribute('aria-pressed')).toBe('false')
-    fireEvent.click(fixedDcaCard)
-    await waitFor(() => expect(screen.getByRole('button', { name: '查看每月稳步投入' }).getAttribute('aria-pressed')).toBe('true'))
-    expect(screen.getAllByText('正在查看').length).toBeGreaterThan(0)
-    expect(screen.queryByText('当前正在使用')).toBeNull()
+    const fixedDcaAnalysis = screen.getByRole('link', { name: '查看每月稳步投入的直观分析' })
+    expect(fixedDcaAnalysis.getAttribute('href')).toBe('/strategy-analysis?strategy=steady-dca&view=plain')
+    expect(screen.queryByText('正在查看')).toBeNull()
     expect(screen.queryByText('自适应长期计划')).toBeNull()
     expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })).toHaveLength(3)
     expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })[1].getAttribute('href')).toContain('policy_id=dsl_ma200_trend_guard')
@@ -86,7 +83,8 @@ describe('V2.1 consumer shell', () => {
 
   it('compares selected strategies on one normalized analysis chart', () => {
     renderPage(<StrategyAnalysisPage />)
-    expect(screen.getByText(/当前使用本地确定性示例序列来完成交互与视觉验证/)).toBeTruthy()
+    expect(screen.getByText('演示数据 · 非真实回测')).toBeTruthy()
+    expect(screen.getByText(/当前曲线由前端本地确定性公式生成/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /MA200 保护/ }))
     expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByRole('button', { name: /固定定投/ }).getAttribute('aria-pressed')).toBe('true')
@@ -96,6 +94,13 @@ describe('V2.1 consumer shell', () => {
     expect(screen.getByRole('button', { name: '近 1 年' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '全部样本' }))
     expect(screen.getByRole('button', { name: '全部样本' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('opens the requested catalog strategy in the plain analysis view', () => {
+    renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=ma200-trend-guard&view=plain')
+    expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: /固定定投/ }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: '直观视角' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('keeps backend fixed-sample metrics separate from the demo curve in professional research', async () => {
@@ -179,7 +184,7 @@ describe('V2.1 consumer shell', () => {
   })
 
   it('renders a compact strategy card without the rule panel', () => {
-    render(<StrategyCard strategy={strategyCatalog()[0]} selected={false} variant="compact" onSelect={() => undefined} />)
+    render(<MemoryRouter><StrategyCard strategy={strategyCatalog()[0]} analysisHref="/strategy-analysis?strategy=steady-dca&view=plain" variant="compact" /></MemoryRouter>)
     expect(screen.getByText('每月稳步投入')).toBeTruthy()
     expect(screen.queryByText('它会怎么做：')).toBeNull()
   })

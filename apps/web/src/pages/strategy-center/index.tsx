@@ -1,5 +1,4 @@
 import { BarChart3, Database, Loader2, Plus, RotateCcw } from 'lucide-react'
-import { useState } from 'react'
 import { Link } from 'react-router'
 
 import { usePlans, useStrategyCatalog } from '@/api/queries'
@@ -7,12 +6,12 @@ import type { InvestmentPlan, StrategyCatalogEntry } from '@/api/types'
 import { PageHeading } from '@/components/v2_1/page-heading'
 import { StrategyCard } from '@/components/v2_1/strategy-card'
 import { StrategyCenterNav } from '@/components/v2_1/strategy-center-nav'
-import { setSelectedPlanId } from '@/stores/ui'
+import type { StrategyId } from '@/features/v2_1/model'
+import { setActiveStrategyId, setSelectedPlanId } from '@/stores/ui'
 
 export default function StrategyCenterPage() {
   const plans = usePlans()
   const catalog = useStrategyCatalog()
-  const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null)
   const activePlans = (plans.data ?? []).filter((plan) => plan.is_active)
 
   return (
@@ -31,7 +30,7 @@ export default function StrategyCenterPage() {
         <div className="mb-5 flex items-end justify-between gap-4">
           <div>
             <h2 id="official-strategies-heading" className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">从能解释清楚的规则开始</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">点击整张卡片查看它的证据状态；“建立计划”才会进入你的个人计划，浏览本身不会改变任何数据。</p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">点击卡片会进入该策略的直观分析；“建立计划”才会进入你的个人计划，浏览本身不会改变任何数据。</p>
           </div>
         </div>
 
@@ -41,7 +40,7 @@ export default function StrategyCenterPage() {
         {catalog.data && catalog.data.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {catalog.data.map((strategy) => (
-              <StrategyCard key={`${strategy.policy.id}@${strategy.policy.version}`} strategy={strategy} selected={selectedPolicyId === strategy.policy.id} onSelect={setSelectedPolicyId}>
+              <StrategyCard key={`${strategy.policy.id}@${strategy.policy.version}`} strategy={strategy} analysisHref={`/strategy-analysis?strategy=${catalogStrategyId(strategy.policy.id)}&view=plain`} onOpenAnalysis={() => setActiveStrategyId(catalogStrategyId(strategy.policy.id))}>
                 <StrategyAction strategy={strategy} />
               </StrategyCard>
             ))}
@@ -55,6 +54,12 @@ export default function StrategyCenterPage() {
       </section>
     </div>
   )
+}
+
+function catalogStrategyId(policyId: string): StrategyId {
+  if (policyId === 'dsl_ma200_trend_guard') return 'ma200-trend-guard'
+  if (policyId === 'dsl_growth_volatility_balance') return 'growth-volatility-balance'
+  return 'steady-dca'
 }
 
 function StrategyAction({ strategy }: { strategy: StrategyCatalogEntry }) {
