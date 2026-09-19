@@ -2,6 +2,7 @@
 
 use std::{collections::BTreeSet, str::FromStr};
 
+use crate::{official_strategies, ApiError, ApiState};
 use axum::{
     extract::{rejection::JsonRejection, State},
     routing::post,
@@ -15,9 +16,6 @@ use strategy_evaluation::{
     run_dynamic_backtest, BacktestPrice, BacktestStrategy, DynamicBacktestError,
     DynamicBacktestRequest, DynamicBacktestResult,
 };
-use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
-
-use crate::{official_strategies, ApiError, ApiState};
 
 const MAX_STRATEGIES: usize = 3;
 const WARMUP_CALENDAR_DAYS: i64 = 400;
@@ -207,17 +205,7 @@ async fn resolve_strategies(
             strategies.push(BacktestStrategy::FixedDca);
             continue;
         }
-        if !matches!(
-            id.as_str(),
-            official_strategies::MA200_TREND_GUARD_ID
-                | official_strategies::GROWTH_VOLATILITY_BALANCE_ID
-        ) {
-            return Err(ApiError::BadRequest);
-        }
-        let policy = PolicyRef::new(
-            PolicyId::new(id.clone()).map_err(|_| ApiError::BadRequest)?,
-            PolicyVersion::new(1).map_err(|_| ApiError::ServiceUnavailable)?,
-        );
+        let policy = official_strategies::policy_by_id(id)?.ok_or(ApiError::BadRequest)?;
         let stored = state.get_strategy_spec(&policy).await?;
         strategies.push(BacktestStrategy::Formula(
             stored

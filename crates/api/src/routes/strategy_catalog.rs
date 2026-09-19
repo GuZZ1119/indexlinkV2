@@ -3,7 +3,7 @@
 use axum::{extract::State, routing::get, Json, Router};
 use serde::Serialize;
 use strategy_dsl::StrategySpecDocument;
-use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
+use strategy_policy::PolicyRef;
 
 use crate::{official_strategies, ApiError, ApiState};
 
@@ -14,7 +14,7 @@ struct StrategyCatalogEntry {
     summary: &'static str,
     rule: &'static str,
     limitation: &'static str,
-    risk: StrategyRisk,
+    risk: official_strategies::OfficialStrategyRisk,
     supported_markets: &'static [&'static str],
     /// Deprecated compatibility field. An empty list means symbols are validated dynamically.
     supported_symbols: &'static [&'static str],
@@ -35,13 +35,6 @@ struct StrategyDataRequirement {
 }
 
 const SUPPORTED_MARKETS: &[&str] = &["us", "hong_kong", "china_shanghai", "china_shenzhen"];
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum StrategyRisk {
-    Stable,
-    Balanced,
-}
 
 #[derive(Debug, Serialize)]
 struct DefaultPlan {
@@ -67,76 +60,46 @@ pub(crate) fn router() -> Router<ApiState> {
 async fn list_strategy_catalog(
     State(state): State<ApiState>,
 ) -> Result<Json<Vec<StrategyCatalogEntry>>, ApiError> {
-    let mut entries = vec![fixed_dca_entry()?];
-    entries.push(
-        dsl_entry(
-            &state,
-            official_strategies::MA200_TREND_GUARD_ID,
-            "200 日均线趋势保护",
-            "保留固定核心投入，在价格低于 200 日均线时暂停当期弹性投入。",
-            "每期检查价格相对 200 日均线的位置；低于均线时弹性桶为 0，否则按标准额度。",
-            "均线是滞后指标；它不预测底部，也不会取消 70% 核心投入。",
-            StrategyRisk::Stable,
-            &["daily_close_200"],
-        )
-        .await?,
-    );
-    entries.push(
-        dsl_entry(
-            &state,
-            official_strategies::GROWTH_VOLATILITY_BALANCE_ID,
-            "增长与波动平衡",
-            "用中期增长和近期波动共同调整弹性投入，固定核心投入保持不变。",
-            "63 日年化波动不低于 25% 时弹性额度减半；126 日增长高于 5% 且波动低于 20% 时弹性额度为 1.2 倍。",
-            "阈值来自固定规则而非预测；震荡行情可能频繁切换，且只调整 30% 弹性桶。",
-            StrategyRisk::Balanced,
-            &["daily_close_127"],
-        )
-        .await?,
-    );
+    let mut entries = Vec::with_capacity(official_strategies::registry().len());
+    for descriptor in official_strategies::registry() {
+        entries.push(strategy_entry(&state, descriptor).await?);
+    }
     Ok(Json(entries))
 }
 
-fn fixed_dca_entry() -> Result<StrategyCatalogEntry, ApiError> {
-    Ok(StrategyCatalogEntry {
-        policy: policy("fixed_dca")?,
-        name: "每月稳步投入",
-        summary: "不判断行情，在固定日期按固定金额持续投入。",
-        rule: "每个计划日建议投入计划金额，不读取市场指标。",
-        limitation: "不会主动降低回撤，也可能在市场高位继续买入。",
-        risk: StrategyRisk::Stable,
-        supported_markets: SUPPORTED_MARKETS,
-        supported_symbols: &[],
-        default_plan: DefaultPlan {
-            schedule_kind: "monthly",
-            schedule_day: 18,
-            core_ratio: "1.0",
-            opportunity_ratio: "0.0",
-            risk_mode: "fixed",
-        },
-        data_requirements: &[],
-        data_requirement: StrategyDataRequirement {
-            required_close_observations: 0,
-        },
-        adoptable: true,
-        research_status: ResearchStatus::Reference,
-        formula: None,
-        research: None,
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn dsl_entry(
+async fn strategy_entry(
     state: &ApiState,
-    id: &str,
-    name: &'static str,
-    summary: &'static str,
-    rule: &'static str,
-    limitation: &'static str,
-    risk: StrategyRisk,
-    data_requirements: &'static [&'static str],
+    descriptor: &'static official_strategies::OfficialStrategyDescriptor,
 ) -> Result<StrategyCatalogEntry, ApiError> {
-    let policy = policy(id)?;
+    let policy = descriptor.policy()?;
+    let default_plan = DefaultPlan {
+        schedule_kind: descriptor.default_plan.schedule_kind,
+        schedule_day: descriptor.default_plan.schedule_day,
+        core_ratio: descriptor.default_plan.core_ratio,
+        opportunity_ratio: descriptor.default_plan.opportunity_ratio,
+        risk_mode: descriptor.default_plan.risk_mode,
+    };
+    if !descriptor.is_formula() {
+        return Ok(StrategyCatalogEntry {
+            policy,
+            name: descriptor.name,
+            summary: descriptor.summary,
+            rule: descriptor.rule,
+            limitation: descriptor.limitation,
+            risk: descriptor.risk,
+            supported_markets: SUPPORTED_MARKETS,
+            supported_symbols: &[],
+            default_plan,
+            data_requirements: descriptor.data_requirements,
+            data_requirement: StrategyDataRequirement {
+                required_close_observations: 0,
+            },
+            adoptable: true,
+            research_status: ResearchStatus::Reference,
+            formula: None,
+            research: None,
+        });
+    }
     let stored = state.get_strategy_spec(&policy).await?;
     let required_close_observations = official_strategies::strategy(&policy)?
         .ok_or(ApiError::ServiceUnavailable)?
@@ -145,21 +108,15 @@ async fn dsl_entry(
     let adoptable = research.eligible;
     Ok(StrategyCatalogEntry {
         policy,
-        name,
-        summary,
-        rule,
-        limitation,
-        risk,
+        name: descriptor.name,
+        summary: descriptor.summary,
+        rule: descriptor.rule,
+        limitation: descriptor.limitation,
+        risk: descriptor.risk,
         supported_markets: SUPPORTED_MARKETS,
         supported_symbols: &[],
-        default_plan: DefaultPlan {
-            schedule_kind: "monthly",
-            schedule_day: 18,
-            core_ratio: "0.7",
-            opportunity_ratio: "0.3",
-            risk_mode: "approval",
-        },
-        data_requirements,
+        default_plan,
+        data_requirements: descriptor.data_requirements,
         data_requirement: StrategyDataRequirement {
             required_close_observations,
         },
@@ -172,11 +129,4 @@ async fn dsl_entry(
         formula: Some(stored.document),
         research: Some(research),
     })
-}
-
-fn policy(id: &str) -> Result<PolicyRef, ApiError> {
-    Ok(PolicyRef::new(
-        PolicyId::new(id).map_err(|_| ApiError::ServiceUnavailable)?,
-        PolicyVersion::new(1).map_err(|_| ApiError::ServiceUnavailable)?,
-    ))
 }

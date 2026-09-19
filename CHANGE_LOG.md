@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-20 AEST — Push 1：统一官方策略注册表
+
+- 执行模型：GPT-5 Codex（按用户要求启用多 Agent；主线程在共享工作区整合后端注册表改造）。
+- 变更类型：后端策略注册、目录与回测准入去硬编码、聚焦测试。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/{strategy_catalog.rs,strategy_backtests.rs}}`、`CHANGE_LOG.md`。
+- 变更内容：新增包含 policy/version、产品文案、风险、数据需求、默认计划与 Formula 构造器的单一官方策略描述符注册表；`GET /strategy-catalog`、真实回测策略解析、保留 ID、官方存储映射和计划目录判断均从同一注册表派生，未知策略继续失败关闭；现有 Fixed DCA、MA200 与增长/波动策略的 HTTP 字段和行为保持兼容，为后续批量预设生成留下统一扩展点。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p indexlink-api official_strategies --lib`、`cargo test -p indexlink-api --test strategy_catalog --test strategy_backtests` 通过（2 项注册表单测、10 项目录/回测集成测试）；`git diff --check` 通过。
+
 ### 2026-09-19 AEST — 动态多市场计划与 Formula 创建前预检
 
 - 执行模型：GPT-5 Codex（按用户要求启动多 Agent 分工；三个子 Agent 因并发额度中断，主线程逐项审查其残留改动并完成实现。使用 `frontend-design` 保持现有低饱和计划页风格，使用 `vercel-react-best-practices` 保持 React Query 服务端状态与事件驱动表单边界）。
