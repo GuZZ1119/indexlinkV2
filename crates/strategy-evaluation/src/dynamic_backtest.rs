@@ -98,7 +98,7 @@ pub struct DynamicBacktestRequest {
     /// Monthly calendar day; the next available trading session is used for execution.
     pub monthly_day: u8,
     /// Equal external cash contribution made for every evaluated strategy.
-    pub contribution_usd: Decimal,
+    pub contribution_amount: Decimal,
     /// Adjusted daily closes, including any warm-up history before `start`.
     pub prices: Vec<BacktestPrice>,
     /// Unique strategy versions evaluated over the exact same dates and cash flows.
@@ -252,7 +252,7 @@ fn validate_request(request: &DynamicBacktestRequest) -> Result<(), DynamicBackt
     }
     if request.start > request.end
         || !(1..=28).contains(&request.monthly_day)
-        || request.contribution_usd <= Decimal::ZERO
+        || request.contribution_amount <= Decimal::ZERO
     {
         return Err(DynamicBacktestError::InvalidRequest);
     }
@@ -326,10 +326,10 @@ fn simulate_strategy(
     for index in start_index..=end_index {
         let price = request.prices[index];
         if schedule.get(schedule_cursor).copied() == Some(index) {
-            state.deposit(price.date, request.contribution_usd)?;
+            state.deposit(price.date, request.contribution_amount)?;
             let spend = strategy_spend(
                 strategy,
-                request.contribution_usd,
+                request.contribution_amount,
                 opportunity_cash,
                 &request.prices[..index],
             )?;
@@ -617,7 +617,7 @@ mod tests {
             start,
             end,
             monthly_day: 18,
-            contribution_usd: Decimal::new(1_000, 0),
+            contribution_amount: Decimal::new(1_000, 0),
             prices: history,
             strategies: vec![
                 BacktestStrategy::FixedDca,
@@ -664,7 +664,7 @@ mod tests {
             start: history[20].date(),
             end: history.last().unwrap().date(),
             monthly_day: 18,
-            contribution_usd: Decimal::new(1_000, 0),
+            contribution_amount: Decimal::new(1_000, 0),
             prices: history,
             strategies: vec![BacktestStrategy::Formula(spec)],
         })
@@ -696,7 +696,7 @@ mod tests {
                 start,
                 end,
                 monthly_day: 18,
-                contribution_usd: Decimal::new(1_000, 0),
+                contribution_amount: Decimal::new(1_000, 0),
                 prices: history,
                 strategies: vec![BacktestStrategy::Formula(formula())],
             })

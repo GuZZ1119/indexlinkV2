@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 任意标的真实策略回测 API（回测 Push 3）
+
+- 执行模型：GPT-5 Codex（多 Agent；本 Agent 负责 HTTP 契约、历史行情 port 注入、路由测试和 API 文档）。
+- 变更类型：产品回测 API、可选能力注入、数据来源披露、范围/请求校验与聚焦测试。
+- 涉及文件：`crates/api/src/{state.rs,routes/{mod.rs,strategy_backtests.rs}}`、`crates/api/tests/strategy_backtests.rs`、`apps/server/src/main.rs`、`crates/strategy-evaluation/src/dynamic_backtest.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `POST /strategy-backtests`，一次接收一个市场限定 symbol、1–3 个唯一官方策略、`1m/3m/6m/1y/3y/5y/all` 范围、1–28 日的月度检查日与十进制投入金额。ApiState 通过 `Arc<dyn HistoricalPriceProvider>` 显式注入可选历史行情能力；生产 server 将已配置的只读 OpenD 行情与 SQLite 精确快照缓存组合为真实 provider。路由读取同一带来源/复权/版本/checksum 的日线快照，解析官方 Formula 版本并调用纯 `run_dynamic_backtest`，返回共同有效窗口、真实归一化轨迹、指标和完整无密钥 provenance。回测金额字段不绑定 USD，按响应的标的交易币种解释且不做隐式汇兑。未配置/失败的数据源显式返回既有 `503`，非法或历史不足请求返回既有 `400`，不调用 broker、不使用旧 MA200 回放，也不伪造成功数据。
+- 验证：`cargo test -p indexlink-api --locked`（含 4 项新回测集成测试，覆盖全部 7 个范围、三策略共同窗口、HK 复权/币种元数据、请求拒绝和 provider 不可用）、`cargo test -p indexlink-server --locked`（37 项通过、1 项真实下单 smoke 忽略；回环启动测试在沙箱外通过）、`cargo test -p strategy-evaluation --locked`（19 项）、`cargo test -p core-domain --locked`（13 项）、`cargo clippy -p indexlink-api -p indexlink-server --all-targets --locked -- -D warnings`、`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+
 ### 2026-09-19 AEST — 任意标的统一 Formula 回测内核（回测 Push 2）
 
 - 执行模型：GPT-5 Codex（主线程实现；多 Agent 并行负责行情数据层、HTTP 契约与运行时解耦）。

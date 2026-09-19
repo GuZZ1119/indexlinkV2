@@ -26,7 +26,10 @@ use indexlink_storage::{
     SqliteStrategySpecRepository, StoredStrategySpec,
 };
 use investment_plans::InvestmentPlanService;
-use market_data::{MarketDataError, MarketPricePoint, MarketSignalInput, MarketSignalProvider};
+use market_data::{
+    HistoricalPriceProvider, MarketDataError, MarketPricePoint, MarketSignalInput,
+    MarketSignalProvider,
+};
 use rust_decimal::{
     prelude::{FromPrimitive, ToPrimitive},
     Decimal,
@@ -323,6 +326,7 @@ pub struct ApiState {
     broker: Option<Arc<dyn BrokerClient>>,
     market_sentiment: Option<Arc<MarketSentimentDependencies>>,
     market_data: Option<Arc<dyn MarketSignalProvider>>,
+    historical_prices: Option<Arc<dyn HistoricalPriceProvider>>,
     paper_performance: Option<SqlitePaperPerformanceRepository>,
     scheduled_decisions: Option<SqliteScheduledDecisionRepository>,
     opportunity_cash: Option<SqliteOpportunityCashRepository>,
@@ -378,6 +382,7 @@ impl ApiState {
             broker: None,
             market_sentiment: None,
             market_data: None,
+            historical_prices: None,
             paper_performance: Some(SqlitePaperPerformanceRepository::new(pool)),
             scheduled_decisions: Some(scheduled_decisions),
             opportunity_cash: Some(opportunity_cash),
@@ -473,6 +478,7 @@ impl ApiState {
             broker,
             market_sentiment: None,
             market_data: None,
+            historical_prices: None,
             paper_performance: None,
             scheduled_decisions: None,
             opportunity_cash: None,
@@ -539,6 +545,28 @@ impl ApiState {
         self.market_data = Some(provider);
         self.market_data_status = CapabilityStatus::Configured;
         self
+    }
+
+    /// Inject the provider-neutral historical daily-price port used by product backtests.
+    ///
+    /// The provider may import or read cached data, but its credentials and protocol-specific
+    /// types remain outside the HTTP and strategy-evaluation layers.
+    #[must_use]
+    pub fn with_historical_price_provider(
+        mut self,
+        provider: Arc<dyn HistoricalPriceProvider>,
+    ) -> Self {
+        self.historical_prices = Some(provider);
+        self
+    }
+
+    /// Return the configured historical daily-price port.
+    pub(crate) fn historical_price_provider(
+        &self,
+    ) -> Result<&dyn HistoricalPriceProvider, ApiError> {
+        self.historical_prices
+            .as_deref()
+            .ok_or(ApiError::ServiceUnavailable)
     }
 
     /// Mark an explicitly configured market-data adapter as unavailable without blocking startup.

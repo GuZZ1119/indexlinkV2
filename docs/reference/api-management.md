@@ -164,6 +164,33 @@
 
 两个 Formula V1 策略默认使用 70% 核心桶与 30% 弹性桶：规则只能调整弹性桶，不能取消核心投入。目录读取不会保存计划、创建 decision、读取 AI 或提交订单。
 
+#### `POST /strategy-backtests`
+
+在一个用户选择的标的上，以相同日线快照、显示区间、月度投入日、外部现金流、5 bps 买入成本和成交时点比较 1–3 个官方策略。该接口读取配置到 `ApiState` 的通用 `HistoricalPriceProvider`，再调用无 IO 的生产 Formula V1 回测 runtime；它不读取旧 `historical-backtest`，也不调用 broker 或自动下单。
+
+请求中的 `symbol` 接受 `US.SPY`、`HK.00700`、`SH.600519`、`SZ.000001`；无前缀符号兼容解释为美股。`range` 只接受 `1m`、`3m`、`6m`、`1y`、`3y`、`5y`、`all`。`monthly_day` 限制为 1–28，避免不同月份没有该日；`strategy_ids` 只接受 `fixed_dca`、`dsl_ma200_trend_guard`、`dsl_growth_volatility_balance`，不得重复且最多三条。金额使用十进制字符串，禁止 0 或负数，并以响应 `data.currency` 所示的标的交易币种解释。
+
+```json
+{
+  "symbol": "HK.00700",
+  "strategy_ids": ["fixed_dca", "dsl_ma200_trend_guard"],
+  "range": "3y",
+  "monthly_day": 18,
+  "contribution": "1000.00"
+}
+```
+
+成功响应将所选 `requested_range`、`data` 来源元数据和 `result` 分开：
+
+- `data`：provider、market、instrument type、currency、timezone、adjustment、导入时间、请求起止日、dataset version 与 SHA-256 checksum；美股请求 `all` 复权，港股/A 股请求前复权，实际能力仍由所配置 provider 明确决定；
+- `result.effective_start/effective_end`：所有策略均有完整因果预热后的共同有效窗口；
+- `result.contribution_count`：每个策略完全相同的外部投入次数；
+- `result.series[]`：不可变策略 ID/version/name、服务端生成的每日归一化轨迹和同一轨迹的专业指标。
+
+Fixed DCA 与 Formula 使用同一份数据和现金流。Formula 在模拟成交日只能读取此前已完成的收盘价；接口为滚动指标额外请求预热数据，但归一化图表仍从用户请求的显示区间和所有策略共同有效日开始。`all` 表示当前 provider 在安全请求边界内返回的全部可用历史，不承诺供应商上市前数据或已退市证券连续性。
+
+非法 JSON、范围、symbol、金额、日期、重复/过多/未知策略以及历史不足返回既有 `400 bad_request`；未配置历史行情 provider、供应商认证/限流/网络故障、本地快照冲突或损坏、内部确定性计算失败返回既有 `503 service_unavailable`。响应不包含 provider 凭据、账户信息或底层错误正文。
+
 #### `GET /strategies`
 
 列出本机 SQLite 中已保存的不可变 DSL 策略版本，按创建时间倒序排列。每个响应包含 `policy`、`name`、经过领域校验的 `document` 与 UTC `created_at`。服务端读取 `document` 后会重新通过 DSL 构造器校验；损坏或不一致的本地数据不会返回给客户端，而是统一返回 `503 service_unavailable`。

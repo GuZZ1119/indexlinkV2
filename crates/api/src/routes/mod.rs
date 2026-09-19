@@ -11,6 +11,7 @@ mod ready;
 mod runtime_status;
 mod signals;
 mod strategies;
+mod strategy_backtests;
 mod strategy_catalog;
 
 use axum::{routing::get, Router};
@@ -32,5 +33,6 @@ pub(crate) fn router() -> Router<ApiState> {
         .merge(paper_performance::router())
         .merge(signals::router())
         .merge(strategy_catalog::router())
+        .merge(strategy_backtests::router())
         .merge(strategies::router())
 }

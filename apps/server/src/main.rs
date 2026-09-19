@@ -13,8 +13,11 @@ use broker::{
 };
 use config::{AiProviderConfiguration, Config, SchedulerConfig};
 use indexlink_api::{build_router_with_cors, ApiState, SchedulerStatusHandle};
-use indexlink_storage::SqliteStorage;
-use market_data::{MarketSignalProvider, OpenDMarketSignalProvider};
+use indexlink_storage::{SqlitePriceHistoryStore, SqliteStorage};
+use market_data::{
+    CachedHistoricalPriceProvider, HistoricalPriceProvider, MarketSignalProvider,
+    OpenDHistoricalPriceProvider, OpenDMarketSignalProvider,
+};
 use std::{future::Future, sync::Arc};
 use tracing_subscriber::EnvFilter;
 
@@ -51,8 +54,10 @@ where
     .await?;
     storage.migrate().await?;
     tracing::info!("SQLite migrations applied");
+    let history_store = SqlitePriceHistoryStore::new(storage.pool().clone());
     let market_sentiment_configured = !config.ai_providers.is_empty();
     let market_data_configured = config.market_data.is_some();
+    let historical_price_config = config.market_data.clone();
     let paper_broker_configured = config.paper_broker.is_some();
     let scheduler_status = SchedulerStatusHandle::new(
         config.scheduler.enabled,
@@ -68,6 +73,16 @@ where
         build_opend_paper_broker,
     )
     .await;
+    let state = match historical_price_config {
+        Some(config) => match build_opend_historical_prices(config, history_store) {
+            Ok(provider) => state.with_historical_price_provider(provider),
+            Err(error) => {
+                tracing::warn!(%error, "configured historical-price adapter is unavailable");
+                state
+            }
+        },
+        None => state,
+    };
     start_automatic_scheduler(state.clone(), config.scheduler, scheduler_status);
     let app = build_router_with_cors(state, config.cors_allowed_origins);
     let listener = tokio::net::TcpListener::bind(config.address).await?;
@@ -200,6 +215,17 @@ fn build_opend_market_data(
 ) -> Result<Arc<dyn MarketSignalProvider>, market_data::MarketDataError> {
     OpenDMarketSignalProvider::new(config.host(), config.port())
         .map(|provider| Arc::new(provider) as Arc<dyn MarketSignalProvider>)
+}
+
+/// Build a cache-first daily-history adapter from the same read-only OpenD configuration.
+fn build_opend_historical_prices(
+    config: OpenDConnectionConfig,
+    store: SqlitePriceHistoryStore,
+) -> Result<Arc<dyn HistoricalPriceProvider>, market_data::MarketDataError> {
+    let provider = OpenDHistoricalPriceProvider::new(config.host(), config.port())?;
+    Ok(Arc::new(CachedHistoricalPriceProvider::new(
+        provider, store,
+    )))
 }
 
 /// Connect and wrap the configured local OpenD session as the production paper broker.
