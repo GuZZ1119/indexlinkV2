@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 修复策略目录开发代理
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：Vite 本地开发代理与回归测试。
+- 涉及文件：`apps/web/vite.config.ts`、`apps/web/vite.config.test.ts`、`CHANGE_LOG.md`。
+- 变更内容：将新增的 `/strategy-catalog` 正式加入 Vite → `127.0.0.1:8080` 代理清单，并抽取可直接测试的不可变代理映射，避免前端开发服务器把 API 路径回退为 HTML 后再以 JSON 解析失败。按用户要求核对并正常终止旧 `target/debug/indexlink-server` 进程 PID 91955；未删除数据库或其他本地数据。
+- 验证：确认 `lsof -nP -iTCP:8080 -sTCP:LISTEN` 无监听进程；`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（40 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.57%、Branches 91.22%、Functions 92.99%、Lines 96.56%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）完成；生产构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-19 AEST — 官方策略采用到个人计划闭环（Push 5）
 
 - 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能保持既有视觉、React Query 服务端状态与事件驱动表单边界；多 Agent 尝试因并行额度中断后由主线程完成）。
