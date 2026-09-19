@@ -69,6 +69,14 @@ impl NonZeroDecimal {
 pub enum IndicatorSpec {
     /// 当期可得收盘价。
     ClosePrice,
+    /// 指定交易日期间的累计价格收益率。
+    PriceReturn(LookbackWindow),
+    /// 指定交易日期间日收益率的年化波动率。
+    AnnualizedVolatility(LookbackWindow),
+    /// 当期收盘价在指定历史窗口中的经验分位。
+    PricePercentile(LookbackWindow),
+    /// 当期收盘价相对指定窗口简单移动平均线的距离。
+    MovingAverageDistance(LookbackWindow),
     /// 简单移动平均线。
     SimpleMovingAverage(LookbackWindow),
     /// 指数移动平均线。
@@ -713,6 +721,14 @@ impl DslEvidence {
                 IndicatorSpec::ClosePrice => *closes
                     .last()
                     .ok_or(StrategyDslRuntimeError::MissingIndicator)?,
+                IndicatorSpec::PriceReturn(window) => price_return(closes, window.days())?,
+                IndicatorSpec::AnnualizedVolatility(window) => {
+                    annualized_volatility(closes, window.days())?
+                }
+                IndicatorSpec::PricePercentile(window) => price_percentile(closes, window.days())?,
+                IndicatorSpec::MovingAverageDistance(window) => {
+                    moving_average_distance(closes, window.days())?
+                }
                 IndicatorSpec::SimpleMovingAverage(window) => {
                     simple_moving_average(closes, window.days())?
                 }
@@ -767,6 +783,100 @@ fn simple_moving_average(
                 .checked_div(Decimal::from(window))
                 .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)
         })
+}
+
+fn price_return(closes: &[Decimal], window: u16) -> Result<Decimal, StrategyDslRuntimeError> {
+    let values = trailing(closes, window.saturating_add(1))?;
+    values
+        .last()
+        .and_then(|close| close.checked_div(values[0]))
+        .and_then(|ratio| ratio.checked_sub(Decimal::ONE))
+        .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)
+}
+
+fn annualized_volatility(
+    closes: &[Decimal],
+    window: u16,
+) -> Result<Decimal, StrategyDslRuntimeError> {
+    let values = trailing(closes, window.saturating_add(1))?;
+    let returns = values
+        .windows(2)
+        .map(|pair| {
+            pair[1]
+                .checked_div(pair[0])
+                .and_then(|ratio| ratio.checked_sub(Decimal::ONE))
+                .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let count = Decimal::from(window);
+    let mean = returns
+        .iter()
+        .try_fold(Decimal::ZERO, |total, value| {
+            total
+                .checked_add(*value)
+                .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)
+        })?
+        .checked_div(count)
+        .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)?;
+    let squared_deviations = returns.iter().try_fold(Decimal::ZERO, |total, value| {
+        value
+            .checked_sub(mean)
+            .and_then(|deviation| deviation.checked_mul(deviation))
+            .and_then(|squared| total.checked_add(squared))
+            .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)
+    })?;
+    let sample_variance = squared_deviations
+        .checked_div(Decimal::from(window - 1))
+        .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)?;
+    let annualized_variance = sample_variance
+        .checked_mul(Decimal::from(252_u16))
+        .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)?;
+    decimal_square_root(annualized_variance)
+}
+
+fn price_percentile(closes: &[Decimal], window: u16) -> Result<Decimal, StrategyDslRuntimeError> {
+    let values = trailing(closes, window)?;
+    let current = values
+        .last()
+        .ok_or(StrategyDslRuntimeError::MissingIndicator)?;
+    let at_or_below = values.iter().filter(|value| *value <= current).count();
+    Decimal::from(at_or_below)
+        .checked_div(Decimal::from(window))
+        .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)
+}
+
+fn moving_average_distance(
+    closes: &[Decimal],
+    window: u16,
+) -> Result<Decimal, StrategyDslRuntimeError> {
+    let close = *closes
+        .last()
+        .ok_or(StrategyDslRuntimeError::MissingIndicator)?;
+    close
+        .checked_div(simple_moving_average(closes, window)?)
+        .and_then(|ratio| ratio.checked_sub(Decimal::ONE))
+        .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)
+}
+
+fn decimal_square_root(value: Decimal) -> Result<Decimal, StrategyDslRuntimeError> {
+    if value.is_zero() {
+        return Ok(Decimal::ZERO);
+    }
+
+    let two = Decimal::from(2_u8);
+    let mut estimate = value.max(Decimal::ONE);
+    for _ in 0..64 {
+        let next = value
+            .checked_div(estimate)
+            .and_then(|quotient| estimate.checked_add(quotient))
+            .and_then(|sum| sum.checked_div(two))
+            .ok_or(StrategyDslRuntimeError::ArithmeticOverflow)?;
+        if next == estimate {
+            return Ok(next);
+        }
+        estimate = next;
+    }
+    Ok(estimate)
 }
 
 fn exponential_moving_average(
@@ -1033,6 +1143,26 @@ pub struct StrategyRuleDocument {
 pub enum IndicatorDocument {
     /// 当期可得收盘价。
     ClosePrice,
+    /// 指定交易日期间的累计价格收益率。
+    PriceReturn {
+        /// 交易日回看窗口。
+        lookback_days: u16,
+    },
+    /// 指定交易日期间日收益率的年化波动率。
+    AnnualizedVolatility {
+        /// 交易日回看窗口。
+        lookback_days: u16,
+    },
+    /// 当期收盘价在指定历史窗口中的经验分位。
+    PricePercentile {
+        /// 交易日回看窗口。
+        lookback_days: u16,
+    },
+    /// 当期收盘价相对简单移动平均线的距离。
+    MovingAverageDistance {
+        /// 交易日回看窗口。
+        lookback_days: u16,
+    },
     /// 简单移动平均线及其交易日窗口。
     SimpleMovingAverage {
         /// 交易日回看窗口。
@@ -1221,6 +1351,18 @@ impl IndicatorDocument {
     fn from_indicator(indicator: IndicatorSpec) -> Self {
         match indicator {
             IndicatorSpec::ClosePrice => Self::ClosePrice,
+            IndicatorSpec::PriceReturn(window) => Self::PriceReturn {
+                lookback_days: window.days(),
+            },
+            IndicatorSpec::AnnualizedVolatility(window) => Self::AnnualizedVolatility {
+                lookback_days: window.days(),
+            },
+            IndicatorSpec::PricePercentile(window) => Self::PricePercentile {
+                lookback_days: window.days(),
+            },
+            IndicatorSpec::MovingAverageDistance(window) => Self::MovingAverageDistance {
+                lookback_days: window.days(),
+            },
             IndicatorSpec::SimpleMovingAverage(window) => Self::SimpleMovingAverage {
                 lookback_days: window.days(),
             },
@@ -1241,6 +1383,18 @@ impl IndicatorDocument {
         let window = |days| LookbackWindow::new(days).map_err(StrategyDslDocumentError::from);
         match self {
             Self::ClosePrice => Ok(IndicatorSpec::ClosePrice),
+            Self::PriceReturn { lookback_days } => {
+                Ok(IndicatorSpec::PriceReturn(window(lookback_days)?))
+            }
+            Self::AnnualizedVolatility { lookback_days } => {
+                Ok(IndicatorSpec::AnnualizedVolatility(window(lookback_days)?))
+            }
+            Self::PricePercentile { lookback_days } => {
+                Ok(IndicatorSpec::PricePercentile(window(lookback_days)?))
+            }
+            Self::MovingAverageDistance { lookback_days } => {
+                Ok(IndicatorSpec::MovingAverageDistance(window(lookback_days)?))
+            }
             Self::SimpleMovingAverage { lookback_days } => {
                 Ok(IndicatorSpec::SimpleMovingAverage(window(lookback_days)?))
             }
@@ -1786,6 +1940,108 @@ mod tests {
             evidence.value(IndicatorSpec::Vix).unwrap(),
             Decimal::new(20, 0)
         );
+    }
+
+    /// Verify the Formula V1 return, volatility, percentile and trend-distance features share one
+    /// deterministic close series instead of delegating calculations to individual strategies.
+    #[test]
+    fn builds_formula_v1_evidence_from_one_market_snapshot() {
+        let window = LookbackWindow::new(2).unwrap();
+        let price_return = IndicatorSpec::PriceReturn(window);
+        let volatility = IndicatorSpec::AnnualizedVolatility(window);
+        let percentile = IndicatorSpec::PricePercentile(window);
+        let ma_distance = IndicatorSpec::MovingAverageDistance(window);
+        let strategy = StrategySpec::new(
+            policy(),
+            "Formula V1 evidence",
+            [price_return, volatility, percentile, ma_distance]
+                .into_iter()
+                .map(|indicator| {
+                    StrategyRule::new(
+                        Condition::compare(
+                            ValueExpression::indicator(indicator),
+                            ComparisonOperator::GreaterThanOrEqual,
+                            Decimal::ZERO,
+                        ),
+                        PolicyAction::skip_opportunity(),
+                    )
+                })
+                .collect(),
+        )
+        .unwrap();
+        let evidence = DslEvidence::from_market_snapshot(
+            &strategy,
+            &[
+                Decimal::new(100, 0),
+                Decimal::new(110, 0),
+                Decimal::new(99, 0),
+            ],
+            Decimal::new(20, 0),
+        )
+        .unwrap();
+
+        assert_eq!(evidence.value(price_return).unwrap(), Decimal::new(-1, 2));
+        let annualized = evidence.value(volatility).unwrap();
+        assert!(annualized > Decimal::new(224, 2));
+        assert!(annualized < Decimal::new(225, 2));
+        assert_eq!(evidence.value(percentile).unwrap(), Decimal::new(5, 1));
+        let distance = evidence.value(ma_distance).unwrap();
+        assert!(distance > Decimal::new(-53, 3));
+        assert!(distance < Decimal::new(-52, 3));
+    }
+
+    /// Verify each rolling Formula V1 feature fails closed until its complete causal warmup exists.
+    #[test]
+    fn formula_v1_features_reject_incomplete_warmup() {
+        let window = LookbackWindow::new(3).unwrap();
+        for indicator in [
+            IndicatorSpec::PriceReturn(window),
+            IndicatorSpec::AnnualizedVolatility(window),
+            IndicatorSpec::PricePercentile(window),
+            IndicatorSpec::MovingAverageDistance(window),
+        ] {
+            let strategy = StrategySpec::new(
+                policy(),
+                "Warmup guard",
+                vec![StrategyRule::new(
+                    Condition::compare(
+                        ValueExpression::indicator(indicator),
+                        ComparisonOperator::GreaterThan,
+                        Decimal::ZERO,
+                    ),
+                    PolicyAction::skip_opportunity(),
+                )],
+            )
+            .unwrap();
+            assert_eq!(
+                DslEvidence::from_market_snapshot(
+                    &strategy,
+                    &[Decimal::new(100, 0), Decimal::new(101, 0)],
+                    Decimal::new(20, 0),
+                ),
+                Err(StrategyDslRuntimeError::MissingIndicator)
+            );
+        }
+    }
+
+    /// Verify every new public document variant reconstructs through the same invariant checks.
+    #[cfg(feature = "serde")]
+    #[test]
+    fn formula_v1_indicator_documents_round_trip() {
+        let window = LookbackWindow::new(63).unwrap();
+        for indicator in [
+            IndicatorSpec::PriceReturn(window),
+            IndicatorSpec::AnnualizedVolatility(window),
+            IndicatorSpec::PricePercentile(window),
+            IndicatorSpec::MovingAverageDistance(window),
+        ] {
+            assert_eq!(
+                IndicatorDocument::from_indicator(indicator)
+                    .into_indicator()
+                    .unwrap(),
+                indicator
+            );
+        }
     }
 
     /// Verify a dated snapshot rejects any observation that would read beyond its decision cutoff.

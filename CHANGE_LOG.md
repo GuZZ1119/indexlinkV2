@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — Formula V1 通用指标领域契约（Push 1）
+
+- 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。
+- 变更类型：受限策略 DSL、确定性通用指标、serde 契约与领域测试。
+- 涉及文件：`crates/strategy-dsl/src/lib.rs`、`CHANGE_LOG.md`。
+- 变更内容：在既有 Close/SMA/EMA/RSI/Drawdown/VIX 白名单上增加周期价格收益率、年化历史波动率、价格经验分位与均线距离四类 Formula V1 指标；所有指标使用同一因果收盘价快照和纯 Decimal 计算，窗口不足时安全拒绝，不读取网络或未来数据。同步增加不可变 JSON document 变体及往返重建，继续复用 `LookbackWindow` 不变量和既有 first-match/默认标准机会桶语义。
+- 验证：`cargo test -p strategy-dsl --all-features --locked` 通过（15 项）；`cargo fmt --all` 完成。
+
 ### 2026-09-19 AEST — 策略中心真实计划来源与浏览态语义修正
 
 - 执行模型：GPT-5 Codex。
