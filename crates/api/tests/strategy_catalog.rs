@@ -95,3 +95,51 @@ async fn official_formula_version_is_readable_but_cannot_be_overwritten() {
         .unwrap();
     assert_eq!(overwrite.status(), StatusCode::CONFLICT);
 }
+
+#[tokio::test]
+async fn official_formula_plan_accepts_only_catalog_supported_symbols() {
+    let app = app().await;
+    let request = |symbol: &str| {
+        serde_json::json!({
+            "name": format!("{symbol} MA200 plan"),
+            "symbol": symbol,
+            "base_contribution": "1000.00",
+            "currency": "USD",
+            "schedule_kind": "monthly",
+            "schedule_day": 18,
+            "schedule_days": [18],
+            "policy": { "id": "dsl_ma200_trend_guard", "version": 1 },
+            "bucket_allocation": { "core_ratio": "0.7", "opportunity_ratio": "0.3" },
+            "risk_mode": "approval",
+            "opportunity_cash_policy": "expire_each_period",
+            "max_single_execution": "1000.00"
+        })
+    };
+
+    let supported = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header("content-type", "application/json")
+                .body(Body::from(request("VOO").to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(supported.status(), StatusCode::CREATED);
+
+    let unsupported = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header("content-type", "application/json")
+                .body(Body::from(request("QQQ").to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unsupported.status(), StatusCode::BAD_REQUEST);
+}

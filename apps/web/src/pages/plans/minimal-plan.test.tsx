@@ -33,11 +33,11 @@ const jsonResponse = (body: unknown, status = 200) => ({
   json: async () => body,
 })
 
-function renderPage() {
+function renderPage(initialEntry = '/plans') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/plans']}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route path="/plans" element={<PlansPage />} />
           <Route path="/personal" element={<p>个人中心已打开</p>} />
@@ -59,6 +59,7 @@ describe('minimal fixed DCA plan setup', () => {
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
       requests.push({ method, url, body })
       if (method === 'GET' && url.endsWith('/investment-plans')) return jsonResponse([])
+      if (method === 'GET' && url.endsWith('/strategy-catalog')) return jsonResponse([])
       if (method === 'POST' && url.endsWith('/investment-plans')) return jsonResponse(createdPlan, 201)
       if (method === 'POST' && url.includes('/automatic-decision-preview')) return jsonResponse({ record: { id: 'decision-1' } }, 201)
       throw new Error(`unexpected request: ${method} ${url}`)
@@ -83,6 +84,66 @@ describe('minimal fixed DCA plan setup', () => {
       max_single_execution: '800.00',
     })
     expect(requests.find((request) => request.url.includes('/automatic-decision-preview'))?.body).toEqual({})
+  })
+
+  it('creates the selected official Formula plan with its server-owned bucket defaults', async () => {
+    const requests: Array<{ method: string; url: string; body?: Record<string, unknown> }> = []
+    const formulaPlan = {
+      ...createdPlan,
+      name: 'VOO 200 日均线趋势保护',
+      policy: { id: 'dsl_ma200_trend_guard', version: 1 },
+      execution_configuration: {
+        bucket_allocation: { core_ratio: '0.70', opportunity_ratio: '0.30' },
+        risk_mode: 'approval',
+        opportunity_cash_policy: 'expire_each_period',
+      },
+    }
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      const method = init?.method ?? 'GET'
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
+      requests.push({ method, url, body })
+      if (method === 'GET' && url.endsWith('/investment-plans')) return jsonResponse([])
+      if (method === 'GET' && url.endsWith('/strategy-catalog')) return jsonResponse([formulaCatalogEntry])
+      if (method === 'POST' && url.endsWith('/investment-plans')) return jsonResponse(formulaPlan, 201)
+      if (method === 'POST' && url.includes('/automatic-decision-preview')) return jsonResponse({ record: { id: 'decision-formula' } }, 201)
+      throw new Error(`unexpected request: ${method} ${url}`)
+    }))
+    renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
+
+    expect(await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })).toBeTruthy()
+    expect(screen.getByText('当前策略支持：SPY、VOO。')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'VOO' } })
+    fireEvent.change(screen.getByLabelText('每次投入金额（USD）'), { target: { value: '800.00' } })
+    fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
+
+    expect(await screen.findByText('个人中心已打开')).toBeTruthy()
+    const create = requests.find((request) => request.method === 'POST' && request.url.endsWith('/investment-plans'))
+    expect(create?.body).toMatchObject({
+      name: 'VOO 200 日均线趋势保护',
+      policy: { id: 'dsl_ma200_trend_guard', version: 1 },
+      bucket_allocation: { core_ratio: '0.7', opportunity_ratio: '0.3' },
+      risk_mode: 'approval',
+    })
+  })
+
+  it('does not create a Formula plan for a symbol outside the official allowlist', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.endsWith('/strategy-catalog')) return jsonResponse([formulaCatalogEntry])
+      if (url.endsWith('/investment-plans')) return jsonResponse([])
+      throw new Error(`unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
+
+    await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })
+    fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'QQQ' } })
+    fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('当前策略只支持 SPY、VOO')
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'POST')).toBe(false)
   })
 
   it('retries advice preparation without creating the saved plan twice', async () => {
@@ -160,7 +221,7 @@ describe('minimal fixed DCA plan setup', () => {
 
     expect(await screen.findByText(`每月 ${createdPlan.schedule_day} 日`)).toBeTruthy()
     expect(screen.getByText('USD unknown')).toBeTruthy()
-    expect(screen.getAllByText(/自适应定投/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/旧自适应策略/).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: '继续' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '删除' }))
     expect(requests.some((request) => request.method === 'DELETE')).toBe(false)
@@ -171,3 +232,17 @@ describe('minimal fixed DCA plan setup', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('计划没有保存成功')
   })
 })
+
+const formulaCatalogEntry = {
+  policy: { id: 'dsl_ma200_trend_guard', version: 1 },
+  name: '200 日均线趋势保护',
+  summary: '保留固定核心投入，在价格低于 200 日均线时暂停当期弹性投入。',
+  rule: '低于均线时弹性桶为 0。',
+  limitation: '均线具有滞后性。',
+  risk: 'stable',
+  supported_symbols: ['SPY', 'VOO'],
+  default_plan: { schedule_kind: 'monthly', schedule_day: 18, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' },
+  data_requirements: ['daily_close_200'],
+  adoptable: true,
+  research_status: 'available',
+}

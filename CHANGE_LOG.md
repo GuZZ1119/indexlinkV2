@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-19 AEST — 官方策略采用到个人计划闭环（Push 5）
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能保持既有视觉、React Query 服务端状态与事件驱动表单边界；多 Agent 尝试因并行额度中断后由主线程完成）。
+- 变更类型：策略采用路由、真实计划创建、服务端标的白名单、计划文案、API/前端计划文档与聚焦测试。
+- 涉及文件：`apps/web/src/pages/plans/{index.tsx,minimal-plan.test.tsx}`、`crates/api/src/{official_strategies.rs,routes/investment_plans.rs}`、`crates/api/tests/strategy_catalog.rs`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`CHANGE_LOG.md`。
+- 变更内容：策略卡的 policy ID/version 通过查询参数进入“我的计划”，页面重新读取官方目录核对版本、准入、支持标的与默认桶配置后才允许提交。Fixed DCA 保持 100% 核心桶；MA200 与增长/波动公式冻结为 70% 核心、30% 弹性和 approval，成功后继续复用真实 `POST /investment-plans` 与自动建议准备链路。前后端同时拒绝官方 Formula 使用目录外标的；创建、修改策略版本与激活既有计划均不能绕过服务端 SPY/VOO 白名单。旧自适应计划保留只读兼容标签，但不再提供新建入口。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项）、`cargo test -p strategy-dsl --all-features --locked`（16 项）、`cargo test -p strategy-evaluation --locked`（16 项）、`cargo test -p indexlink-api --locked`（含 3 项目录/采用集成测试）、`cargo clippy -p indexlink-api --all-targets --locked -- -D warnings`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（39 项通过；Statements 92.57%、Branches 91.22%、Functions 92.99%、Lines 96.56%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-19 AEST — 策略中心接入真实官方目录（Push 4）
 
 - 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能约束信息层级、交互反馈与服务端状态边界；多 Agent 尝试因并行额度中断后由主线程完成）。

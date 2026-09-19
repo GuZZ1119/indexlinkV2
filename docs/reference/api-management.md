@@ -114,6 +114,8 @@
 
 `schedule_kind` 接受 `monthly`（日期为 `1..=28`）或 `weekly`（ISO 星期为 `1..=7`）。`schedule_days` 可提供同一周期的多个固定日，必须有序、无重复，且其第一项必须等于兼容字段 `schedule_day`；省略时等价于仅 `[schedule_day]`。scheduler 使用此集合按 UTC 日期运行。
 
+普通用户从 `GET /strategy-catalog` 采用策略时，必须原样提交目录中的 `policy.id` / `policy.version` 与 `default_plan` 的核心桶、弹性桶和风险模式。`fixed_dca@1` 使用 100% 核心桶；两条官方 Formula V1 使用 70% 核心桶、30% 弹性桶和 `approval`。官方 Formula V1 当前只允许目录声明的 `SPY` / `VOO`；服务端在创建、更新策略版本或激活既有计划时都会复核标的，绕过前端提交 `QQQ` 等未研究标的返回 `400 bad_request`。这个限制不扩展到既有 Fixed DCA 或用户自定义 DSL。
+
 #### `GET /investment-plans`
 
 列出所有投资计划。

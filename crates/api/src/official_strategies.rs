@@ -32,6 +32,15 @@ pub(crate) fn is_reserved(policy: &PolicyRef) -> bool {
     )
 }
 
+/// Return the official symbol allowlist result, or `None` for non-catalog policies.
+pub(crate) fn supports_symbol(policy: &PolicyRef, symbol: &str) -> Option<bool> {
+    if !is_reserved(policy) {
+        return None;
+    }
+    let symbol = symbol.trim().to_ascii_uppercase();
+    Some(matches!(symbol.as_str(), "SPY" | "VOO"))
+}
+
 /// Rebuild an official strategy through the persisted-document boundary used by stored DSL specs.
 pub(crate) fn stored_strategy(policy: &PolicyRef) -> Result<Option<StoredStrategySpec>, ApiError> {
     let Some(strategy) = strategy(policy)? else {
@@ -124,6 +133,8 @@ mod tests {
             assert_eq!(first, rebuilt);
             assert!(is_reserved(&policy));
             assert!(!first.has_fixed_opportunity_amount_action());
+            assert_eq!(supports_symbol(&policy, " voo "), Some(true));
+            assert_eq!(supports_symbol(&policy, "QQQ"), Some(false));
         }
     }
 }

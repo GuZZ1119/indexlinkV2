@@ -10,7 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { useSnapshot } from 'valtio'
 
 import {
@@ -18,9 +18,10 @@ import {
   useDeletePlan,
   usePlans,
   usePreviewAutomaticDecision,
+  useStrategyCatalog,
   useUpdatePlan,
 } from '@/api/queries'
-import type { CreateInvestmentPlanRequest, InvestmentPlan } from '@/api/types'
+import type { CreateInvestmentPlanRequest, InvestmentPlan, StrategyCatalogEntry } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PageHeading } from '@/components/v2_1/page-heading'
@@ -47,22 +48,41 @@ const weekdays = [
 /** Consumer plan setup: only the choices required for a zero-dependency Fixed DCA plan. */
 export default function PlansPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { selectedPlanId } = useSnapshot(uiStore)
   const plans = usePlans()
+  const catalog = useStrategyCatalog()
   const create = useCreatePlan()
   const prepareDecision = usePreviewAutomaticDecision()
   const update = useUpdatePlan()
   const remove = useDeletePlan()
   const [draft, setDraft] = useState<MinimalPlanDraft>(initialDraft)
   const [savedWithoutAdvice, setSavedWithoutAdvice] = useState<InvestmentPlan | null>(null)
+  const [selectionError, setSelectionError] = useState<string | null>(null)
+  const requestedPolicyId = searchParams.get('policy_id')
+  const requestedVersion = Number(searchParams.get('policy_version'))
+  const hasRequestedPolicy = requestedPolicyId !== null
+  const selectedStrategy = hasRequestedPolicy
+    ? catalog.data?.find((strategy) => strategy.policy.id === requestedPolicyId && strategy.policy.version === requestedVersion)
+    : undefined
+  const requestedStrategyUnavailable = hasRequestedPolicy && !catalog.isPending && (!selectedStrategy || !selectedStrategy.adoptable)
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     create.reset()
     prepareDecision.reset()
     setSavedWithoutAdvice(null)
+    setSelectionError(null)
     const symbol = draft.symbol.trim().toUpperCase()
-    const payload = fixedDcaPayload(draft, symbol)
+    if (hasRequestedPolicy && (catalog.isPending || catalog.isError || requestedStrategyUnavailable || !selectedStrategy)) {
+      setSelectionError('无法确认这份官方策略的版本与准入状态，请返回策略中心重新选择。')
+      return
+    }
+    if (hasRequestedPolicy && selectedStrategy && !selectedStrategy.supported_symbols.includes(symbol)) {
+      setSelectionError(`当前策略只支持 ${selectedStrategy.supported_symbols.join('、')}。`)
+      return
+    }
+    const payload = planPayload(draft, symbol, hasRequestedPolicy ? selectedStrategy : undefined)
     let created: InvestmentPlan
     try {
       created = await create.mutateAsync(payload)
@@ -118,17 +138,19 @@ export default function PlansPage() {
       />
 
       <section id="new-plan" className="scroll-mt-24">
-        <div><p className="text-sm font-medium text-[#2d6a57]">建立新计划</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#102028]">从一份简单的固定定投开始</h2><p className="mt-2 text-sm text-slate-500">当前版本只需要标的、金额和日期，不要求任何高级配置。</p></div>
+        <div><p className="text-sm font-medium text-[#2d6a57]">建立新计划</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-[#102028]">{selectedStrategy ? `建立“${selectedStrategy.name}”计划` : hasRequestedPolicy ? '正在确认策略版本' : '从一份简单的固定定投开始'}</h2><p className="mt-2 text-sm text-slate-500">只需要标的、金额和日期；策略版本与安全边界由服务端目录提供，不在表单里偷偷改写。</p></div>
+        {hasRequestedPolicy && catalog.isPending ? <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#f1f7f4] px-4 py-2 text-sm text-[#2d6a57]"><Loader2 className="size-4 animate-spin" />正在核对官方策略版本…</p> : null}
+        {requestedStrategyUnavailable ? <p role="alert" className="mt-4 rounded-xl border border-[#d9c7a9] bg-[#fffaf1] px-4 py-3 text-sm text-[#6f511f]">这份策略当前不存在或没有通过研究准入。请返回策略中心重新选择。</p> : null}
         <div className="mt-5 grid gap-7 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <form onSubmit={(event) => void submit(event)} className="rounded-[1.6rem] bg-[#102028] p-6 text-white sm:p-8 lg:p-10">
           <div className="max-w-2xl">
-            <p className="text-sm text-[#b8d5c6]">你的固定定投</p>
+            <p className="text-sm text-[#b8d5c6]">{selectedStrategy?.name ?? '你的固定定投'}</p>
             <h2 className="mt-3 text-2xl font-semibold tracking-[-0.035em] sm:text-3xl">先确定标的、金额和日期</h2>
-            <p className="mt-3 text-sm leading-7 text-slate-300">系统会保存一条可审计的计划，并按你选择的日期生成安排。所有实际操作仍由你在自己的券商完成。</p>
+            <p className="mt-3 text-sm leading-7 text-slate-300">{selectedStrategy?.summary ?? '系统会保存一条可审计的计划，并按你选择的日期生成安排。'} 所有实际操作仍由你在自己的券商完成。</p>
           </div>
 
           <div className="mt-7 grid gap-5 sm:grid-cols-2">
-            <PlanField label="投资标的" hint="当前最小版本以 USD 指数 ETF 为主，例如 VOO。">
+            <PlanField label="投资标的" hint={hasRequestedPolicy && selectedStrategy ? `当前策略支持：${selectedStrategy.supported_symbols.join('、')}。` : '当前最小版本以 USD 指数 ETF 为主，例如 VOO。'}>
               <Input required aria-label="投资标的" autoCapitalize="characters" value={draft.symbol} onChange={(event) => setDraft((current) => ({ ...current, symbol: event.target.value }))} placeholder="VOO" className="h-11 border-white/15 bg-white text-[#102028]" />
             </PlanField>
             <PlanField label="每次投入金额（USD）" hint="这也是本计划单次投入的安全上限。">
@@ -163,6 +185,7 @@ export default function PlansPage() {
             <Input aria-label="计划名称（可选）" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：我的退休储蓄" className="h-11 border-white/15 bg-white text-[#102028]" />
           </PlanField>
 
+          {selectionError ? <p role="alert" className="mt-5 rounded-xl border border-amber-200/30 bg-amber-200/10 px-4 py-3 text-sm text-amber-50">{selectionError}</p> : null}
           {requestError ? <p role="alert" className="mt-5 rounded-xl border border-red-300/30 bg-red-300/10 px-4 py-3 text-sm text-red-100">计划没有保存成功。请检查输入并确认本机服务正在运行。</p> : null}
           {savedWithoutAdvice ? (
             <div role="status" className="mt-5 rounded-xl border border-amber-200/30 bg-amber-200/10 px-4 py-3 text-sm leading-6 text-amber-50">
@@ -171,7 +194,7 @@ export default function PlansPage() {
             </div>
           ) : null}
 
-          <Button type="submit" disabled={saving} className="mt-7 h-11 rounded-full bg-white px-5 text-[#102028] hover:bg-[#dcece4]">
+          <Button type="submit" disabled={saving || requestedStrategyUnavailable || (hasRequestedPolicy && catalog.isPending)} className="mt-7 h-11 rounded-full bg-white px-5 text-[#102028] hover:bg-[#dcece4]">
             {saving ? <><Loader2 className="animate-spin" />正在建立…</> : <>建立并查看本期安排 <ArrowRight /></>}
           </Button>
         </form>
@@ -179,11 +202,11 @@ export default function PlansPage() {
         <aside className="space-y-5 rounded-[1.35rem] border border-slate-200 bg-white p-6">
           <div><ShieldCheck className="size-5 text-[#2d6a57]" /><h2 className="mt-4 text-xl font-semibold tracking-[-0.03em] text-[#102028]">系统替你固定的边界</h2></div>
           <ul className="space-y-5 text-sm leading-6 text-slate-600">
-            <Boundary icon={<CheckCircle2 />} title="固定定投" text="每次建议都使用你设定的金额，不读取市场或 AI 信号。" />
+            <Boundary icon={<CheckCircle2 />} title={selectedStrategy?.name ?? '固定定投'} text={formulaBoundary(selectedStrategy)} />
             <Boundary icon={<CircleDollarSign />} title="金额有上限" text="最小版本不会建议超过本次设定金额。" />
             <Boundary icon={<CalendarDays />} title="日期可解释" text="只有约定日期才显示为待执行，其他时间只告诉你继续等待。" />
           </ul>
-          <p className="border-t border-slate-100 pt-5 text-xs leading-5 text-slate-400">高级策略、机会资金与券商实验仍保留在原 API 中，但不会进入这条普通用户路径。</p>
+          <p className="border-t border-slate-100 pt-5 text-xs leading-5 text-slate-400">{selectedStrategy && selectedStrategy.policy.id !== 'fixed_dca' ? '公式只生成建议；当前版本不会自动连接券商，也不会绕过你的手工确认。' : '高级券商实验仍保留在高级实验室，不会进入这条普通用户路径。'}</p>
         </aside>
         </div>
       </section>
@@ -255,18 +278,23 @@ function defaultScheduleDay(kind: MinimalPlanDraft['scheduleKind']): number {
   return now.getUTCDay() === 0 ? 7 : now.getUTCDay()
 }
 
-function fixedDcaPayload(draft: MinimalPlanDraft, symbol: string): CreateInvestmentPlanRequest {
+function planPayload(draft: MinimalPlanDraft, symbol: string, strategy?: StrategyCatalogEntry): CreateInvestmentPlanRequest {
+  const policy = strategy?.policy ?? { id: 'fixed_dca', version: 1 }
+  const defaults = strategy?.default_plan
   return {
-    name: draft.name.trim() || `${symbol} 长期计划`,
+    name: draft.name.trim() || (strategy ? `${symbol} ${strategy.name}` : `${symbol} 长期计划`),
     symbol,
     base_contribution: draft.amount.trim(),
     currency: 'USD',
     schedule_kind: draft.scheduleKind,
     schedule_day: draft.scheduleDay,
     schedule_days: [draft.scheduleDay],
-    policy: { id: 'fixed_dca', version: 1 },
-    bucket_allocation: { core_ratio: '1.00', opportunity_ratio: '0.00' },
-    risk_mode: 'fixed',
+    policy,
+    bucket_allocation: {
+      core_ratio: defaults?.core_ratio ?? '1.00',
+      opportunity_ratio: defaults?.opportunity_ratio ?? '0.00',
+    },
+    risk_mode: defaults?.risk_mode ?? 'fixed',
     opportunity_cash_policy: 'expire_each_period',
     max_single_execution: draft.amount.trim(),
   }
@@ -279,8 +307,15 @@ function scheduleLabel(plan: InvestmentPlan): string {
 
 function strategyLabel(plan: InvestmentPlan): string {
   if (plan.policy.id === 'fixed_dca') return '固定定投'
-  if (plan.policy.id === 'core_opportunity_v1') return '自适应定投'
-  return '已保存策略'
+  if (plan.policy.id === 'dsl_ma200_trend_guard') return '200 日均线趋势保护'
+  if (plan.policy.id === 'dsl_growth_volatility_balance') return '增长与波动平衡'
+  if (plan.policy.id === 'core_opportunity_v1') return '旧自适应策略'
+  return '自定义策略'
+}
+
+function formulaBoundary(strategy: StrategyCatalogEntry | undefined): string {
+  if (!strategy || strategy.policy.id === 'fixed_dca') return '每次建议都使用你设定的金额，不读取市场或 AI 信号。'
+  return `${Number(strategy.default_plan.core_ratio) * 100}% 核心投入保持固定；规则只调整 ${Number(strategy.default_plan.opportunity_ratio) * 100}% 弹性额度。`
 }
 
 function formatMoney(currency: string, amount: string): string {

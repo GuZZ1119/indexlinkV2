@@ -381,6 +381,9 @@ async fn create_plan(
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
     let input = input.into_domain()?;
     if let Some(policy) = &input.policy {
+        if crate::official_strategies::supports_symbol(policy, &input.symbol) == Some(false) {
+            return Err(ApiError::BadRequest);
+        }
         if !state.is_plan_policy_eligible_for_activation(policy).await? {
             return Err(ApiError::BadRequest);
         }
@@ -415,6 +418,10 @@ async fn update_plan(
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
     let input = input.into_domain()?;
     if let Some(policy) = &input.policy {
+        let plan = state.plans().get(id).await?;
+        if crate::official_strategies::supports_symbol(policy, &plan.symbol) == Some(false) {
+            return Err(ApiError::BadRequest);
+        }
         if !state.is_plan_policy_eligible_for_activation(policy).await? {
             return Err(ApiError::BadRequest);
         }
@@ -431,6 +438,10 @@ async fn activate_policy(
     let Path(id) = id.map_err(|_| ApiError::BadRequest)?;
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
     let policy = input.policy.into_domain()?;
+    let plan = state.plans().get(id).await?;
+    if crate::official_strategies::supports_symbol(&policy, &plan.symbol) == Some(false) {
+        return Err(ApiError::BadRequest);
+    }
     if !state
         .is_plan_policy_eligible_for_activation(&policy)
         .await?
