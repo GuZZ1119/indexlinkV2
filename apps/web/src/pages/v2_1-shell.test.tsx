@@ -64,12 +64,16 @@ describe('V2.1 consumer shell', () => {
     expect(screen.queryByRole('button', { name: '和其他策略对比' })).toBeNull()
 
     const fixedDcaAnalysis = screen.getByRole('link', { name: '查看每月稳步投入的直观分析' })
-    expect(fixedDcaAnalysis.getAttribute('href')).toBe('/strategy-analysis?strategy=steady-dca&view=plain')
+    expect(fixedDcaAnalysis.getAttribute('href')).toContain('strategy=fixed_dca')
     expect(screen.queryByText('正在查看')).toBeNull()
     expect(screen.queryByText('自适应长期计划')).toBeNull()
-    expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })).toHaveLength(3)
-    expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })[1].getAttribute('href')).toContain('policy_id=dsl_ma200_trend_guard')
-    expect(screen.getAllByText('已通过准入').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })).toHaveLength(1)
+    expect(screen.getAllByRole('link', { name: '用这个档位建立计划' })).toHaveLength(2)
+    expect(screen.getByText('3 个公式档位 · 2 个家族')).toBeTruthy()
+    expect(screen.getAllByRole('link', { name: '分析这个档位' })[0].getAttribute('href')).toContain('strategy=dsl_ma200_trend_guard')
+    fireEvent.change(screen.getByRole('combobox', { name: '价格与简单均线参数档位' }), { target: { value: 'dsl_price_sma_responsive' } })
+    expect(screen.getAllByRole('link', { name: '用这个档位建立计划' })[0].getAttribute('href')).toContain('policy_id=dsl_price_sma_responsive')
+    expect(screen.getAllByRole('link', { name: '分析这个档位' })[0].getAttribute('href')).toContain('strategy=dsl_price_sma_responsive')
   })
 
   it('blocks plan creation when the server catalog has no eligible research result', async () => {
@@ -78,25 +82,75 @@ describe('V2.1 consumer shell', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyCenterPage />)
 
-    expect(await screen.findByText('研究未通过，暂不可创建')).toBeTruthy()
-    expect(screen.getByText('等待完整数据')).toBeTruthy()
-    expect(screen.getByText('暂不可采用')).toBeTruthy()
-    expect(screen.queryByRole('link', { name: '用这个策略建立计划' })).toBeNull()
+    expect(await screen.findByText('尚未通过，暂不可创建')).toBeTruthy()
+    expect(screen.getByText('尚未通过')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: '用这个档位建立计划' })).toBeNull()
+  })
+
+  it('filters grouped strategy families by searchable tags and category', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : []))))
+    renderPage(<StrategyCenterPage />)
+
+    const search = await screen.findByRole('searchbox', { name: '搜索策略' })
+    fireEvent.change(search, { target: { value: '波动率' } })
+    expect(screen.getByRole('heading', { name: '增长与波动平衡' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '价格与简单均线' })).toBeNull()
+
+    fireEvent.change(search, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '趋势' }))
+    expect(screen.getByRole('heading', { name: '价格与简单均线' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: '增长与波动平衡' })).toBeNull()
+  })
+
+  it('shows explicit empty and failed catalog states without inventing strategies', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? [] : []))))
+    const first = renderPage(<StrategyCenterPage />)
+    expect(await screen.findByText('服务当前没有发布可供普通用户采用的策略。')).toBeTruthy()
+    expect(screen.getByText('目前没有正在执行的计划。已暂停计划和新建入口都在“我的计划”中。')).toBeTruthy()
+    first.unmount()
+
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(url.includes('/strategy-catalog') ? response({ error: { code: 'offline' } }, false) : response([]))))
+    renderPage(<StrategyCenterPage />)
+    expect(await screen.findByText('暂时无法读取策略目录')).toBeTruthy()
+  })
+
+  it('renders safe fallbacks for an ungrouped preset and an unknown weekly plan', async () => {
+    const orphan = {
+      ...strategyCatalog()[1],
+      policy: { id: 'dsl_orphan_rule', version: 1 },
+      name: '未分组规则',
+      summary: '仍可由服务端执行。',
+      family: undefined,
+      preset: undefined,
+      source: undefined,
+      tags: undefined,
+      validation_mode: undefined,
+      data_requirement: { required_close_observations: 0 },
+    }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? [orphan] : [investmentPlan({ policy: { id: 'dsl_unknown_saved', version: 1 }, schedule_kind: 'weekly', schedule_day: 2, base_contribution: 'not-a-number' })]))))
+    renderPage(<StrategyCenterPage />)
+
+    expect(await screen.findByRole('heading', { name: '未分组规则' })).toBeTruthy()
+    expect(screen.getByText('不需要行情')).toBeTruthy()
+    expect(screen.getByText('可以建立计划')).toBeTruthy()
+    expect(screen.getByText(/已保存的版本策略/)).toBeTruthy()
+    expect(screen.getByText(/每周第 2 天/)).toBeTruthy()
+    expect(screen.getByText(/USD not-a-number/)).toBeTruthy()
   })
 
   it('runs selected strategies on one real normalized analysis chart', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(strategyBacktest(['fixed_dca', 'dsl_ma200_trend_guard'])))
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : strategyBacktest(['fixed_dca', 'dsl_ma200_trend_guard']))))
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyAnalysisPage />)
     expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
     expect(screen.queryByText('演示数据 · 非真实回测')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /MA200 保护/ }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true'))
-    expect(screen.getByRole('button', { name: /固定定投/ }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_ma200_trend_guard' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: '移除200 日均线趋势保护' }).getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByRole('button', { name: '移除每月稳步投入' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '近 6 个月' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '近 6 个月' }).getAttribute('aria-pressed')).toBe('true'))
     fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     fireEvent.click(screen.getByRole('button', { name: '全部样本' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '全部样本' }).getAttribute('aria-pressed')).toBe('true'))
     const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
@@ -105,16 +159,79 @@ describe('V2.1 consumer shell', () => {
   })
 
   it('opens the requested catalog strategy in the plain analysis view', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(strategyBacktest(['dsl_ma200_trend_guard']))))
-    renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=ma200-trend-guard&view=plain')
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : strategyBacktest(['dsl_ma200_trend_guard'])))))
+    renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_ma200_trend_guard&view=plain')
     expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /MA200 保护/ }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByRole('button', { name: /固定定投/ }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: '200 日均线趋势保护（至少保留一个）' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('button', { name: /每月稳步投入/ })).toBeNull()
     expect(screen.getByRole('button', { name: '直观视角' }).getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('uses a deep link only to initialize and then respects the user comparison', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.includes('/strategy-catalog')) return Promise.resolve(response(strategyCatalog()))
+      const ids = options?.body ? JSON.parse(String(options.body)).strategy_ids : ['dsl_ma200_trend_guard']
+      return Promise.resolve(response(strategyBacktest(ids)))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_ma200_trend_guard&view=plain')
+
+    expect(await screen.findByRole('button', { name: '200 日均线趋势保护（至少保留一个）' })).toBeTruthy()
+    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'fixed_dca' } })
+    fireEvent.click(await screen.findByRole('button', { name: '移除200 日均线趋势保护' }))
+    fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
+
+    await waitFor(() => {
+      const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
+      expect(submitted.strategy_ids).toEqual(['fixed_dca'])
+    })
+  })
+
+  it('waits for and then fails closed when a deep-linked catalog cannot load', async () => {
+    let rejectCatalog: (() => void) | undefined
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (!url.includes('/strategy-catalog')) return Promise.resolve(response(strategyBacktest(['fixed_dca'])))
+      return new Promise((resolve) => { rejectCatalog = () => resolve(response({ error: { code: 'offline' } }, false)) })
+    }))
+    renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_ma200_trend_guard&view=plain')
+    expect(screen.getByText('正在确认策略目录…')).toBeTruthy()
+    await act(async () => { rejectCatalog?.() })
+    expect(await screen.findByText('暂时无法确认这个策略')).toBeTruthy()
+  })
+
+  it('does not silently replace an unknown policy id with Fixed DCA', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : strategyBacktest(['fixed_dca']))))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_removed_strategy&view=plain')
+
+    expect(await screen.findByText('策略目录中没有这个策略')).toBeTruthy()
+    expect(screen.getByText(/dsl_removed_strategy/)).toBeTruthy()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/strategy-backtests'))).toBe(false)
+  })
+
+  it('can select the last preset from a 100-policy catalog without a frontend allowlist', async () => {
+    const template = strategyCatalog()[1]
+    const largeCatalog = [strategyCatalog()[0], ...Array.from({ length: 99 }, (_, index) => ({
+      ...template,
+      policy: { id: `dsl_generated_${String(index + 1).padStart(3, '0')}`, version: 1 },
+      name: `规则预设 ${index + 1}`,
+    }))]
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? largeCatalog : strategyBacktest(['fixed_dca']))))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<StrategyAnalysisPage />)
+
+    expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
+    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_generated_099' } })
+    expect(await screen.findByRole('button', { name: '移除规则预设 99' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
+    expect(submitted.strategy_ids).toEqual(['fixed_dca', 'dsl_generated_099'])
+  })
+
   it('uses the same real response for professional metrics', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(strategyBacktest(['fixed_dca'])))
+    const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : strategyBacktest(['fixed_dca']))))
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyAnalysisPage />)
     fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
@@ -122,7 +239,7 @@ describe('V2.1 consumer shell', () => {
     expect(screen.getByText('+8.2%')).toBeTruthy()
     expect(screen.getByText('-18.4%')).toBeTruthy()
     expect(screen.getByText(/每条策略均投入 12 次/)).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('never replaces an unavailable provider with a demo chart', async () => {
@@ -201,6 +318,19 @@ describe('V2.1 consumer shell', () => {
     expect(screen.getByText('每月稳步投入')).toBeTruthy()
     expect(screen.queryByText('它会怎么做：')).toBeNull()
   })
+
+  it('labels formula-card validation honestly when no embedded research is present', () => {
+    const generated = strategyCatalog()[1]
+    const first = render(<MemoryRouter><StrategyCard strategy={generated} analysisHref="/strategy-analysis?strategy=dsl_price_sma_responsive"><span>建立入口</span></StrategyCard></MemoryRouter>)
+    expect(screen.getByText('等待完整数据')).toBeTruthy()
+    expect(screen.getByText('已通过准入')).toBeTruthy()
+    expect(screen.getByText('它会怎么做：')).toBeTruthy()
+    expect(screen.getByText('建立入口')).toBeTruthy()
+    first.unmount()
+
+    render(<MemoryRouter><StrategyCard strategy={{ ...generated, adoptable: false, research_status: 'blocked' }} analysisHref="/strategy-analysis" /></MemoryRouter>)
+    expect(screen.getByText('暂不可采用')).toBeTruthy()
+  })
 })
 
 function strategyCatalog() {
@@ -226,9 +356,10 @@ function strategyCatalog() {
     }],
   }
   return [
-    { ...base, policy: { id: 'fixed_dca', version: 1 }, name: '每月稳步投入', summary: '固定日期投入。', rule: '按计划金额投入。', limitation: '不会主动降低回撤。' },
-    { ...base, policy: { id: 'dsl_ma200_trend_guard', version: 1 }, name: '200 日均线趋势保护', summary: '管理弹性投入。', rule: '低于均线时暂停弹性桶。', limitation: '均线具有滞后性。', default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
-    { ...base, policy: { id: 'dsl_growth_volatility_balance', version: 1 }, name: '增长与波动平衡', summary: '检查增长与波动。', rule: '按阈值调整弹性桶。', limitation: '震荡期可能切换。', risk: 'balanced' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
+    { ...base, policy: { id: 'fixed_dca', version: 1 }, name: '每月稳步投入', summary: '固定日期投入。', rule: '按计划金额投入。', limitation: '不会主动降低回撤。', tags: ['固定定投'], validation_mode: 'reference' as const },
+    { ...base, policy: { id: 'dsl_price_sma_responsive', version: 1 }, name: '价格与简单均线 · 灵敏', summary: '管理弹性投入。', rule: '低于短均线时暂停弹性桶。', limitation: '均线具有滞后性。', data_requirement: { required_close_observations: 51 }, family: { id: 'price_sma', name: '价格与简单均线', description: '用价格相对长期简单均线的位置控制弹性投入。', category: '趋势' }, preset: { id: 'responsive', name: '灵敏', order: 1 }, source: { name: 'Meb Faber', url: 'https://mebfaber.com/white-papers/', license: 'research reference', adaptation: 'independent' }, tags: ['均线', '趋势'], validation_mode: 'compiled_formula' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const },
+    { ...base, policy: { id: 'dsl_ma200_trend_guard', version: 1 }, name: '200 日均线趋势保护', summary: '管理弹性投入。', rule: '低于均线时暂停弹性桶。', limitation: '均线具有滞后性。', data_requirement: { required_close_observations: 201 }, family: { id: 'price_sma', name: '价格与简单均线', description: '用价格相对长期简单均线的位置控制弹性投入。', category: '趋势' }, preset: { id: 'balanced', name: '均衡', order: 3 }, source: { name: 'Meb Faber', url: 'https://mebfaber.com/white-papers/', license: 'research reference', adaptation: 'independent' }, tags: ['均线', '趋势'], validation_mode: 'fixed_fixture' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
+    { ...base, policy: { id: 'dsl_growth_volatility_balance', version: 1 }, name: '增长与波动平衡', summary: '检查增长与波动。', rule: '按阈值调整弹性桶。', limitation: '震荡期可能切换。', risk: 'balanced' as const, data_requirement: { required_close_observations: 127 }, family: { id: 'growth_vol', name: '增长与波动平衡', description: '同时观察中期增长和近期波动。', category: '复合' }, preset: { id: 'balanced', name: '均衡', order: 3 }, source: { name: 'IndexLink', url: 'https://github.com/GuZZ1119/indexlinkV2', license: 'MIT', adaptation: 'native' }, tags: ['增长', '波动率', '复合'], validation_mode: 'fixed_fixture' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
   ]
 }
 

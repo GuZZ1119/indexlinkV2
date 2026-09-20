@@ -174,6 +174,30 @@ export interface StrategyCatalogEntry {
   data_requirement: {
     required_close_observations: number
   }
+  /** Product-facing family used to group parameter presets without flattening the catalog. */
+  family?: {
+    id: string
+    name: string
+    description: string
+    category: string
+  }
+  /** Immutable parameter profile within one strategy family. */
+  preset?: {
+    id: string
+    name: string
+    order: number
+  }
+  /** Traceable reference that inspired this independently implemented rule family. */
+  source?: {
+    name: string
+    url: string
+    license: string
+    adaptation: string
+  }
+  /** Searchable, server-owned descriptors; never interpreted as executable code. */
+  tags?: string[]
+  /** Level of server-side validation completed for this catalog response. */
+  validation_mode?: 'reference' | 'fixed_fixture' | 'compiled_formula'
   adoptable: boolean
   research_status: 'reference' | 'available' | 'blocked'
   formula?: StrategySpecDocument

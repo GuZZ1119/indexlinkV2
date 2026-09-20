@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-20 AEST — Push 5：百预设策略中心与任意策略真实分析
+
+- 执行模型：GPT-5 Codex（多 Agent：策略中心与动态分析分文件并行；主线程整合深链状态、移除旧演示回退、补足覆盖率和计划文档）。
+- 变更类型：前端策略目录信息架构、真实 policy 导航与回测选择、API 类型、聚焦测试和 V2.1 计划状态。
+- 涉及文件：`apps/web/src/{api/types.ts,features/v2_1/{model.ts,model.test.ts},pages/{strategy-center/index.tsx,strategy-analysis/index.tsx,v2_1-shell.test.tsx},stores/ui.ts}`、`apps/web/PLAN.md`、`docs/plans/v2_1_productization_plan.md`、`CHANGE_LOG.md`。
+- 变更内容：策略中心不再平铺 101 张同质卡片，而把 Fixed DCA 单独作为共同基准，将 100 个 Formula 预设聚合为 20 个方法家族；支持规则/描述/标签搜索、类别筛选、家族内 5 档参数选择，并展示风险、最小日线、服务端校验、公开来源和限制。分析与建计划链接始终携带所选不可变 policy ID；策略分析移除三策略前端白名单，任意目录版本均可进入真实回测并最多比较三条，名称来自服务端、颜色按 policy ID 稳定生成，未知/下线 ID 明确失败且不降级成 DCA。URL 深链只初始化一次，之后尊重用户的比较选择。删除已无生产调用的三策略本地演示曲线和未知策略 DCA 回退。
+- 技能影响：`frontend-design` 用于维持低饱和、以家族而非卡片墙组织信息的视觉层级；`vercel-react-best-practices` 用于保持 React Query 管理目录/回测服务端状态、Valtio 只保存临时选择，并用 memo 与 `content-visibility` 控制大目录渲染。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（54 项；Statements 93.88%、Branches 90.50%、Functions 93.65%、Lines 96.55%）、`pnpm --dir apps/web build`、`cargo test -p core-domain` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-20 AEST — Push 4：100 个预设的批量质量门
 
 - 执行模型：GPT-5 Codex（多 Agent；质量门 Agent 落地测试，主线程根据实测耗时将固定样本准入压缩为每个家族一档，并完成整体验证）。

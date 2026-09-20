@@ -6,7 +6,7 @@ import type { StrategyBacktestRange, StrategyBacktestRequest } from '@/api/types
 /** Browser-only UI state; server data remains in React Query. */
 export const uiStore = proxy<{ selectedPlanId: string | null; activeStrategyId: StrategyId }>({
   selectedPlanId: null,
-  activeStrategyId: 'steady-dca',
+  activeStrategyId: 'fixed_dca',
 })
 
 /** Select the plan used by the Dashboard and decision-history pages. */
@@ -27,14 +27,16 @@ export const strategyAnalysisStore = proxy<{
   monthlyDay: number
   contribution: string
   view: 'plain' | 'research'
+  appliedRouteStrategyId: string | null
   submitted: StrategyBacktestRequest
 }>({
   symbol: 'US.SPY',
   range: '3y',
-  strategyIds: ['steady-dca'],
+  strategyIds: ['fixed_dca'],
   monthlyDay: 18,
   contribution: '1000.00',
   view: 'plain',
+  appliedRouteStrategyId: null,
   submitted: {
     symbol: 'US.SPY',
     strategy_ids: ['fixed_dca'],
@@ -43,12 +45,6 @@ export const strategyAnalysisStore = proxy<{
     contribution: '1000.00',
   },
 })
-
-const policyIds: Record<StrategyId, string> = {
-  'steady-dca': 'fixed_dca',
-  'ma200-trend-guard': 'dsl_ma200_trend_guard',
-  'growth-volatility-balance': 'dsl_growth_volatility_balance',
-}
 
 /** Toggle a local comparison selection while preserving at least one and at most three. */
 export function toggleAnalysisStrategy(strategyId: StrategyId) {
@@ -64,7 +60,7 @@ export function toggleAnalysisStrategy(strategyId: StrategyId) {
 export function submitStrategyAnalysis() {
   strategyAnalysisStore.submitted = {
     symbol: strategyAnalysisStore.symbol.trim().toUpperCase(),
-    strategy_ids: strategyAnalysisStore.strategyIds.map((id) => policyIds[id]),
+    strategy_ids: [...strategyAnalysisStore.strategyIds],
     range: strategyAnalysisStore.range,
     monthly_day: strategyAnalysisStore.monthlyDay,
     contribution: strategyAnalysisStore.contribution.trim(),
@@ -73,6 +69,7 @@ export function submitStrategyAnalysis() {
 
 /** Apply a deep-linked strategy and immediately run it on the current draft instrument. */
 export function openStrategyAnalysis(strategyId: StrategyId) {
+  if (!strategyId.trim()) return
   strategyAnalysisStore.strategyIds = [strategyId]
   submitStrategyAnalysis()
 }
@@ -81,9 +78,10 @@ export function openStrategyAnalysis(strategyId: StrategyId) {
 export function resetStrategyAnalysis() {
   strategyAnalysisStore.symbol = 'US.SPY'
   strategyAnalysisStore.range = '3y'
-  strategyAnalysisStore.strategyIds = ['steady-dca']
+  strategyAnalysisStore.strategyIds = ['fixed_dca']
   strategyAnalysisStore.monthlyDay = 18
   strategyAnalysisStore.contribution = '1000.00'
   strategyAnalysisStore.view = 'plain'
+  strategyAnalysisStore.appliedRouteStrategyId = null
   submitStrategyAnalysis()
 }
