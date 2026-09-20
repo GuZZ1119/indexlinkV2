@@ -115,7 +115,7 @@
 
 `schedule_kind` 接受 `monthly`（日期为 `1..=28`）或 `weekly`（ISO 星期为 `1..=7`）。`schedule_days` 可提供同一周期的多个固定日，必须有序、无重复，且其第一项必须等于兼容字段 `schedule_day`；省略时等价于仅 `[schedule_day]`。scheduler 使用此集合按 UTC 日期运行。
 
-普通用户从 `GET /strategy-catalog` 采用策略时，必须原样提交目录中的 `policy.id` / `policy.version` 与 `default_plan` 的核心桶、弹性桶和风险模式。`fixed_dca@1` 使用 100% 核心桶；两条官方 Formula V1 使用 70% 核心桶、30% 弹性桶和 `approval`。目录使用 `supported_markets` 和 `data_requirement.required_close_observations` 声明能力；已弃用的 `supported_symbols` 始终为空，不能再作为准入白名单。
+普通用户从 `GET /strategy-catalog` 采用策略时，必须原样提交目录中的 `policy.id` / `policy.version` 与 `default_plan` 的核心桶、弹性桶和风险模式。`fixed_dca@1` 使用 100% 核心桶；100 个官方 Formula V1 预设使用 70% 核心桶、30% 弹性桶和 `approval`。目录使用 `supported_markets` 和 `data_requirement.required_close_observations` 声明能力；已弃用的 `supported_symbols` 始终为空，不能再作为准入白名单。
 
 Fixed DCA 只做代码格式、市场与币种一致性检查，不读取行情，因此未配置 OpenD/历史数据 provider 时仍可创建。官方 Formula 在创建、更新策略版本或激活既有计划之前，会通过当前 `HistoricalPriceProvider` 为该标的读取策略声明的最小有效日线窗口；历史不足或不支持的请求返回 `400 bad_request`，provider 未配置、认证/网络故障或数据集不一致返回 `503 service_unavailable`，且不会保存半成品计划。通过这项检查只代表数据足够运行确定性公式，不代表策略适合该证券，也不构成投资建议。
 
@@ -161,7 +161,9 @@ Fixed DCA 只做代码格式、市场与币种一致性检查，不读取行情�
 
 #### `GET /strategy-catalog`
 
-返回面向普通用户的服务端官方策略目录；它与本机用户自行保存的 `/strategies` 列表分离。V2.1 固定返回三个不可变版本：`fixed_dca@1`、`dsl_ma200_trend_guard@1` 与 `dsl_growth_volatility_balance@1`。旧 `core_opportunity_v1@1` 依赖历史 70/20/10 与 AI 降级口径，不进入普通目录，也不能被目录前端误显示为可采用策略。
+返回面向普通用户的服务端官方策略目录；它与本机用户自行保存的 `/strategies` 列表分离。V2.1 返回一个 `fixed_dca@1` 基准，以及由 20 个透明规则家族各生成 5 档参数预设的 100 个不可变 Formula V1 版本。原有 `dsl_ma200_trend_guard@1` 与 `dsl_growth_volatility_balance@1` 的 ID、版本和公式保持不变。旧 `core_opportunity_v1@1` 依赖历史 70/20/10 与 AI 降级口径，不进入普通目录，也不能被目录前端误显示为可采用策略。
+
+Formula 条目通过 `family`、`preset`、`tags` 与 `source` 提供分组、参数档、检索标签和公开思想来源；`source.adaptation` 会明确说明 IndexLink 只参考指标或研究思想，Formula 规则为独立实现，不复制第三方交易代码。`validation_mode` 有三种取值：`reference` 表示固定投入基准，`fixed_fixture` 表示兼容的两条原有策略附带完整固定样本研究，`compiled_formula` 表示其余生成预设已完成结构、预算和公式编译校验。为避免目录响应重复携带 98 份大型公式与研究结果，`compiled_formula` 条目不内嵌 `formula` / `research`；客户端可按精确 ID 读取 `/strategies/:id/:version`，实际采用仍必须通过所选标的的历史数据预检，回测则使用 `/strategy-backtests`。
 
 每项包含 `policy`、普通话名称/摘要、确定性规则、局限、风险标签、`supported_markets`、默认计划配置、可读 `data_requirements`、机器可读 `data_requirement.required_close_observations`、`adoptable` 与 `research_status`。`supported_symbols` 是只为旧客户端保留的弃用字段，固定返回空数组。官方 DSL 项还返回规范化 `formula` 和真实固定样本 `research`；只有 admission 的 `eligible` 为真时 `adoptable` 才为真。Fixed DCA 是对照基准，因此 `research_status` 为 `reference` 且不伪造 DSL 公式或差异化回测。当前官方 Formula V1 的准入研究仍只覆盖固定样本中的 S&P 500 / Nasdaq Composite 指数代理；其他 US/HK/SH/SZ 标的可以在满足数据窗口时运行，但界面必须明确“可计算”不等于“已证明适合”。
 

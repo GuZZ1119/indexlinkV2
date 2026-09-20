@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-20 AEST — Push 3：20 个策略家族与 100 个不可变预设
+
+- 执行模型：GPT-5 Codex（按用户要求启用多 Agent；主线程完成后端策略工厂、目录契约和验证，前端 Agent 并行准备分组浏览）。
+- 变更类型：官方 Formula 策略工厂、批量版本注册、策略目录元数据、公开 API 文档与聚焦测试。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/strategy_catalog.rs}`、`crates/api/tests/strategy_catalog.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：在统一注册表上加入 20 个可解释的中长线规则家族，每个家族提供灵敏、偏短期、均衡、稳健、长期 5 档不可变参数，共生成 100 个 Formula V1 策略版本；覆盖 SMA/EMA 趋势、均线交叉、绝对/双周期动量、RSI、价格分位、波动率、回撤和受限复合规则。原有 MA200 与增长/波动 policy ID、版本和公式保持不变；每个预设提供家族、参数档、标签、公开思想来源、适配声明和所需日线数。新增预设只使用通用价格指标，不绑定 SPY/VOO、不复制第三方交易代码，也不突破计划当期预算。目录对 98 个新增预设返回轻量 `compiled_formula` 元数据，按需读取精确公式和执行真实标的预检，避免一次响应重复携带大型研究结果。
+- 验证：`cargo fmt --all -- --check`、`cargo check -p indexlink-api`、`cargo test -p indexlink-api official_strategies --lib`（4 项注册表/重建测试）和 `cargo test -p indexlink-api --test strategy_catalog`（6 项目录/动态市场计划测试）通过；`git diff --check` 通过。
+
 ### 2026-09-20 AEST — Push 2：回测与真实计划资金契约一致
 
 - 执行模型：GPT-5 Codex（多 Agent 并行审计，主线程完成共享工作区实现与验证）。

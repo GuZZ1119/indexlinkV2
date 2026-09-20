@@ -111,7 +111,7 @@ fn plan_request(symbol: &str, currency: &str, policy_id: &str) -> Value {
 }
 
 #[tokio::test]
-async fn consumer_catalog_exposes_only_adoptable_versioned_non_ai_strategies() {
+async fn consumer_catalog_exposes_grouped_versioned_non_ai_presets() {
     let response = app(None)
         .await
         .oneshot(
@@ -131,17 +131,21 @@ async fn consumer_catalog_exposes_only_adoptable_versioned_non_ai_strategies() {
         .map(|entry| entry["policy"]["id"].as_str().unwrap())
         .collect::<Vec<_>>();
 
+    assert_eq!(entries.len(), 101);
+    assert_eq!(ids[0], "fixed_dca");
     assert_eq!(
-        ids,
-        vec![
-            "fixed_dca",
-            "dsl_ma200_trend_guard",
-            "dsl_growth_volatility_balance"
-        ]
+        ids.iter()
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        101
     );
+    assert!(ids.contains(&"dsl_ma200_trend_guard"));
+    assert!(ids.contains(&"dsl_growth_volatility_balance"));
     assert!(!body.to_string().contains("core_opportunity_v1"));
     assert!(entries.iter().all(|entry| entry["adoptable"] == true));
     assert_eq!(entries[0]["research_status"], "reference");
+    assert_eq!(entries[0]["validation_mode"], "reference");
     assert_eq!(
         entries[0]["supported_markets"],
         json!(["us", "hong_kong", "china_shanghai", "china_shenzhen"])
@@ -153,22 +157,57 @@ async fn consumer_catalog_exposes_only_adoptable_versioned_non_ai_strategies() {
         entries[0]["data_requirement"]["required_close_observations"],
         0
     );
-    assert_eq!(
-        entries[1]["data_requirement"]["required_close_observations"],
-        200
-    );
-    assert_eq!(
-        entries[2]["data_requirement"]["required_close_observations"],
-        127
-    );
-    for entry in &entries[1..] {
+    let formula_entries = &entries[1..];
+    let family_ids = formula_entries
+        .iter()
+        .map(|entry| entry["family"]["id"].as_str().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(family_ids.len(), 20);
+    for family_id in family_ids {
+        assert_eq!(
+            formula_entries
+                .iter()
+                .filter(|entry| entry["family"]["id"] == family_id)
+                .count(),
+            5,
+            "{family_id}"
+        );
+    }
+    for entry in formula_entries {
         assert_eq!(entry["research_status"], "available");
         assert_eq!(entry["default_plan"]["core_ratio"], "0.7");
         assert_eq!(entry["default_plan"]["opportunity_ratio"], "0.3");
+        assert!(entry["data_requirement"]["required_close_observations"]
+            .as_u64()
+            .is_some_and(|required| required <= 253));
+        assert_eq!(entry["supported_symbols"], json!([]));
+        assert!(entry["preset"]["order"]
+            .as_u64()
+            .is_some_and(|order| (1..=5).contains(&order)));
+        assert!(!entry["tags"].as_array().unwrap().is_empty());
+        assert!(entry["source"]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://"));
+    }
+
+    for id in ["dsl_ma200_trend_guard", "dsl_growth_volatility_balance"] {
+        let entry = formula_entries
+            .iter()
+            .find(|entry| entry["policy"]["id"] == id)
+            .unwrap();
+        assert_eq!(entry["validation_mode"], "fixed_fixture");
         assert_eq!(entry["research"]["eligible"], true);
         assert_eq!(entry["research"]["assets"].as_array().unwrap().len(), 2);
         assert!(entry["formula"]["rules"].as_array().is_some());
     }
+    let generated = formula_entries
+        .iter()
+        .find(|entry| entry["policy"]["id"] == "dsl_price_sma_responsive")
+        .unwrap();
+    assert_eq!(generated["validation_mode"], "compiled_formula");
+    assert!(generated.get("formula").is_none());
+    assert!(generated.get("research").is_none());
 }
 
 #[tokio::test]
