@@ -242,7 +242,7 @@ async fn official_formula_version_is_readable_but_cannot_be_overwritten() {
 }
 
 #[tokio::test]
-async fn official_formula_plans_accept_dynamic_us_hk_and_china_instruments() {
+async fn generated_formula_plans_accept_dynamic_us_hk_and_china_instruments() {
     for (symbol, currency, stored_symbol) in [
         ("US.AAPL", "USD", "US.AAPL"),
         ("HK.00700", "HKD", "HK.00700"),
@@ -255,7 +255,7 @@ async fn official_formula_plans_accept_dynamic_us_hk_and_china_instruments() {
                 max_bars: 500,
             })))
             .await,
-            plan_request(symbol, currency, "dsl_ma200_trend_guard"),
+            plan_request(symbol, currency, "dsl_price_sma_responsive"),
         )
         .await;
         assert_eq!(response.status(), StatusCode::CREATED, "{symbol}");

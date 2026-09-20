@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-20 AEST — Push 4：100 个预设的批量质量门
+
+- 执行模型：GPT-5 Codex（多 Agent；质量门 Agent 落地测试，主线程根据实测耗时将固定样本准入压缩为每个家族一档，并完成整体验证）。
+- 变更类型：策略批量准入、重复规则检测、动态多市场建计划与真实回测回归测试。
+- 涉及文件：`crates/api/src/official_strategies.rs`、`crates/api/tests/{strategy_catalog.rs,strategy_backtests.rs}`、`CHANGE_LOG.md`。
+- 变更内容：对全部 100 个 Formula 预设生成仅含规则的规范化指纹，拒绝重复规则结构；逐一验证无固定金额动作、当期 1,000 预算安全，并从 20 个家族各取均衡档运行完整固定样本准入，要求两项资产均可计算且只影响弹性桶。新增预设 `dsl_price_sma_responsive@1` 进一步实际走通 US/HK/SH/SZ 四市场计划创建，以及 SH.600519 的 provider 日线真实回测，证明批量目录不是仅前端可见的静态条目。既有动态回测测试继续锁定相同共同窗口、执行日收盘价不可前视，以及回测与新计划一致的当期预算失效语义。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p indexlink-api official_strategies --lib`（含 20 家族完整准入，约 14 秒）、`cargo test -p indexlink-api --test strategy_catalog --test strategy_backtests`、`cargo test -p strategy-evaluation dynamic_backtest`、`cargo test -p core-domain` 与 `git diff --check` 通过。
+
 ### 2026-09-20 AEST — Push 3：20 个策略家族与 100 个不可变预设
 
 - 执行模型：GPT-5 Codex（按用户要求启用多 Agent；主线程完成后端策略工厂、目录契约和验证，前端 Agent 并行准备分组浏览）。

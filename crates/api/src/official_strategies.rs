@@ -858,7 +858,7 @@ fn policy_version(id: &str, version: u32) -> Result<PolicyRef, ApiError> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::*;
 
@@ -904,6 +904,64 @@ mod tests {
             assert!(descriptor.preset.is_some());
             assert!(descriptor.source.is_some());
         }
+    }
+
+    #[test]
+    fn every_formula_is_unique_and_budget_safe_with_each_family_admitted() {
+        let mut rule_fingerprints = BTreeMap::new();
+        let mut admitted_families = BTreeSet::new();
+        let period_budget = Decimal::new(1_000, 0);
+
+        for descriptor in registry().iter().filter(|entry| entry.is_formula()) {
+            let strategy = descriptor.strategy().unwrap().unwrap();
+            let document = StrategySpecDocument::from_strategy_spec(&strategy);
+            let fingerprint = serde_json::to_string(&document.rules).unwrap();
+            assert_eq!(
+                rule_fingerprints.insert(fingerprint, descriptor.id.as_str()),
+                None,
+                "{} duplicates another preset's normalized rule structure",
+                descriptor.id
+            );
+            assert!(
+                !strategy.has_fixed_opportunity_amount_action(),
+                "{} contains a forbidden fixed-amount action",
+                descriptor.id
+            );
+            assert!(
+                strategy.validate_for_budget(period_budget).is_ok(),
+                "{} exceeds the per-period budget",
+                descriptor.id
+            );
+
+            if descriptor
+                .preset
+                .as_ref()
+                .is_some_and(|preset| preset.order == 3)
+            {
+                let report = strategy_evaluation::evaluate_strategy_admission(&strategy).unwrap();
+                assert!(
+                    report.core_bucket_safe,
+                    "{} affects the core bucket",
+                    descriptor.id
+                );
+                assert!(report.budget_safe, "{} is not budget safe", descriptor.id);
+                assert!(
+                    report.eligible,
+                    "{} failed admission: {:?}",
+                    descriptor.id, report.reason
+                );
+                assert_eq!(
+                    report.assets.len(),
+                    2,
+                    "{} did not complete both fixed-sample assets",
+                    descriptor.id
+                );
+                admitted_families.insert(descriptor.family.as_ref().unwrap().id.as_str());
+            }
+        }
+
+        assert_eq!(rule_fingerprints.len(), FORMULA_PRESET_COUNT);
+        assert_eq!(admitted_families.len(), 20);
     }
 
     #[test]

@@ -153,6 +153,34 @@ async fn up_to_three_unique_official_strategies_share_one_result_window() {
 }
 
 #[tokio::test]
+async fn generated_formula_preset_runs_against_provider_history() {
+    let response = post(
+        app(Some(Arc::new(StaticHistory { fails: false }))).await,
+        json!({
+            "symbol": "SH.600519",
+            "strategy_ids": ["fixed_dca", "dsl_price_sma_responsive"],
+            "range": "1y",
+            "monthly_day": 18,
+            "contribution": "1000.00"
+        }),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["data"]["market"], "china_shanghai");
+    assert_eq!(body["data"]["currency"], "CNY");
+    assert_eq!(body["data"]["provider"], "test-history");
+    assert_eq!(body["data"]["dataset_version"], "fixture-v1");
+    let series = body["result"]["series"].as_array().unwrap();
+    assert_eq!(series.len(), 2);
+    assert_eq!(series[1]["strategy_id"], "dsl_price_sma_responsive");
+    assert!(series.iter().all(|item| item["normalized_points"]
+        .as_array()
+        .is_some_and(|points| !points.is_empty())));
+}
+
+#[tokio::test]
 async fn malformed_or_unsafe_requests_use_the_existing_bad_request_envelope() {
     let cases = [
         json!({"symbol":"US.SPY","strategy_ids":["fixed_dca"],"range":"2y","monthly_day":18,"contribution":"1000"}),
