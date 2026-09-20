@@ -67,13 +67,13 @@ describe('V2.1 consumer shell', () => {
     expect(fixedDcaAnalysis.getAttribute('href')).toContain('strategy=fixed_dca')
     expect(screen.queryByText('正在查看')).toBeNull()
     expect(screen.queryByText('自适应长期计划')).toBeNull()
-    expect(screen.getAllByRole('link', { name: '用这个策略建立计划' })).toHaveLength(1)
-    expect(screen.getAllByRole('link', { name: '用这个档位建立计划' })).toHaveLength(2)
+    expect(screen.getAllByRole('link', { name: '建立固定投入计划' })).toHaveLength(1)
+    expect(screen.getAllByRole('link', { name: '按此参数建立计划' })).toHaveLength(2)
     expect(screen.getByText('3 个公式档位 · 2 个家族')).toBeTruthy()
-    expect(screen.getAllByRole('link', { name: '分析这个档位' })[0].getAttribute('href')).toContain('strategy=dsl_ma200_trend_guard')
-    fireEvent.change(screen.getByRole('combobox', { name: '价格与简单均线参数档位' }), { target: { value: 'dsl_price_sma_responsive' } })
-    expect(screen.getAllByRole('link', { name: '用这个档位建立计划' })[0].getAttribute('href')).toContain('policy_id=dsl_price_sma_responsive')
-    expect(screen.getAllByRole('link', { name: '分析这个档位' })[0].getAttribute('href')).toContain('strategy=dsl_price_sma_responsive')
+    expect(screen.getAllByRole('link', { name: '查看这组参数的分析' })[0].getAttribute('href')).toContain('strategy=dsl_ma200_trend_guard')
+    fireEvent.change(screen.getByRole('combobox', { name: '价格与简单均线检查参数' }), { target: { value: 'dsl_price_sma_responsive' } })
+    expect(screen.getAllByRole('link', { name: '按此参数建立计划' })[0].getAttribute('href')).toContain('policy_id=dsl_price_sma_responsive')
+    expect(screen.getAllByRole('link', { name: '查看这组参数的分析' })[0].getAttribute('href')).toContain('strategy=dsl_price_sma_responsive')
   })
 
   it('blocks plan creation when the server catalog has no eligible research result', async () => {
@@ -84,7 +84,7 @@ describe('V2.1 consumer shell', () => {
 
     expect(await screen.findByText('尚未通过，暂不可创建')).toBeTruthy()
     expect(screen.getByText('尚未通过')).toBeTruthy()
-    expect(screen.queryByRole('link', { name: '用这个档位建立计划' })).toBeNull()
+    expect(screen.queryByRole('link', { name: '按此参数建立计划' })).toBeNull()
   })
 
   it('filters grouped strategy families by searchable tags and category', async () => {
@@ -145,7 +145,7 @@ describe('V2.1 consumer shell', () => {
     expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
     expect(screen.queryByText('演示数据 · 非真实回测')).toBeNull()
     fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_ma200_trend_guard' } })
-    await waitFor(() => expect(screen.getByRole('button', { name: '移除200 日均线趋势保护' }).getAttribute('aria-pressed')).toBe('true'))
+    await waitFor(() => expect(screen.getByRole('button', { name: '移除价格与简单均线（200日）' }).getAttribute('aria-pressed')).toBe('true'))
     expect(screen.getByRole('button', { name: '移除每月稳步投入' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '近 6 个月' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '近 6 个月' }).getAttribute('aria-pressed')).toBe('true'))
@@ -162,7 +162,7 @@ describe('V2.1 consumer shell', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : strategyBacktest(['dsl_ma200_trend_guard'])))))
     renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_ma200_trend_guard&view=plain')
     expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '200 日均线趋势保护（至少保留一个）' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: '价格与简单均线（200日）（至少保留一个）' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.queryByRole('button', { name: /每月稳步投入/ })).toBeNull()
     expect(screen.getByRole('button', { name: '直观视角' }).getAttribute('aria-pressed')).toBe('true')
   })
@@ -176,9 +176,9 @@ describe('V2.1 consumer shell', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_ma200_trend_guard&view=plain')
 
-    expect(await screen.findByRole('button', { name: '200 日均线趋势保护（至少保留一个）' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: '价格与简单均线（200日）（至少保留一个）' })).toBeTruthy()
     fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'fixed_dca' } })
-    fireEvent.click(await screen.findByRole('button', { name: '移除200 日均线趋势保护' }))
+    fireEvent.click(await screen.findByRole('button', { name: '移除价格与简单均线（200日）' }))
     fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
 
     await waitFor(() => {
@@ -357,9 +357,9 @@ function strategyCatalog() {
   }
   return [
     { ...base, policy: { id: 'fixed_dca', version: 1 }, name: '每月稳步投入', summary: '固定日期投入。', rule: '按计划金额投入。', limitation: '不会主动降低回撤。', tags: ['固定定投'], validation_mode: 'reference' as const },
-    { ...base, policy: { id: 'dsl_price_sma_responsive', version: 1 }, name: '价格与简单均线 · 灵敏', summary: '管理弹性投入。', rule: '低于短均线时暂停弹性桶。', limitation: '均线具有滞后性。', data_requirement: { required_close_observations: 51 }, family: { id: 'price_sma', name: '价格与简单均线', description: '用价格相对长期简单均线的位置控制弹性投入。', category: '趋势' }, preset: { id: 'responsive', name: '灵敏', order: 1 }, source: { name: 'Meb Faber', url: 'https://mebfaber.com/white-papers/', license: 'research reference', adaptation: 'independent' }, tags: ['均线', '趋势'], validation_mode: 'compiled_formula' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const },
-    { ...base, policy: { id: 'dsl_ma200_trend_guard', version: 1 }, name: '200 日均线趋势保护', summary: '管理弹性投入。', rule: '低于均线时暂停弹性桶。', limitation: '均线具有滞后性。', data_requirement: { required_close_observations: 201 }, family: { id: 'price_sma', name: '价格与简单均线', description: '用价格相对长期简单均线的位置控制弹性投入。', category: '趋势' }, preset: { id: 'balanced', name: '均衡', order: 3 }, source: { name: 'Meb Faber', url: 'https://mebfaber.com/white-papers/', license: 'research reference', adaptation: 'independent' }, tags: ['均线', '趋势'], validation_mode: 'fixed_fixture' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
-    { ...base, policy: { id: 'dsl_growth_volatility_balance', version: 1 }, name: '增长与波动平衡', summary: '检查增长与波动。', rule: '按阈值调整弹性桶。', limitation: '震荡期可能切换。', risk: 'balanced' as const, data_requirement: { required_close_observations: 127 }, family: { id: 'growth_vol', name: '增长与波动平衡', description: '同时观察中期增长和近期波动。', category: '复合' }, preset: { id: 'balanced', name: '均衡', order: 3 }, source: { name: 'IndexLink', url: 'https://github.com/GuZZ1119/indexlinkV2', license: 'MIT', adaptation: 'native' }, tags: ['增长', '波动率', '复合'], validation_mode: 'fixed_fixture' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
+    { ...base, policy: { id: 'dsl_price_sma_responsive', version: 1 }, name: '价格与简单均线（50日）', summary: '管理弹性投入。', rule: '低于短均线时暂停弹性桶。', limitation: '均线具有滞后性。', data_requirement: { required_close_observations: 51 }, family: { id: 'price_sma', name: '价格与简单均线', description: '用价格相对长期简单均线的位置控制弹性投入。', category: '趋势' }, preset: { id: 'responsive', name: '50日', order: 1 }, source: { name: 'Meb Faber', url: 'https://mebfaber.com/white-papers/', license: 'research reference', adaptation: 'independent' }, tags: ['均线', '趋势'], validation_mode: 'compiled_formula' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const },
+    { ...base, policy: { id: 'dsl_ma200_trend_guard', version: 1 }, name: '价格与简单均线（200日）', summary: '管理弹性投入。', rule: '低于均线时暂停弹性桶。', limitation: '均线具有滞后性。', data_requirement: { required_close_observations: 201 }, family: { id: 'price_sma', name: '价格与简单均线', description: '用价格相对长期简单均线的位置控制弹性投入。', category: '趋势' }, preset: { id: 'balanced', name: '200日', order: 3 }, source: { name: 'Meb Faber', url: 'https://mebfaber.com/white-papers/', license: 'research reference', adaptation: 'independent' }, tags: ['均线', '趋势'], validation_mode: 'fixed_fixture' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
+    { ...base, policy: { id: 'dsl_growth_volatility_balance', version: 1 }, name: '增长与波动平衡（增长126日 / 波动63日）', summary: '检查增长与波动。', rule: '按阈值调整弹性桶。', limitation: '震荡期可能切换。', risk: 'balanced' as const, data_requirement: { required_close_observations: 127 }, family: { id: 'growth_vol', name: '增长与波动平衡', description: '同时观察中期增长和近期波动。', category: '复合' }, preset: { id: 'balanced', name: '增长126日 / 波动63日', order: 3 }, source: { name: 'IndexLink', url: 'https://github.com/GuZZ1119/indexlinkV2', license: 'MIT', adaptation: 'native' }, tags: ['增长', '波动率', '复合'], validation_mode: 'fixed_fixture' as const, default_plan: { ...base.default_plan, core_ratio: '0.7', opportunity_ratio: '0.3', risk_mode: 'approval' as const }, research_status: 'available' as const, research: admission },
   ]
 }
 

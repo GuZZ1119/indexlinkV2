@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-20 20:30 AEST — 参数化命名与计划入口收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略目录展示契约、我的计划信息架构、策略卡操作层级、公开 API 文档与聚焦测试。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/strategy_catalog.rs}`、`crates/api/tests/strategy_catalog.rs`、`apps/web/src/{components/v2_1/strategy-card.tsx,pages/{plans/index.tsx,plans/minimal-plan.test.tsx,strategy-center/index.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：保留全部不可变 policy ID、版本和内部公式名称，同时为目录增加由实际窗口生成的参数化展示名；`preset.name` 从“灵敏 / 稳健 / 长期”等定性档位改成 `20日`、`20/50日` 或 `趋势150日 / 波动63日` 等可核验参数，`价格与指数均线` 简化为 `价格与指数`。我的计划页移除重复的 100 张策略选择卡，改为在“你的长期计划”标题旁常驻“建立新计划”并跳转策略中心；只有策略中心携带精确 policy 深链返回时才显示单一配置表。策略中心把分析动作降为左侧文本链接，将建立计划的主按钮固定到卡片右下角；计划卡的策略说明同步读取目录新名称，但保留用户已有计划标题。
+- 技能影响：`frontend-design` 用于压缩重复入口并拉开“分析 / 建立”的视觉层级；`vercel-react-best-practices` 用于保持目录数据由 React Query 管理、移除不再需要的页面内选择状态，并继续使用长列表 `content-visibility`。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p indexlink-api official_strategies`、`cargo test -p indexlink-api --test strategy_catalog`、`cargo test -p core-domain`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（54 项；Statements 93.75%、Branches 90.58%、Functions 93.53%、Lines 96.26%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；本地真实 API 浏览器核验确认计划页不再出现策略卡墙，策略中心参数名与操作区层级符合预期。
+
 ### 2026-09-20 AEST — Push 5：百预设策略中心与任意策略真实分析
 
 - 执行模型：GPT-5 Codex（多 Agent：策略中心与动态分析分文件并行；主线程整合深链状态、移除旧演示回退、补足覆盖率和计划文档）。

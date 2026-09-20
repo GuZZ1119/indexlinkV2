@@ -138,7 +138,7 @@ async fn strategy_entry(
     if !descriptor.is_formula() {
         return Ok(StrategyCatalogEntry {
             policy,
-            name: descriptor.name.clone(),
+            name: descriptor.display_name.clone(),
             summary: descriptor.summary.clone(),
             rule: descriptor.rule.clone(),
             limitation: descriptor.limitation.clone(),
@@ -184,7 +184,7 @@ async fn strategy_entry(
     };
     Ok(StrategyCatalogEntry {
         policy,
-        name: descriptor.name.clone(),
+        name: descriptor.display_name.clone(),
         summary: descriptor.summary.clone(),
         rule: descriptor.rule.clone(),
         limitation: descriptor.limitation.clone(),

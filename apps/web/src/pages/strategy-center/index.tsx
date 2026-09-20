@@ -33,7 +33,7 @@ export default function StrategyCenterPage() {
       <PageHeading
         eyebrow="策略中心"
         title="先选方法，再挑适合你的参数"
-        description="固定定投是共同基准；其余策略按规则家族收拢。每个参数档位都是服务端保存的独立版本，可以用同一只标的真实回测后再建立计划。"
+        description="固定定投是共同基准；其余策略按规则家族收拢。每组参数都直接写明观察天数，可以用同一只标的真实回测后再建立计划。"
         action={<span className="inline-flex items-center gap-2 rounded-full border border-[#cfded8] bg-[#f1f7f4] px-4 py-2.5 text-sm text-[#2d6a57]"><Database className="size-4" />Formula V1 · 20 个家族</span>}
       />
       <StrategyCenterNav />
@@ -44,7 +44,7 @@ export default function StrategyCenterPage() {
         <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 id="official-strategies-heading" className="text-xl font-semibold tracking-[-0.03em] text-[#102028]">从能解释清楚的规则开始</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">先理解一种方法，再在家族内选择参数。浏览不会改变计划，只有点击“建立计划”才会进入个人配置。</p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">先理解一种方法，再选择明确的观察周期。浏览不会改变计划，只有点击“建立计划”才会进入个人配置。</p>
           </div>
           {catalog.data ? <p className="text-sm tabular-nums text-slate-500">{catalogView.totalFormulaCount} 个公式档位 · {catalogView.allFamilies.length} 个家族</p> : null}
         </div>
@@ -86,7 +86,7 @@ export default function StrategyCenterPage() {
 
       <section className="grid gap-4 md:grid-cols-2">
         <InfoBlock icon={<BarChart3 />} title="回测是一次统一体检" text="所有 Formula 策略和固定定投使用相同外部现金流、费用与成交时点。它能暴露规则的缺点，不能承诺未来收益。" />
-        <InfoBlock icon={<Layers3 />} title="档位不是收益排名" text="灵敏、均衡或长期只代表观察窗口与阈值不同。先在自己的标的上回测，再选择你能理解和坚持的参数。" />
+        <InfoBlock icon={<Layers3 />} title="参数不是收益排名" text="20 日、50 日或多周期组合只代表观察窗口与阈值不同。先在自己的标的上回测，再选择你能理解和坚持的参数。" />
       </section>
     </div>
   )
@@ -114,9 +114,9 @@ function FamilyCard({ family, strategy, onSelect }: { family: StrategyFamilyGrou
     <p className="mt-3 min-h-12 text-sm leading-6 text-slate-600">{family.description}</p>
 
     <label className="mt-5 block">
-      <span className="text-xs font-medium text-slate-500">参数档位</span>
-      <select aria-label={`${family.name}参数档位`} value={strategy.policy.id} onChange={(event) => onSelect(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#c8d8d1] bg-[#f8faf9] px-3 text-sm font-semibold text-[#102028] outline-none transition focus:border-[#2d6a57] focus:ring-4 focus:ring-[#2d6a57]/10">
-        {family.strategies.map((item) => <option key={item.policy.id} value={item.policy.id}>{item.preset?.name ?? item.name} · {item.name}</option>)}
+      <span className="text-xs font-medium text-slate-500">检查参数</span>
+      <select aria-label={`${family.name}检查参数`} value={strategy.policy.id} onChange={(event) => onSelect(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-[#c8d8d1] bg-[#f8faf9] px-3 text-sm font-semibold text-[#102028] outline-none transition focus:border-[#2d6a57] focus:ring-4 focus:ring-[#2d6a57]/10">
+        {family.strategies.map((item) => <option key={item.policy.id} value={item.policy.id}>{item.preset?.name ?? item.name}</option>)}
       </select>
     </label>
 
@@ -131,9 +131,9 @@ function FamilyCard({ family, strategy, onSelect }: { family: StrategyFamilyGrou
     <p className="mt-4 text-xs leading-5 text-slate-500">{strategy.limitation}</p>
     {strategy.source ? <a href={strategy.source.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex w-fit items-center gap-1.5 text-xs font-medium text-[#2d6a57] underline decoration-[#aac7b9] underline-offset-4 hover:text-[#1f5444]">参考：{strategy.source.name}<ExternalLink className="size-3" /><span className="sr-only">（在新窗口打开）</span></a> : null}
 
-    <div className="mt-auto flex flex-wrap gap-2 border-t border-slate-100 pt-5">
-      <Link to={analysisHref(strategy)} className="inline-flex items-center gap-2 rounded-full border border-[#b8d5c6] bg-white px-4 py-2.5 text-sm font-semibold text-[#245a49] transition-colors hover:bg-[#edf5f1] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#8eb7a3]"><BarChart3 className="size-4" />分析这个档位</Link>
-      <StrategyAction strategy={strategy} />
+    <div className="mt-auto flex flex-col gap-4 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+      <Link to={analysisHref(strategy)} className="inline-flex w-fit items-center gap-2 text-sm font-semibold text-[#245a49] underline decoration-[#aac7b9] underline-offset-4 hover:text-[#1f5444] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#8eb7a3]"><BarChart3 className="size-4" />查看这组参数的分析</Link>
+      <div className="sm:ml-auto"><StrategyAction strategy={strategy} /></div>
     </div>
   </article>
 }
@@ -141,7 +141,7 @@ function FamilyCard({ family, strategy, onSelect }: { family: StrategyFamilyGrou
 function StrategyAction({ strategy }: { strategy: StrategyCatalogEntry }) {
   if (!strategy.adoptable) return <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-500">尚未通过，暂不可创建</span>
   const search = new URLSearchParams({ policy_id: strategy.policy.id, policy_version: String(strategy.policy.version) })
-  return <Link to={`/plans?${search.toString()}#new-plan`} className="inline-flex items-center gap-2 rounded-full bg-[#102830] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,40,48,0.14)] transition-colors hover:bg-[#1d3a43] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#8eb7a3]"><Plus className="size-4" />{strategy.policy.id === 'fixed_dca' ? '用这个策略建立计划' : '用这个档位建立计划'}</Link>
+  return <Link to={`/plans?${search.toString()}#new-plan`} className="inline-flex items-center gap-2 rounded-full bg-[#102830] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,40,48,0.14)] transition-colors hover:bg-[#1d3a43] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[#8eb7a3]"><Plus className="size-4" />{strategy.policy.id === 'fixed_dca' ? '建立固定投入计划' : '按此参数建立计划'}</Link>
 }
 
 function buildCatalogView(entries: StrategyCatalogEntry[], query: string, selectedCategory: string) {

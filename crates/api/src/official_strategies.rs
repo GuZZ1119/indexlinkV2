@@ -172,6 +172,8 @@ enum FormulaBlueprint {
 pub(crate) struct OfficialStrategyDescriptor {
     pub(crate) id: String,
     pub(crate) version: u32,
+    /// Catalog-only label. This may clarify parameters without changing the immutable strategy name.
+    pub(crate) display_name: String,
     pub(crate) name: String,
     pub(crate) summary: String,
     pub(crate) rule: String,
@@ -290,6 +292,7 @@ fn fixed_dca_descriptor() -> OfficialStrategyDescriptor {
     OfficialStrategyDescriptor {
         id: FIXED_DCA_ID.to_owned(),
         version: 1,
+        display_name: "每月稳步投入".to_owned(),
         name: "每月稳步投入".to_owned(),
         summary: "不判断行情，在固定日期按固定金额持续投入。".to_owned(),
         rule: "每个计划日建议投入计划金额，不读取市场指标。".to_owned(),
@@ -326,6 +329,7 @@ fn formula_descriptor(
     index: usize,
     blueprint: FormulaBlueprint,
 ) -> OfficialStrategyDescriptor {
+    let parameter_label = blueprint.parameter_label();
     let (id, name, include_catalog_research) = match blueprint {
         FormulaBlueprint::LegacyMa200 => (
             MA200_TREND_GUARD_ID.to_owned(),
@@ -347,6 +351,7 @@ fn formula_descriptor(
     OfficialStrategyDescriptor {
         id,
         version: 1,
+        display_name: format!("{}（{parameter_label}）", family.name),
         name,
         summary: family.description.to_owned(),
         rule: blueprint.rule_text(),
@@ -362,7 +367,7 @@ fn formula_descriptor(
         }),
         preset: Some(OfficialStrategyPreset {
             id: PROFILE_IDS[index].to_owned(),
-            name: PROFILE_NAMES[index].to_owned(),
+            name: parameter_label,
             order: u8::try_from(index + 1).expect("five presets fit in u8"),
         }),
         source: Some(OfficialStrategySource {
@@ -381,7 +386,7 @@ fn family_seeds() -> Vec<FamilySeed> {
     use FormulaBlueprint as F;
     vec![
         family("price_sma", "价格与简单均线", "用价格相对长期简单均线的位置控制弹性投入。", "趋势", "均线确认较慢，快速反转时可能延后恢复弹性投入。", OfficialStrategyRisk::Stable, "Meb Faber — A Quantitative Approach to Tactical Asset Allocation", "https://mebfaber.com/white-papers/", "research reference", &["均线", "趋势"], [F::PriceSma { window: 50, severe: -8 }, F::PriceSma { window: 100, severe: -9 }, F::PriceSma { window: 150, severe: -10 }, F::LegacyMa200, F::PriceSma { window: 252, severe: -12 }]),
-        family("price_ema", "价格与指数均线", "用价格相对指数均线的位置更快识别趋势转弱。", "趋势", "指数均线更敏感，也更容易在震荡区间反复切换。", OfficialStrategyRisk::Balanced, "QuantConnect LEAN indicator examples", "https://github.com/QuantConnect/Lean", "Apache-2.0 reference", &["均线", "趋势", "EMA"], [20, 50, 100, 150, 200].map(|window| F::PriceEma { window })),
+        family("price_ema", "价格与指数", "用价格相对指数均线的位置更快识别趋势转弱。", "趋势", "指数均线更敏感，也更容易在震荡区间反复切换。", OfficialStrategyRisk::Balanced, "QuantConnect LEAN indicator examples", "https://github.com/QuantConnect/Lean", "Apache-2.0 reference", &["均线", "趋势", "EMA"], [20, 50, 100, 150, 200].map(|window| F::PriceEma { window })),
         family("sma_cross", "双简单均线确认", "比较快慢两条简单均线，只在中长期方向一致时保留全部弹性额度。", "趋势", "双均线交叉仍是滞后规则，横盘期可能出现来回切换。", OfficialStrategyRisk::Stable, "QuantConnect canonical moving-average cross", "https://github.com/QuantConnect/Lean/blob/master/Algorithm.CSharp/MovingAverageCrossAlgorithm.cs", "Apache-2.0 reference", &["均线交叉", "趋势"], [F::SmaCross { fast: 10, slow: 50 }, F::SmaCross { fast: 20, slow: 50 }, F::SmaCross { fast: 20, slow: 100 }, F::SmaCross { fast: 50, slow: 150 }, F::SmaCross { fast: 50, slow: 200 }]),
         family("ema_cross", "双指数均线确认", "比较快慢两条指数均线，以更灵敏的方式确认趋势方向。", "趋势", "较高灵敏度会增加震荡期的错误切换。", OfficialStrategyRisk::Balanced, "QuantConnect canonical moving-average cross", "https://github.com/QuantConnect/Lean/blob/master/Algorithm.CSharp/MovingAverageCrossAlgorithm.cs", "Apache-2.0 reference", &["均线交叉", "趋势", "EMA"], [F::EmaCross { fast: 8, slow: 21 }, F::EmaCross { fast: 12, slow: 26 }, F::EmaCross { fast: 20, slow: 50 }, F::EmaCross { fast: 30, slow: 90 }, F::EmaCross { fast: 50, slow: 200 }]),
         family("sma_ribbon", "三均线排列", "同时观察短、中、长期简单均线，按趋势破坏程度分档减少弹性投入。", "趋势", "三条均线提高确认要求，也可能更晚识别趋势恢复。", OfficialStrategyRisk::Stable, "TA-Lib overlap studies", "https://ta-lib.org/", "BSD indicator reference", &["均线排列", "趋势"], [F::SmaRibbon { fast: 5, medium: 20, slow: 60 }, F::SmaRibbon { fast: 10, medium: 30, slow: 90 }, F::SmaRibbon { fast: 20, medium: 50, slow: 100 }, F::SmaRibbon { fast: 20, medium: 60, slow: 120 }, F::SmaRibbon { fast: 50, medium: 100, slow: 200 }]),
@@ -433,6 +438,57 @@ fn family(
 }
 
 impl FormulaBlueprint {
+    fn parameter_label(self) -> String {
+        use FormulaBlueprint as F;
+        match self {
+            F::PriceSma { window, .. }
+            | F::PriceEma { window }
+            | F::AbsoluteMomentum { window, .. }
+            | F::ReturnBand { window, .. }
+            | F::RsiHeat { window, .. }
+            | F::PricePercentile { window, .. }
+            | F::VolatilityBrake { window, .. }
+            | F::DrawdownGuard { window, .. }
+            | F::NearHighCooling { window, .. } => format!("{window}日"),
+            F::SmaCross { fast, slow }
+            | F::EmaCross { fast, slow }
+            | F::DualMomentum {
+                short: fast,
+                long: slow,
+            }
+            | F::MomentumAcceleration {
+                short: fast,
+                long: slow,
+                ..
+            }
+            | F::VolatilityExpansion {
+                short: fast,
+                long: slow,
+                ..
+            } => format!("{fast}/{slow}日"),
+            F::SmaRibbon { fast, medium, slow } => format!("{fast}/{medium}/{slow}日"),
+            F::TrendVolatility {
+                trend, volatility, ..
+            } => format!("趋势{trend}日 / 波动{volatility}日"),
+            F::TrendMomentum { trend, momentum } => {
+                format!("趋势{trend}日 / 动量{momentum}日")
+            }
+            F::MomentumVolatility {
+                momentum,
+                volatility,
+                ..
+            } => format!("动量{momentum}日 / 波动{volatility}日"),
+            F::TrendDrawdown {
+                trend, drawdown, ..
+            } => format!("趋势{trend}日 / 回撤{drawdown}日"),
+            F::GrowthVolatility {
+                growth, volatility, ..
+            } => format!("增长{growth}日 / 波动{volatility}日"),
+            F::LegacyMa200 => "200日".to_owned(),
+            F::LegacyGrowthVolatility => "增长126日 / 波动63日".to_owned(),
+        }
+    }
+
     fn build(self, policy: PolicyRef, name: &str) -> Result<StrategySpec, ApiError> {
         use FormulaBlueprint as F;
         let rules = match self {
@@ -885,6 +941,33 @@ mod tests {
                 .len(),
             registry().len()
         );
+    }
+
+    #[test]
+    fn catalog_labels_expose_parameters_instead_of_qualitative_profiles() {
+        let ema20 = registry()
+            .iter()
+            .find(|entry| entry.id == "dsl_price_ema_responsive")
+            .unwrap();
+        assert_eq!(ema20.display_name, "价格与指数（20日）");
+        assert_eq!(ema20.family.as_ref().unwrap().name, "价格与指数");
+        assert_eq!(ema20.preset.as_ref().unwrap().name, "20日");
+
+        let growth = registry()
+            .iter()
+            .find(|entry| entry.id == GROWTH_VOLATILITY_BALANCE_ID)
+            .unwrap();
+        assert_eq!(
+            growth.display_name,
+            "增长与波动平衡（增长126日 / 波动63日）"
+        );
+        assert_eq!(growth.preset.as_ref().unwrap().name, "增长126日 / 波动63日");
+
+        for descriptor in registry().iter().filter(|entry| entry.is_formula()) {
+            let label = &descriptor.preset.as_ref().unwrap().name;
+            assert!(label.chars().any(|character| character.is_ascii_digit()));
+            assert!(!PROFILE_NAMES.contains(&label.as_str()));
+        }
     }
 
     #[test]

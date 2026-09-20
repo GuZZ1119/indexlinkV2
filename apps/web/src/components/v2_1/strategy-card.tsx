@@ -44,7 +44,7 @@ export function StrategyCard({ strategy, analysisHref, onOpenAnalysis, variant =
           <BarChart3 className="size-4" />查看直观分析
         </span>
       </Link>
-      {children ? <div className="border-t border-slate-100 p-5 pt-4">{children}</div> : null}
+      {children ? <div className="flex justify-end border-t border-slate-100 p-5 pt-4">{children}</div> : null}
     </article>
   )
 }

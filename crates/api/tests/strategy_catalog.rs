@@ -206,8 +206,17 @@ async fn consumer_catalog_exposes_grouped_versioned_non_ai_presets() {
         .find(|entry| entry["policy"]["id"] == "dsl_price_sma_responsive")
         .unwrap();
     assert_eq!(generated["validation_mode"], "compiled_formula");
+    assert_eq!(generated["name"], "价格与简单均线（50日）");
+    assert_eq!(generated["preset"]["name"], "50日");
     assert!(generated.get("formula").is_none());
     assert!(generated.get("research").is_none());
+
+    let ema20 = formula_entries
+        .iter()
+        .find(|entry| entry["policy"]["id"] == "dsl_price_ema_responsive")
+        .unwrap();
+    assert_eq!(ema20["name"], "价格与指数（20日）");
+    assert_eq!(ema20["family"]["name"], "价格与指数");
 }
 
 #[tokio::test]

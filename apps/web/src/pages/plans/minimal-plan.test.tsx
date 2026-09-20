@@ -51,7 +51,7 @@ describe('minimal fixed DCA plan setup', () => {
   beforeEach(() => setSelectedPlanId(null))
   afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-  it('requires an explicit strategy choice instead of silently defaulting to DCA', async () => {
+  it('keeps strategy browsing out of My plans and links to the strategy center', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input)
       if (url.endsWith('/investment-plans')) return jsonResponse([])
@@ -60,11 +60,10 @@ describe('minimal fixed DCA plan setup', () => {
     }))
     renderPage()
 
-    expect(await screen.findByRole('heading', { name: '先选择一份策略' })).toBeTruthy()
+    expect((await screen.findByRole('link', { name: '建立新计划' })).getAttribute('href')).toBe('/strategy-center')
     expect(screen.queryByLabelText('投资标的')).toBeNull()
-    fireEvent.click(await screen.findByRole('button', { name: /200 日均线趋势保护/ }))
-    expect(await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })).toBeTruthy()
-    expect(screen.getByLabelText('每期基础预算（USD）')).toBeTruthy()
+    expect(screen.queryByLabelText('选择计划策略')).toBeNull()
+    expect(screen.queryByRole('heading', { name: /建立“/ })).toBeNull()
   })
 
   it('keeps empty, failed, and non-adoptable strategy catalogs explicit', async () => {
@@ -74,8 +73,8 @@ describe('minimal fixed DCA plan setup', () => {
       if (url.endsWith('/strategy-catalog')) return jsonResponse([])
       throw new Error(`unexpected request: ${url}`)
     }))
-    const empty = renderPage()
-    expect(await screen.findByText('当前没有可建立的官方策略。')).toBeTruthy()
+    const empty = renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
+    expect((await screen.findByRole('alert')).textContent).toContain('当前不存在')
     empty.unmount()
 
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
@@ -84,7 +83,7 @@ describe('minimal fixed DCA plan setup', () => {
       if (url.endsWith('/strategy-catalog')) return jsonResponse({ error: { code: 'unavailable', message: 'offline' } }, 503)
       throw new Error(`unexpected request: ${url}`)
     }))
-    const failed = renderPage()
+    const failed = renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
     expect((await screen.findByRole('alert')).textContent).toContain('暂时无法读取策略目录')
     failed.unmount()
 
@@ -97,7 +96,6 @@ describe('minimal fixed DCA plan setup', () => {
     }))
     renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
     expect((await screen.findByRole('alert')).textContent).toContain('没有通过研究准入')
-    expect((screen.getByRole('button', { name: /200 日均线趋势保护/ }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.queryByLabelText('投资标的')).toBeNull()
   })
 
@@ -114,9 +112,8 @@ describe('minimal fixed DCA plan setup', () => {
       if (method === 'POST' && url.includes('/automatic-decision-preview')) return jsonResponse({ record: { id: 'decision-1' } }, 201)
       throw new Error(`unexpected request: ${method} ${url}`)
     }))
-    renderPage()
+    renderPage('/plans?policy_id=fixed_dca&policy_version=1#new-plan')
 
-    fireEvent.click(await screen.findByRole('button', { name: /每月稳步投入/ }))
     fireEvent.change(await screen.findByLabelText('投资标的'), { target: { value: ' voo ' } })
     fireEvent.change(screen.getByLabelText('每期投入金额（USD）'), { target: { value: '800.00' } })
     fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
@@ -141,7 +138,7 @@ describe('minimal fixed DCA plan setup', () => {
     const requests: Array<{ method: string; url: string; body?: Record<string, unknown> }> = []
     const formulaPlan = {
       ...createdPlan,
-      name: 'HK.00700 200 日均线趋势保护',
+      name: 'HK.00700 价格与简单均线（200日）',
       symbol: 'HK.00700',
       currency: 'HKD',
       policy: { id: 'dsl_ma200_trend_guard', version: 1 },
@@ -164,7 +161,7 @@ describe('minimal fixed DCA plan setup', () => {
     }))
     renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
 
-    expect(await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '建立“价格与简单均线（200日）”计划' })).toBeTruthy()
     expect(screen.getByText(/支持 美股、港股、沪市、深市/)).toBeTruthy()
     fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'HK.00700' } })
     expect(screen.getByText(/港股 · HKD.*至少 200 条有效日线/)).toBeTruthy()
@@ -174,7 +171,7 @@ describe('minimal fixed DCA plan setup', () => {
     expect(await screen.findByText('个人中心已打开')).toBeTruthy()
     const create = requests.find((request) => request.method === 'POST' && request.url.endsWith('/investment-plans'))
     expect(create?.body).toMatchObject({
-      name: 'HK.00700 200 日均线趋势保护',
+      name: 'HK.00700 价格与简单均线（200日）',
       symbol: 'HK.00700',
       currency: 'HKD',
       policy: { id: 'dsl_ma200_trend_guard', version: 1 },
@@ -194,7 +191,7 @@ describe('minimal fixed DCA plan setup', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
 
-    await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })
+    await screen.findByRole('heading', { name: '建立“价格与简单均线（200日）”计划' })
     fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'JP.7974' } })
     fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
 
@@ -222,9 +219,8 @@ describe('minimal fixed DCA plan setup', () => {
       }
       throw new Error(`unexpected request: ${method} ${url}`)
     }))
-    renderPage()
+    renderPage('/plans?policy_id=fixed_dca&policy_version=1#new-plan')
 
-    fireEvent.click(await screen.findByRole('button', { name: /每月稳步投入/ }))
     fireEvent.change(await screen.findByLabelText('投资标的'), { target: { value: 'VOO' } })
     fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
     expect((await screen.findByRole('status')).textContent).toContain('计划已经保存')
@@ -248,15 +244,14 @@ describe('minimal fixed DCA plan setup', () => {
       if (method === 'DELETE') return { ...jsonResponse(undefined, 204), json: async () => undefined }
       throw new Error(`unexpected request: ${method} ${url}`)
     }))
-    renderPage()
+    renderPage('/plans?policy_id=fixed_dca&policy_version=1#new-plan')
 
     expect(screen.getByRole('heading', { name: '所有长期计划，都在这里' })).toBeTruthy()
     expect(await screen.findByText('每周 星期三')).toBeTruthy()
-    expect(screen.getByText(/策略：固定定投 · 单次上限/)).toBeTruthy()
+    expect(screen.getByText(/策略：每月稳步投入 · 单次上限/)).toBeTruthy()
     const planHeading = screen.getByRole('heading', { name: '你的长期计划' })
-    const createHeading = screen.getByRole('heading', { name: '先选择一份策略' })
+    const createHeading = await screen.findByRole('heading', { name: '建立“每月稳步投入”计划' })
     expect(planHeading.compareDocumentPosition(createHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /每月稳步投入/ }))
     fireEvent.change(screen.getByLabelText('投入节奏'), { target: { value: 'weekly' } })
     expect(screen.getByLabelText('每周哪天投入')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '暂停' }))
@@ -280,7 +275,7 @@ describe('minimal fixed DCA plan setup', () => {
       if (method === 'POST' && url.endsWith('/investment-plans')) return jsonResponse({ error: { code: 'invalid', message: 'invalid' } }, 400)
       throw new Error(`unexpected request: ${method} ${url}`)
     }))
-    renderPage()
+    renderPage('/plans?policy_id=fixed_dca&policy_version=1#new-plan')
 
     expect(await screen.findByText(`每月 ${createdPlan.schedule_day} 日`)).toBeTruthy()
     expect(screen.getByText('USD unknown')).toBeTruthy()
@@ -293,8 +288,7 @@ describe('minimal fixed DCA plan setup', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(requests.some((request) => request.method === 'DELETE')).toBe(false)
 
-    fireEvent.click(screen.getByRole('button', { name: /每月稳步投入/ }))
-    fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'VOO' } })
+    fireEvent.change(await screen.findByLabelText('投资标的'), { target: { value: 'VOO' } })
     fireEvent.change(screen.getByLabelText('计划名称（可选）'), { target: { value: ' 安稳计划 ' } })
     fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
     expect((await screen.findByRole('alert')).textContent).toContain('计划参数没有通过检查')
@@ -314,7 +308,7 @@ describe('minimal fixed DCA plan setup', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
 
-    await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })
+    await screen.findByRole('heading', { name: '建立“价格与简单均线（200日）”计划' })
     fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'SH.600519' } })
     expect(screen.getByLabelText('每期基础预算（CNY）')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('评估节奏'), { target: { value: 'weekly' } })
@@ -337,7 +331,7 @@ describe('minimal fixed DCA plan setup', () => {
     })
     vi.stubGlobal('fetch', restrictedFetch)
     const restricted = renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
-    await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })
+    await screen.findByRole('heading', { name: '建立“价格与简单均线（200日）”计划' })
     fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'HK.00700' } })
     fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
     expect((await screen.findByRole('alert')).textContent).toContain('暂不支持港股')
@@ -355,7 +349,7 @@ describe('minimal fixed DCA plan setup', () => {
       throw new Error(`unexpected request: ${method} ${url}`)
     }))
     renderPage('/plans?policy_id=dsl_ma200_trend_guard&policy_version=1#new-plan')
-    await screen.findByRole('heading', { name: '建立“200 日均线趋势保护”计划' })
+    await screen.findByRole('heading', { name: '建立“价格与简单均线（200日）”计划' })
     fireEvent.change(screen.getByLabelText('投资标的'), { target: { value: 'US.AAPL' } })
     fireEvent.click(screen.getByRole('button', { name: /建立并查看本期安排/ }))
     expect((await screen.findByRole('alert')).textContent).toContain('没有通过规则的数据检查')
@@ -380,7 +374,7 @@ const fixedCatalogEntry = {
 
 const formulaCatalogEntry = {
   policy: { id: 'dsl_ma200_trend_guard', version: 1 },
-  name: '200 日均线趋势保护',
+  name: '价格与简单均线（200日）',
   summary: '保留固定核心投入，在价格低于 200 日均线时暂停当期弹性投入。',
   rule: '低于均线时弹性桶为 0。',
   limitation: '均线具有滞后性。',
