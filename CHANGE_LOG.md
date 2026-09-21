@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### 2026-09-21 21:18 AEST — 可审计的专业研究公式与资金路径
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：动态回测公开契约、专业研究信息架构、风险与资金可视化、API 文档、聚焦测试与计划同步。
+- 涉及文件：`crates/strategy-evaluation/src/{lib.rs,dynamic_backtest.rs}`、`crates/api/tests/strategy_backtests.rs`、`apps/web/src/{api/types.ts,stores/ui.ts,pages/{strategy-analysis/index.tsx,strategy-analysis/research-view.tsx,strategy-analysis/research-chart-options.ts,strategy-analysis/interactive-chart.tsx,strategy-analysis/market-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：`POST /strategy-backtests` 的每条 series 新增逐日峰值相对回撤、最大回撤峰值/低点/恢复日、区间日数、日收益样本数、平均日收益、样本标准差、下行偏差、年化常量、累计模拟成本、规则命中/标准执行次数；每个 execution point 冻结本期预算、核心投入、机会投入、未投入现金和交易成本。专业研究以真实指标表为入口，点击任一指标可查看公式、口径和每条策略的本次代入值；新增资金与执行事实表、可缩放回撤图和每期资金堆叠图，所有结果来自同一次真实 API 响应，不在浏览器生成第二套收益结论。最大回撤以负百分比展示损失方向，Fixed DCA 的规则命中明确为 0，5 bps 成本从模拟买入现金支出中扣除后再换算资产单位。
+- 技能影响：`frontend-design` 用于保持现有低饱和层级，让指标表承担导航、公式面板承担解释、图表只展示路径；`vercel-react-best-practices` 用于把图表 option 纯函数化并用 `useMemo` 避免无关重算，React Query 继续管理服务端回测数据、Valtio 只保存当前指标与资金拆分策略；`browser:control-in-app-browser` 用于真实 OpenD 页面验证公式切换、布局、两张交互图和控制台状态。
+- 验证：`cargo test -p core-domain`（13 项）、`cargo test -p strategy-evaluation`（22 项）、`cargo test -p indexlink-api --test strategy_backtests`（5 项）、`cargo clippy -p strategy-evaluation -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（59 项；Statements 94.56%、Branches 91.02%、Functions 95.37%、Lines 96.73%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；浏览器确认真实 US.SPY OpenD 回测可切换年化收益公式并显示 `1093` 天和 `365.25` 的代入过程，回撤路径、峰谷恢复日、37 期资金拆分均正常，页面无 section 横向溢出，控制台无 error/warning。生产构建仅保留既有 ECharts 路由 chunk 超过 500 kB 的体积提示。
+
+### 2026-09-21 17:24 AEST — 回测图悬浮与规则触发点修正
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：图表交互修复、动态回测公开契约、策略信号表达、聚焦测试与文档同步。
+- 涉及文件：`crates/strategy-evaluation/src/dynamic_backtest.rs`、`crates/api/tests/strategy_backtests.rs`、`apps/web/src/{api/types.ts,pages/{strategy-analysis/index.tsx,strategy-analysis/chart-options.ts,strategy-analysis/market-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：净值曲线为 ECharts 悬浮态显式继承策略色，避免进入 emphasis 后 SVG 折线丢失 `stroke`、只剩活动点；动态回测的每个 `execution_point` 新增 `strategy_rule_matched`，保留全部共同计划日记录的同时标明 Formula 是否真正命中规则。价格图将 Formula 规则命中点同时叠加到复权价格线和下方策略轨道，Fixed DCA 仍展示全部计划日；上下网格统一时间轴宽度，不再把每个公共评估日误画成每条 Formula 的独有信号。
+- 技能影响：`frontend-design` 用于复用既有低饱和策略色与形状编码，把唯一视觉重点放在价格线上的真实规则触发点；`browser:control-in-app-browser` 用于真实页面复现并验证悬浮折线、价格线标记、分策略触发日期和上下时间轴对齐。
+- 验证：`cargo test -p strategy-evaluation`（21 项）、`cargo test -p indexlink-api --test strategy_backtests`（5 项）、`cargo test -p core-domain`（13 项）、`cargo clippy -p strategy-evaluation -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、前端聚焦测试（26 项）、`pnpm --dir apps/web test:coverage`（Statements 94.61%、Branches 90.59%、Functions 95.49%、Lines 96.76%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；浏览器确认悬浮时折线路径颜色仍保留，三条 Formula 在价格线与各自轨道分别显示 9/10/15 个规则触发点，两个区域日期一一对应。生产构建仅保留既有策略分析 chunk 超过 500 kB 的体积提示。
+
+### 2026-09-21 16:51 AEST — 可缩放回测曲线与分策略执行轨道
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略分析交互图表、买点信息表达、前端依赖与聚焦测试。
+- 涉及文件：`apps/web/{package.json,pnpm-lock.yaml,vitest.config.ts}`、`apps/web/src/pages/strategy-analysis/{index.tsx,chart-options.ts,interactive-chart.tsx,market-execution.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：策略分析的净值曲线和真实价格/执行图由静态 Recharts 展示改为按需路由内的 Apache ECharts SVG 图表，统一提供鼠标滚轮缩放、拖动平移与底部时间滑块；真实价格与策略动作图改成上下联动布局，每个策略独占执行轨道，并使用固定大小、不同形状和既有策略色的标记，不再用圆点面积表达投入金额。悬停只展示当前价格点或当前模拟投入点，金额与本期预算使用比例保留在单点提示中；同日多策略通过独立轨道和共享时间指示线区分。保持 `POST /strategy-backtests`、React Query 缓存和真实行情 checksum 不变，没有增加第二次行情请求。
+- 技能影响：`frontend-design` 用于把唯一视觉重点放在“价格走势＋执行轨道”的时间关系上，删除模糊的点面积编码并保持现有低饱和视觉；`vercel-react-best-practices` 用于将 ECharts 注册、生命周期和 resize 隔离到单一组件，用 memo 化纯 option 构造避免无关重绘，并保持图表依赖只进入策略分析路由 chunk；`browser:control-in-app-browser` 用于在真实本地 API 页面核验价格曲线、执行轨道、单点 Tooltip、滚轮事件接管和控制台错误。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（58 项；Statements 94.54%、Branches 90.56%、Functions 95.39%、Lines 96.72%）、`pnpm --dir apps/web build`、`cargo test -p core-domain` 与 `git diff --check` 通过；真实浏览器核验确认图表 SVG 正常渲染、滚轮缩放不会带动页面滚动、单点 Tooltip 不再展开整条轨道，控制台无 error/warning。生产构建保留策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-21 09:35 AEST — 真实股价走势与策略模拟投入点
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：动态回测公开契约、策略执行快照、直观分析图表、API 文档、计划状态与聚焦测试。
+- 涉及文件：`crates/strategy-evaluation/src/{lib.rs,dynamic_backtest.rs}`、`crates/api/tests/strategy_backtests.rs`、`apps/web/src/{api/types.ts,pages/{strategy-analysis/index.tsx,strategy-analysis/market-execution-model.ts,strategy-analysis/market-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/{PLAN.md,vitest.config.ts}`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：`POST /strategy-backtests` 在原有归一化净值与专业指标之外，新增同一共同有效窗口内的 `market_points` 复权收盘价，以及每个策略的 `execution_points`；每个模拟投入点冻结日期、成交使用的复权收盘价、投入金额和本期预算使用比例，继续遵守此前收盘证据、共同计划日、5 bps 成本与单期预算边界。直观视角新增“标的走势与模拟投入点”图，与净值图共享同一次 React Query 响应和数据 checksum，不发起第二次行情请求；同日多策略点横向轻微错开，点大小表达预算使用率，Tooltip 展示策略、金额与比例，并明确这些是历史规则执行结果而非最佳买点预测。同步把投入点数据组装拆为独立纯函数，补齐无投入日、窗口外记录、同日多策略、极端点大小和 Tooltip 空/有数据态测试。
+- 技能影响：`frontend-design` 用于将真实价格线保持为安静底图，仅用现有策略色强调模拟投入动作，并以原位说明代替新增复杂控件；`vercel-react-best-practices` 用于复用单一服务端响应、以 `useMemo` 派生图表数据，并把纯数据组装从页面组件中分离以保持 Fast Refresh 边界。
+- 验证：`cargo test -p strategy-evaluation`（21 项）、`cargo test -p indexlink-api --test strategy_backtests`（5 项）、`cargo test -p core-domain`（13 项）、`cargo clippy -p strategy-evaluation -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（58 项；Statements 93.94%、Branches 90.23%、Functions 93.63%、Lines 95.97%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-20 22:15 AEST — 回测净值轴解释与重合曲线显式化
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略分析可解释性、重合曲线可视化、行情依赖失败态与前端聚焦测试。
+- 涉及文件：`apps/web/src/pages/{strategy-analysis/index.tsx,v2_1-shell.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：将直观回测主图明确命名为“策略净值指数（起点 = 100）”，在 Y 轴、Tooltip 和图上说明中统一解释 100/110/95 的含义，说明该指标不是股价或账户金额，而是在剔除新增投入影响后连接“持仓市值 + 未投入现金”每日变化形成的时间加权净值。新增归一化序列重合检测：当两条完整日线的净值指数差不超过 0.01 时，后绘制曲线改用虚线露出下方实线，并列出重合策略与原因，避免被误认为策略未返回。数据来源条将 `opend` 明确显示为“本机 OpenD”，披露真实回测需要可用行情源或精确缓存；503 失败态改为明确的数据连接说明并提供高级实验室入口，仍不回退演示曲线。
+- 技能影响：`frontend-design` 用于把净值读法设为页面唯一教学重点，以低饱和说明条和虚实线差异解决重合问题，不增加新的大卡片层级。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（55 项）、`pnpm --dir apps/web test:coverage`（Statements 93.80%、Branches 90.40%、Functions 93.75%、Lines 95.97%）、`pnpm --dir apps/web build`、`cargo test -p core-domain` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
 ### 2026-09-20 20:30 AEST — 参数化命名与计划入口收口
 
 - 执行模型：GPT-5 Codex。

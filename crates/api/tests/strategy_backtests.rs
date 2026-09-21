@@ -114,10 +114,35 @@ async fn all_documented_ranges_return_provenance_and_real_series() {
         assert_eq!(body["data"]["dataset_version"], "fixture-v1");
         assert_eq!(body["data"]["checksum"].as_str().unwrap().len(), 64);
         assert_eq!(body["result"]["symbol"], "US.SPY");
+        assert!(body["result"]["market_points"]
+            .as_array()
+            .is_some_and(|points| !points.is_empty()));
         assert_eq!(body["result"]["series"][0]["strategy_id"], "fixed_dca");
         assert!(body["result"]["series"][0]["normalized_points"]
             .as_array()
             .is_some_and(|points| !points.is_empty()));
+        let executions = body["result"]["series"][0]["execution_points"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            executions.len() as u64,
+            body["result"]["contribution_count"].as_u64().unwrap()
+        );
+        assert_eq!(executions[0]["invested_amount"], 1_000.0);
+        assert_eq!(executions[0]["budget_utilisation_percent"], 100.0);
+        assert_eq!(executions[0]["scheduled_contribution_amount"], 1_000.0);
+        assert_eq!(executions[0]["core_invested_amount"], 1_000.0);
+        assert_eq!(executions[0]["opportunity_invested_amount"], 0.0);
+        assert_eq!(executions[0]["unallocated_amount"], 0.0);
+        assert!(executions[0]["transaction_cost"].as_f64().unwrap() > 0.0);
+        assert_eq!(executions[0]["strategy_rule_matched"], false);
+        assert!(body["result"]["series"][0]["drawdown_points"]
+            .as_array()
+            .is_some_and(|points| !points.is_empty()));
+        assert_eq!(
+            body["result"]["series"][0]["calculation_details"]["buy_cost_bps"],
+            5.0
+        );
     }
 }
 

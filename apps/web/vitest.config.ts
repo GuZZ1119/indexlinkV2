@@ -25,6 +25,8 @@ export default defineConfig({
         'src/pages/plans/index.tsx',
         'src/pages/strategy-center/index.tsx',
         'src/pages/strategy-analysis/index.tsx',
+        'src/pages/strategy-analysis/chart-options.ts',
+        'src/pages/strategy-analysis/market-execution-model.ts',
         'src/pages/lab/index.tsx',
       ],
       thresholds: { lines: 90, functions: 90, statements: 90, branches: 90 },

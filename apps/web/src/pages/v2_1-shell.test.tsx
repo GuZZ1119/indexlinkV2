@@ -144,6 +144,14 @@ describe('V2.1 consumer shell', () => {
     renderPage(<StrategyAnalysisPage />)
     expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
     expect(screen.queryByText('演示数据 · 非真实回测')).toBeNull()
+    expect(screen.getByRole('heading', { name: '策略净值指数（起点 = 100）' })).toBeTruthy()
+    expect(screen.getByLabelText('策略净值指数说明').textContent).toContain('它不是股价，也不是账户金额')
+    expect(screen.getByLabelText('重合曲线说明').textContent).toContain('不是策略缺失')
+    expect(screen.getByText(/本机 OpenD \/ history-kline-v10/)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'US.SPY 走势与规则触发点' })).toBeTruthy()
+    expect(screen.getByText(/不是预测出的最佳买点/)).toBeTruthy()
+    expect(screen.getByLabelText('US.SPY复权收盘价与各策略规则触发点')).toBeTruthy()
+    expect(screen.getByText(/悬停可查看触发日的模拟投入金额/)).toBeTruthy()
     fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_ma200_trend_guard' } })
     await waitFor(() => expect(screen.getByRole('button', { name: '移除价格与简单均线（200日）' }).getAttribute('aria-pressed')).toBe('true'))
     expect(screen.getByRole('button', { name: '移除每月稳步投入' }).getAttribute('aria-pressed')).toBe('true')
@@ -156,6 +164,16 @@ describe('V2.1 consumer shell', () => {
     const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
     expect(submitted.strategy_ids).toEqual(['fixed_dca', 'dsl_ma200_trend_guard'])
     expect(submitted.range).toBe('6m')
+  })
+
+  it('does not report distinct normalized paths as overlapping', async () => {
+    const backtest = strategyBacktest(['fixed_dca', 'dsl_ma200_trend_guard'])
+    backtest.result.series[1].normalized_points[1].value = 104.6
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : backtest))))
+    renderPage(<StrategyAnalysisPage />)
+
+    expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
+    expect(screen.queryByLabelText('重合曲线说明')).toBeNull()
   })
 
   it('opens the requested catalog strategy in the plain analysis view', async () => {
@@ -236,16 +254,26 @@ describe('V2.1 consumer shell', () => {
     renderPage(<StrategyAnalysisPage />)
     fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
     expect(await screen.findByLabelText('真实专业回测指标')).toBeTruthy()
-    expect(screen.getByText('+8.2%')).toBeTruthy()
+    expect(screen.getAllByText('+8.2%').length).toBeGreaterThan(0)
     expect(screen.getByText('-18.4%')).toBeTruthy()
-    expect(screen.getByText(/每条策略均投入 12 次/)).toBeTruthy()
+    expect(screen.getByText(/每条策略均评估 12 个计划日/)).toBeTruthy()
+    expect(screen.getByLabelText('区间收益计算公式').textContent).toContain('NAV')
+    fireEvent.click(screen.getByRole('button', { name: '年化收益' }))
+    expect((await screen.findByLabelText('年化收益计算公式')).textContent).toContain('365.25')
+    expect(screen.getByRole('heading', { name: '资金与执行事实' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '回撤发生在什么时候' })).toBeTruthy()
+    expect(screen.getByLabelText('策略每日回撤曲线')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '每期资金去了哪里' })).toBeTruthy()
+    expect(screen.getByLabelText('每月稳步投入每期核心、机会和未投入资金')).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('never replaces an unavailable provider with a demo chart', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ error: { code: 'service_unavailable', message: 'offline' } }, false)))
     renderPage(<StrategyAnalysisPage />)
-    expect(await screen.findByText('真实行情暂不可用')).toBeTruthy()
+    expect(await screen.findByText('真实行情源未连接')).toBeTruthy()
+    expect(screen.getByText(/需要本机 OpenD/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: '前往高级实验室查看数据连接' }).getAttribute('href')).toBe('/lab')
     expect(screen.queryByText('真实归一化走势')).toBeNull()
   })
 
@@ -258,7 +286,7 @@ describe('V2.1 consumer shell', () => {
     renderPage(<StrategyAnalysisPage />)
     expect(await screen.findByText('这次回测无法完成')).toBeTruthy()
     expect(screen.getByText(/请检查市场前缀、标的代码/)).toBeTruthy()
-    expect(screen.queryByText('真实行情暂不可用')).toBeNull()
+    expect(screen.queryByText('真实行情源未连接')).toBeNull()
   })
 
   it('opens and closes a local configuration preview without claiming to connect anything', () => {
@@ -398,11 +426,14 @@ function strategyBacktest(strategyIds: string[]) {
     },
     result: {
       symbol: 'US.SPY', effective_start: '2023-09-18', effective_end: '2026-09-18', contribution_count: 12,
+      market_points: [{ date: '2023-09-18', adjusted_close: 100 }, { date: '2026-09-18', adjusted_close: 118.2 }],
       series: strategyIds.map((strategyId) => ({
         strategy_id: strategyId,
         strategy_version: 1,
         strategy_name: strategyId,
         normalized_points: [{ date: '2023-09-18', value: 100 }, { date: '2026-09-18', value: 108.2 }],
+        execution_points: [{ date: '2023-09-18', adjusted_close: 100, invested_amount: strategyId === 'fixed_dca' ? 1000 : 700, budget_utilisation_percent: strategyId === 'fixed_dca' ? 100 : 70, scheduled_contribution_amount: 1000, core_invested_amount: strategyId === 'fixed_dca' ? 1000 : 700, opportunity_invested_amount: 0, unallocated_amount: strategyId === 'fixed_dca' ? 0 : 300, transaction_cost: strategyId === 'fixed_dca' ? 0.5 : 0.35, strategy_rule_matched: strategyId !== 'fixed_dca' }],
+        drawdown_points: [{ date: '2023-09-18', value_percent: 0 }, { date: '2026-09-18', value_percent: -4.2 }],
         metrics: {
           total_return_percent: 8.2,
           annualized_return_percent: 2.66,
@@ -415,6 +446,22 @@ function strategyBacktest(strategyIds: string[]) {
           cash_utilisation_percent: 100,
           terminal_wealth: 12984,
           terminal_cash: 0,
+        },
+        calculation_details: {
+          elapsed_days: 1096,
+          daily_return_count: 751,
+          mean_daily_return_percent: 0.03,
+          daily_standard_deviation_percent: 0.8,
+          downside_deviation_percent: 0.5,
+          drawdown_peak_date: '2025-02-19',
+          drawdown_trough_date: '2025-04-08',
+          drawdown_recovery_date: '2025-06-27',
+          total_transaction_cost: strategyId === 'fixed_dca' ? 6 : 4.2,
+          rule_matched_count: strategyId === 'fixed_dca' ? 0 : 1,
+          standard_execution_count: strategyId === 'fixed_dca' ? 1 : 0,
+          trading_periods_per_year: 252,
+          calendar_days_per_year: 365.25,
+          buy_cost_bps: 5,
         },
       })),
     },

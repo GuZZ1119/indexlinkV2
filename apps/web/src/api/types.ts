@@ -237,6 +237,48 @@ export interface NormalizedBacktestPoint {
   value: number
 }
 
+/** One provider-supplied adjusted close inside the common visible backtest window. */
+export interface BacktestMarketPoint {
+  date: string
+  adjusted_close: number
+}
+
+/** One scheduled simulated purchase produced by an immutable strategy version. */
+export interface BacktestExecutionPoint {
+  date: string
+  adjusted_close: number
+  invested_amount: number
+  budget_utilisation_percent: number
+  scheduled_contribution_amount: number
+  core_invested_amount: number
+  opportunity_invested_amount: number
+  unallocated_amount: number
+  transaction_cost: number
+  strategy_rule_matched: boolean
+}
+
+export interface BacktestDrawdownPoint {
+  date: string
+  value_percent: number
+}
+
+export interface BacktestCalculationDetails {
+  elapsed_days: number
+  daily_return_count: number
+  mean_daily_return_percent?: number
+  daily_standard_deviation_percent?: number
+  downside_deviation_percent?: number
+  drawdown_peak_date?: string
+  drawdown_trough_date?: string
+  drawdown_recovery_date?: string
+  total_transaction_cost: number
+  rule_matched_count: number
+  standard_execution_count: number
+  trading_periods_per_year: number
+  calendar_days_per_year: number
+  buy_cost_bps: number
+}
+
 /** Professional metrics calculated from the same trajectory shown in the chart. */
 export interface DynamicBacktestMetrics {
   total_return_percent: number
@@ -258,7 +300,10 @@ export interface DynamicBacktestSeries {
   strategy_version: number
   strategy_name: string
   normalized_points: NormalizedBacktestPoint[]
+  execution_points: BacktestExecutionPoint[]
+  drawdown_points: BacktestDrawdownPoint[]
   metrics: DynamicBacktestMetrics
+  calculation_details: BacktestCalculationDetails
 }
 
 /** Real backend response used by both the intuitive and professional views. */
@@ -270,6 +315,7 @@ export interface StrategyBacktestResponse {
     effective_start: string
     effective_end: string
     contribution_count: number
+    market_points: BacktestMarketPoint[]
     series: DynamicBacktestSeries[]
   }
 }

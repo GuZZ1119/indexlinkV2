@@ -10,8 +10,10 @@
 mod dynamic_backtest;
 
 pub use dynamic_backtest::{
-    run_dynamic_backtest, BacktestMetrics, BacktestPrice, BacktestSeries, BacktestStrategy,
-    DynamicBacktestError, DynamicBacktestRequest, DynamicBacktestResult, NormalizedBacktestPoint,
+    run_dynamic_backtest, BacktestCalculationDetails, BacktestDrawdownPoint,
+    BacktestExecutionPoint, BacktestMarketPoint, BacktestMetrics, BacktestPrice, BacktestSeries,
+    BacktestStrategy, DynamicBacktestError, DynamicBacktestRequest, DynamicBacktestResult,
+    NormalizedBacktestPoint,
 };
 
 use std::collections::{BTreeMap, BTreeSet};

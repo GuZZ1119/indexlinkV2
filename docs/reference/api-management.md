@@ -173,7 +173,7 @@ Formula 条目通过 `family`、`preset`、`tags` 与 `source` 提供分组、�
 
 在一个用户选择的标的上，以相同日线快照、显示区间、月度投入日、外部现金流、5 bps 买入成本和成交时点比较 1–3 个官方策略。该接口读取配置到 `ApiState` 的通用 `HistoricalPriceProvider`，再调用无 IO 的生产 Formula V1 回测 runtime；它不读取旧 `historical-backtest`，也不调用 broker 或自动下单。
 
-请求中的 `symbol` 接受 `US.SPY`、`HK.00700`、`SH.600519`、`SZ.000001`；无前缀符号兼容解释为美股。`range` 只接受 `1m`、`3m`、`6m`、`1y`、`3y`、`5y`、`all`。`monthly_day` 限制为 1–28，避免不同月份没有该日；`strategy_ids` 只接受 `fixed_dca`、`dsl_ma200_trend_guard`、`dsl_growth_volatility_balance`，不得重复且最多三条。金额使用十进制字符串，禁止 0 或负数，并以响应 `data.currency` 所示的标的交易币种解释。
+请求中的 `symbol` 接受 `US.SPY`、`HK.00700`、`SH.600519`、`SZ.000001`；无前缀符号兼容解释为美股。`range` 只接受 `1m`、`3m`、`6m`、`1y`、`3y`、`5y`、`all`。`monthly_day` 限制为 1–28，避免不同月份没有该日；`strategy_ids` 接受当前官方目录中的不可变策略 ID，不得重复且最多三条。金额使用十进制字符串，禁止 0 或负数，并以响应 `data.currency` 所示的标的交易币种解释。
 
 ```json
 {
@@ -190,9 +190,25 @@ Formula 条目通过 `family`、`preset`、`tags` 与 `source` 提供分组、�
 - `data`：provider、market、instrument type、currency、timezone、adjustment、导入时间、请求起止日、dataset version 与 SHA-256 checksum；美股请求 `all` 复权，港股/A 股请求前复权，实际能力仍由所配置 provider 明确决定；
 - `result.effective_start/effective_end`：所有策略均有完整因果预热后的共同有效窗口；
 - `result.contribution_count`：每个策略完全相同的外部投入次数；
-- `result.series[]`：不可变策略 ID/version/name、服务端生成的每日归一化轨迹和同一轨迹的专业指标。
+- `result.market_points[]`：共同有效窗口内、来自同一数据快照的每日 `date` 与 `adjusted_close`；它用于把策略结果放回真实标的走势中解释，不是第二次行情请求；
+- `result.series[]`：不可变策略 ID/version/name、服务端生成的每日归一化轨迹、专业指标、逐日回撤和模拟资金账本；
+- `result.series[].execution_points[]`：每个共同计划日的 `date`、模拟成交使用的 `adjusted_close`、`scheduled_contribution_amount`、`core_invested_amount`、`opportunity_invested_amount`、`unallocated_amount`、`transaction_cost`、包含成本在内的模拟买入现金支出 `invested_amount`、`budget_utilisation_percent` 与 `strategy_rule_matched`。最后一个字段只在 Formula 的某条规则实际命中并改变机会桶决策时为 `true`；Fixed DCA 与沿用标准机会额度的 Formula 周期均为 `false`。这些点是历史规则执行结果，不声称是最佳买点，也不会提交订单；核心、机会和未投入金额之和等于本期外部投入，模拟买入现金支出中的交易成本不转换为资产单位；
+- `result.series[].drawdown_points[]`：从同一条时间加权净值轨迹逐日计算的峰值相对回撤。历史新高为 `0`，回撤期为负百分比；
+- `result.series[].calculation_details`：专业指标的可审计中间量与假设，包括区间日数、日收益样本数、平均日收益、样本标准差、下行偏差、最大回撤峰值/低点/恢复日期、累计模拟成本、规则命中/标准执行次数，以及 `252` 个交易日、`365.25` 个日历日和 `5 bps` 成本常量。
 
-Fixed DCA 与 Formula 使用同一份数据和现金流。Formula 在模拟成交日只能读取此前已完成的收盘价；接口为滚动指标额外请求预热数据，但归一化图表仍从用户请求的显示区间和所有策略共同有效日开始。`all` 表示当前 provider 在安全请求边界内返回的全部可用历史，不承诺供应商上市前数据或已退市证券连续性。
+专业指标统一从本响应内的同一条轨迹与资金账本计算：
+
+- 区间收益：`NAV_end / NAV_start - 1`；`normalized_points` 是剔除外部现金流影响后、共同起点归一为 `100` 的时间加权净值，不是股价或账户金额；
+- 年化收益：`(NAV_end / NAV_start)^(365.25 / elapsed_days) - 1`；
+- XIRR：将各次外部投入作为负现金流、期末总资产作为正现金流，求解 `Σ CF_i / (1+r)^(days_i/365.25) = 0`；
+- 最大回撤：逐日计算 `(当日净值 / 历史峰值) - 1` 后取绝对幅度最大的下降；接口指标返回正的损失幅度，`drawdown_points` 用负值展示路径；
+- 年化波动：日时间加权收益的样本标准差乘 `sqrt(252)`；
+- Sortino：平均日收益除以零目标收益下的日度下行偏差，再乘 `sqrt(252)`；
+- 现金使用率：累计模拟买入金额除以累计外部投入。
+
+前端“专业研究”只呈现这些 API 值及其代入过程，不在浏览器重新推导一套结论。更换标的、区间、策略版本、数据修订或回测假设都会改变结果；短区间年化值尤其可能被放大。
+
+Fixed DCA 与 Formula 使用同一份数据和现金流。Formula 在模拟成交日只能读取此前已完成的收盘价；接口为滚动指标额外请求预热数据，但归一化图表、`market_points` 和所有 `execution_points` 仍从用户请求的显示区间和所有策略共同有效日开始。`all` 表示当前 provider 在安全请求边界内返回的全部可用历史，不承诺供应商上市前数据或已退市证券连续性。
 
 非法 JSON、范围、symbol、金额、日期、重复/过多/未知策略以及历史不足返回既有 `400 bad_request`；未配置历史行情 provider、供应商认证/限流/网络故障、本地快照冲突或损坏、内部确定性计算失败返回既有 `503 service_unavailable`。响应不包含 provider 凭据、账户信息或底层错误正文。
 

@@ -74,7 +74,7 @@ V2.1 的发布承诺是：
 | 我的计划 | 查看、创建、选择、暂停、继续和删除真实计划；常驻新建入口跳转策略中心，精确选中策略后才返回显示配置表 | 已完成；已移除重复策略卡、symbol/币种硬编码并加入 Formula 预检 |
 | 手工执行 journal | append-only SQLite/API/前端闭环；同一建议只允许一个最终结果 | 已完成 |
 | 官方策略目录 | Fixed DCA 与 20 家族 × 5 Formula 预设均来自 `GET /strategy-catalog`；家族、参数档、标签、来源与校验等级由服务端提供 | 已完成；前端按家族浏览，DSL 不作为普通入口 |
-| 策略分析 | `POST /strategy-backtests` 返回 US/HK/SH/SZ 自选标的真实轨迹、指标与来源，支持 1m/3m/6m/1y/3y/5y/all | 已完成；无数据时明确失败 |
+| 策略分析 | `POST /strategy-backtests` 返回 US/HK/SH/SZ 自选标的真实轨迹、指标、完整模拟执行记录、Formula 规则命中标记与来源，支持 1m/3m/6m/1y/3y/5y/all | 已完成；净值图、标的走势/规则触发点、逐日回撤、资金拆分和公式代入值共享同一响应，无数据时明确失败 |
 | 市场数据与 Formula 决策 | Formula 运行只读取价格历史；OpenD 日线 adapter、本地 canonical store 与创建前数据充足性校验已存在 | 已完成；provider 不可用、历史不足或过期时创建失败且不落半成品计划 |
 | 可选能力隔离 | OpenD 行情、OpenD paper broker、AI 独立报告；失败不阻塞 SQLite 核心 | 已完成 |
 | PostgreSQL | 默认 feature graph 已移除，显式 feature 仍可用 | 已完成 |
@@ -197,6 +197,7 @@ strategy_version + dataset_version + assumptions_version → BacktestResult
 - 同一比较必须共享标的、现金流、成本、成交时点、因果 cutoff 和数据集。
 - Fixed DCA 是同口径基线。
 - 前端不得自行生成或硬编码收益、回撤、波动率等真实结论。
+- 专业研究必须同时公开公式口径、API 返回的中间量与本次代入结果；回撤路径和每期资金拆分必须由服务端同一模拟账本返回，浏览器只负责解释与可视化。
 
 ### 执行
 

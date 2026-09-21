@@ -13,7 +13,7 @@ Web 的默认入口是本地优先的消费级外壳：个人中心、我的计�
 | 个人中心 / Personal | 从真实计划读取本期建议，理解策略方法、基础预算和下一评估日，手工确认已执行或跳过 | React Query 读取 `/investment-plans`、plan decisions 与 `GET/POST /decisions/:id/manual-executions`；一条 `due` 建议只能确认一次，不自动下单、不覆盖原建议 |
 | 我的计划 / My Plans | 查看、选择、暂停、继续或删除已建立计划；常驻“建立新计划”入口统一跳转策略中心，只有带精确 `policy_id` / `policy_version` 返回时才显示所选策略的配置表 | `/plans` 读取 `/strategy-catalog` 与真实 plan API；不再重复平铺策略目录。策略版本和用户参数冻结到计划，并接受 US/HK/SH/SZ 中可解析且满足数据要求的股票/ETF |
 | 策略中心 / Strategy Center | 以 Fixed DCA 为基准，按方法家族理解 100 个不可变 Formula 参数预设，搜索、筛选、分析并采用精确版本 | `/strategy-center` 读取 `GET /strategy-catalog`，按 `family` 聚合为 20 个入口、在家族内用实际观察天数选择 `preset`；自适应 70/20/10 暂不进入普通入口，不把受限 DSL 暴露为用户概念 |
-| 策略分析 / Strategy Analysis | 在同一自选标的、同一时间范围和同一现金流口径下比较官方策略 | `POST /strategy-backtests` 返回真实行情、归一化轨迹、专业指标和来源元数据；支持 US/HK/SH/SZ 以及 1m/3m/6m/1y/3y/5y/all，无行情时明确失败，不生成演示曲线 |
+| 策略分析 / Strategy Analysis | 在同一自选标的、同一时间范围和同一现金流口径下比较官方策略 | `POST /strategy-backtests` 返回真实行情、归一化轨迹、专业指标、完整模拟执行记录、Formula 规则命中标记和来源元数据；支持 US/HK/SH/SZ 以及 1m/3m/6m/1y/3y/5y/all，无行情时明确失败，不生成演示曲线 |
 | 高级实验室 / Advanced Lab | 查看本地能力状态，按需配置 OpenD/Qwen 或运行兼容实验 | 可选能力失败不得影响 Plan、Decision 与 Audit；旧 MA200 回放只可手动触发；不保存密钥、不自动下单 |
 
 ## 页面与契约 / Pages and contracts
@@ -23,7 +23,7 @@ Web 的默认入口是本地优先的消费级外壳：个人中心、我的计�
 | 我的计划 / Plans | 已有计划列表、常驻策略中心入口、所选策略配置、创建/暂停/继续/删除和创建后建议准备；不在本页重复展示 100 个策略，已补齐 canonical symbol、服务端市场/币种推导和 Formula 创建前历史数据预检 | `GET /strategy-catalog`, `GET/POST/PATCH/DELETE /investment-plans`, `POST /investment-plans/:id/automatic-decision-preview` |
 | 个人中心 / Personal | 展示当前计划、本期建议、策略方法、预算边界、下一评估日期和 append-only 执行历史 | `/investment-plans`, `/investment-plans/:id/decisions`, `/decisions/:id/manual-executions` |
 | 策略中心 / Strategy Center | 一个 Fixed DCA 基准和 20 家族 × 5 参数档均由服务端目录驱动；前端不平铺 100 张卡，只有可采用的精确版本可以分析或建立计划 | `GET /strategy-catalog` |
-| 策略分析 / Strategy Analysis | 选择任意可解析的受支持市场标的、1–3 条官方策略和七档时间范围；直观图与专业指标共享同一次真实响应 | `POST /strategy-backtests`；服务端数据用 React Query，筛选与视角用 Valtio |
+| 策略分析 / Strategy Analysis | 选择任意可解析的受支持市场标的、1–3 条官方策略和七档时间范围；净值图、标的走势/规则触发点图与专业指标共享同一次真实响应 | `POST /strategy-backtests`；服务端数据用 React Query，筛选与视角用 Valtio |
 | 决策详情 / Decisions | 同时展示不可变原建议、理由和用户报告的执行流水 | `/decisions`, `/decisions/:id/manual-executions` |
 
 ## 动态标的收口 / Dynamic instrument closeout
@@ -56,6 +56,7 @@ V2.1 不再用 `SPY / VOO / QQQ` 静态数组决定策略能否创建。统一�
 - [x] 真实 Plan、Decision、manual execution journal 与 Audit 前端闭环。
 - [x] 官方策略目录、20 家族 × 5 不可变 Formula 预设，以及按家族浏览、搜索和精确版本采用入口。
 - [x] US/HK/SH/SZ 自选标的真实回测与七档时间范围。
+- [x] 专业研究直接展示 API 返回的公式代入值、资金账本、逐日回撤路径、峰值/低点/恢复日期与每期核心/机会/未投入资金拆分。
 - [x] 个人中心展示策略方法、基础预算和下一评估日。
 - [x] 删除策略目录、计划创建和前端中的静态 symbol 白名单。
 - [x] 由服务端规范化标的并确定市场/币种；前端不再固定显示 USD。

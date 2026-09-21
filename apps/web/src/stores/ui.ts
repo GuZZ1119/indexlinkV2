@@ -3,6 +3,8 @@ import { proxy } from 'valtio'
 import type { StrategyId } from '@/features/v2_1/model'
 import type { StrategyBacktestRange, StrategyBacktestRequest } from '@/api/types'
 
+export type ResearchMetricKey = 'total_return_percent' | 'annualized_return_percent' | 'xirr_percent' | 'maximum_drawdown_percent' | 'annualized_volatility_percent' | 'sortino_ratio' | 'cash_utilisation_percent'
+
 /** Browser-only UI state; server data remains in React Query. */
 export const uiStore = proxy<{ selectedPlanId: string | null; activeStrategyId: StrategyId }>({
   selectedPlanId: null,
@@ -27,6 +29,8 @@ export const strategyAnalysisStore = proxy<{
   monthlyDay: number
   contribution: string
   view: 'plain' | 'research'
+  researchMetric: ResearchMetricKey
+  researchStrategyId: string | null
   appliedRouteStrategyId: string | null
   submitted: StrategyBacktestRequest
 }>({
@@ -36,6 +40,8 @@ export const strategyAnalysisStore = proxy<{
   monthlyDay: 18,
   contribution: '1000.00',
   view: 'plain',
+  researchMetric: 'total_return_percent',
+  researchStrategyId: null,
   appliedRouteStrategyId: null,
   submitted: {
     symbol: 'US.SPY',
@@ -82,6 +88,8 @@ export function resetStrategyAnalysis() {
   strategyAnalysisStore.monthlyDay = 18
   strategyAnalysisStore.contribution = '1000.00'
   strategyAnalysisStore.view = 'plain'
+  strategyAnalysisStore.researchMetric = 'total_return_percent'
+  strategyAnalysisStore.researchStrategyId = null
   strategyAnalysisStore.appliedRouteStrategyId = null
   submitStrategyAnalysis()
 }

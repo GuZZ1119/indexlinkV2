@@ -17,7 +17,7 @@ use strategy_policy::{DecisionContext, PolicyValidationError};
 use thiserror::Error;
 use time::{Date, Month};
 
-use crate::{maximum_drawdown, xirr};
+use crate::xirr;
 
 const BUY_COST_BPS: f64 = 5.0;
 
@@ -113,6 +113,84 @@ pub struct NormalizedBacktestPoint {
     pub value: f64,
 }
 
+/// One adjusted daily close displayed beside the strategy comparison.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BacktestMarketPoint {
+    /// Trading date in ISO `YYYY-MM-DD` format.
+    pub date: String,
+    /// Provider-supplied adjusted closing price in the instrument's trading currency.
+    pub adjusted_close: f64,
+}
+
+/// One simulated purchase made by a strategy on a scheduled evaluation date.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BacktestExecutionPoint {
+    /// Simulated execution date in ISO `YYYY-MM-DD` format.
+    pub date: String,
+    /// Adjusted close used as the simulated execution price.
+    pub adjusted_close: f64,
+    /// Cash debited for the simulated purchase, including transaction cost.
+    pub invested_amount: f64,
+    /// Share of that period's external contribution consumed by the simulated purchase.
+    pub budget_utilisation_percent: f64,
+    /// External cash assigned to this scheduled period before strategy adjustments.
+    pub scheduled_contribution_amount: f64,
+    /// Cash assigned to the always-on core bucket.
+    pub core_invested_amount: f64,
+    /// Cash assigned to the Formula-controlled opportunity bucket.
+    pub opportunity_invested_amount: f64,
+    /// This period's external cash left uninvested after the simulated decision.
+    pub unallocated_amount: f64,
+    /// Transaction cost implied by the fixed basis-point purchase model.
+    pub transaction_cost: f64,
+    /// Whether a Formula rule matched and changed the opportunity-bucket decision.
+    ///
+    /// Fixed DCA and Formula periods that keep the standard opportunity allocation are `false`.
+    pub strategy_rule_matched: bool,
+}
+
+/// One daily peak-relative drawdown observation for the professional view.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BacktestDrawdownPoint {
+    /// Trading date in ISO `YYYY-MM-DD` format.
+    pub date: String,
+    /// Percentage change from the running peak; zero at a new peak and otherwise negative.
+    pub value_percent: f64,
+}
+
+/// Auditable intermediate values used by the published professional metrics.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BacktestCalculationDetails {
+    /// Calendar-day span used by CAGR-style annualization.
+    pub elapsed_days: i64,
+    /// Count of daily time-weighted returns used by volatility and Sortino.
+    pub daily_return_count: usize,
+    /// Arithmetic mean of daily time-weighted returns, in percent.
+    pub mean_daily_return_percent: Option<f64>,
+    /// Sample standard deviation of daily time-weighted returns, in percent.
+    pub daily_standard_deviation_percent: Option<f64>,
+    /// Root mean square of returns below zero, in percent.
+    pub downside_deviation_percent: Option<f64>,
+    /// Peak date immediately preceding the maximum drawdown trough.
+    pub drawdown_peak_date: Option<String>,
+    /// Date of the maximum drawdown trough.
+    pub drawdown_trough_date: Option<String>,
+    /// First later date on which the prior peak was recovered, when observed.
+    pub drawdown_recovery_date: Option<String>,
+    /// Total simulated purchase cost across the common result window.
+    pub total_transaction_cost: f64,
+    /// Number of Formula periods in which a rule actually matched.
+    pub rule_matched_count: usize,
+    /// Number of periods that used the standard, unmatched decision path.
+    pub standard_execution_count: usize,
+    /// Trading-period annualization constant used by volatility and Sortino.
+    pub trading_periods_per_year: u16,
+    /// Calendar-day annualization constant used by annualized return and XIRR.
+    pub calendar_days_per_year: f64,
+    /// Fixed simulated purchase cost in basis points.
+    pub buy_cost_bps: f64,
+}
+
 /// Comparable non-promotional metrics for one strategy on one symbol and period.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BacktestMetrics {
@@ -130,9 +208,9 @@ pub struct BacktestMetrics {
     pub sortino_ratio: Option<f64>,
     /// Total external cash contributed during the common evaluation window.
     pub total_contributed: f64,
-    /// Total amount converted into asset units, before transaction costs.
+    /// Total cash debited for simulated purchases, including transaction costs.
     pub total_invested: f64,
-    /// Share of contributed cash converted into asset units.
+    /// Share of contributed cash consumed by simulated purchases.
     pub cash_utilisation_percent: f64,
     /// Final marked-to-market portfolio value, including uninvested cash.
     pub terminal_wealth: f64,
@@ -151,8 +229,14 @@ pub struct BacktestSeries {
     pub strategy_name: String,
     /// Daily normalized trajectory rebased to 100.
     pub normalized_points: Vec<NormalizedBacktestPoint>,
+    /// Scheduled simulated purchases generated from the same causal decisions.
+    pub execution_points: Vec<BacktestExecutionPoint>,
+    /// Daily running-peak drawdown series derived from the same normalized trajectory.
+    pub drawdown_points: Vec<BacktestDrawdownPoint>,
     /// Metrics calculated from this exact trajectory and its contribution ledger.
     pub metrics: BacktestMetrics,
+    /// Intermediate values and assumptions that make the published metrics reproducible.
+    pub calculation_details: BacktestCalculationDetails,
 }
 
 /// Result of one fair, common-window strategy comparison.
@@ -166,6 +250,8 @@ pub struct DynamicBacktestResult {
     pub effective_end: String,
     /// Number of equal scheduled contributions applied to every strategy.
     pub contribution_count: usize,
+    /// Adjusted daily closes over the exact common visible result window.
+    pub market_points: Vec<BacktestMarketPoint>,
     /// Per-strategy results under identical market inputs.
     pub series: Vec<BacktestSeries>,
 }
@@ -224,6 +310,15 @@ pub fn run_dynamic_backtest(
         .iter()
         .rposition(|price| price.date <= request.end)
         .ok_or(DynamicBacktestError::InsufficientHistory)?;
+    let market_points = request.prices[effective_start_index..=effective_end_index]
+        .iter()
+        .map(|price| {
+            Ok(BacktestMarketPoint {
+                date: price.date.to_string(),
+                adjusted_close: decimal_price_to_f64(price.adjusted_close)?,
+            })
+        })
+        .collect::<Result<Vec<_>, DynamicBacktestError>>()?;
 
     let mut series = Vec::with_capacity(request.strategies.len());
     for strategy in &request.strategies {
@@ -241,6 +336,7 @@ pub fn run_dynamic_backtest(
         effective_start: effective_start.to_string(),
         effective_end: request.prices[effective_end_index].date.to_string(),
         contribution_count: schedule.len(),
+        market_points,
         series,
     })
 }
@@ -330,7 +426,14 @@ fn simulate_strategy(
                 request.contribution_amount,
                 &request.prices[..index],
             )?;
-            state.buy(spend.amount, price.adjusted_close)?;
+            let purchase = state.buy(spend.amount, price.adjusted_close)?;
+            state.record_execution(
+                price.date,
+                price.adjusted_close,
+                request.contribution_amount,
+                &spend,
+                purchase,
+            )?;
             schedule_cursor += 1;
         }
         state.mark(price.date, price.adjusted_close)?;
@@ -340,6 +443,9 @@ fn simulate_strategy(
 
 struct StrategySpend {
     amount: Decimal,
+    core_amount: Decimal,
+    opportunity_amount: Decimal,
+    strategy_rule_matched: bool,
 }
 
 fn strategy_spend(
@@ -350,6 +456,9 @@ fn strategy_spend(
     if matches!(strategy, BacktestStrategy::FixedDca) {
         return Ok(StrategySpend {
             amount: contribution,
+            core_amount: contribution,
+            opportunity_amount: Decimal::ZERO,
+            strategy_rule_matched: false,
         });
     }
     let BacktestStrategy::Formula(spec) = strategy else {
@@ -365,7 +474,9 @@ fn strategy_spend(
         .ok_or(DynamicBacktestError::InsufficientHistory)?
         .date;
     let context = DecisionContext::new(to_time_date(as_of)?, contribution, evidence)?;
-    let recommendation = spec.evaluate(&context)?.recommendation().clone();
+    let evaluation = spec.evaluate(&context)?;
+    let strategy_rule_matched = evaluation.matched_rule_index().is_some();
+    let recommendation = evaluation.recommendation().clone();
     let configuration = formula_configuration()?;
     let split = TwoBucketContributionSplit::from_decision(
         contribution,
@@ -375,6 +486,9 @@ fn strategy_spend(
     )?;
     Ok(StrategySpend {
         amount: split.recommended_contribution(),
+        core_amount: split.core_contribution(),
+        opportunity_amount: split.opportunity_contribution(),
+        strategy_rule_matched,
     })
 }
 
@@ -403,12 +517,19 @@ struct SimulationState {
     units: f64,
     contributed: f64,
     invested: f64,
+    transaction_cost: f64,
     last_value: f64,
     pending_flow: f64,
     nav: f64,
     points: Vec<(NaiveDate, f64)>,
+    execution_points: Vec<BacktestExecutionPoint>,
     daily_returns: Vec<f64>,
     flows: Vec<(NaiveDate, f64)>,
+}
+
+struct PurchaseOutcome {
+    invested_amount: f64,
+    transaction_cost: f64,
 }
 
 impl SimulationState {
@@ -424,7 +545,11 @@ impl SimulationState {
         Ok(())
     }
 
-    fn buy(&mut self, amount: Decimal, price: Decimal) -> Result<(), DynamicBacktestError> {
+    fn buy(
+        &mut self,
+        amount: Decimal,
+        price: Decimal,
+    ) -> Result<PurchaseOutcome, DynamicBacktestError> {
         let amount = amount
             .to_f64()
             .filter(|value| value.is_finite())
@@ -434,9 +559,52 @@ impl SimulationState {
             .to_f64()
             .filter(|value| value.is_finite() && *value > 0.0)
             .ok_or(DynamicBacktestError::InvalidPrice)?;
+        let purchased_value = amount / (1.0 + BUY_COST_BPS / 10_000.0);
+        let transaction_cost = amount - purchased_value;
         self.cash -= amount;
         self.invested += amount;
-        self.units += amount / (price * (1.0 + BUY_COST_BPS / 10_000.0));
+        self.transaction_cost += transaction_cost;
+        self.units += purchased_value / price;
+        Ok(PurchaseOutcome {
+            invested_amount: amount,
+            transaction_cost,
+        })
+    }
+
+    fn record_execution(
+        &mut self,
+        date: NaiveDate,
+        price: Decimal,
+        contribution: Decimal,
+        spend: &StrategySpend,
+        purchase: PurchaseOutcome,
+    ) -> Result<(), DynamicBacktestError> {
+        let contribution = contribution
+            .to_f64()
+            .filter(|value| value.is_finite() && *value > 0.0)
+            .ok_or(DynamicBacktestError::InvalidRequest)?;
+        let core_invested_amount = spend
+            .core_amount
+            .to_f64()
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .ok_or(DynamicBacktestError::InvalidRequest)?;
+        let opportunity_invested_amount = spend
+            .opportunity_amount
+            .to_f64()
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .ok_or(DynamicBacktestError::InvalidRequest)?;
+        self.execution_points.push(BacktestExecutionPoint {
+            date: date.to_string(),
+            adjusted_close: decimal_price_to_f64(price)?,
+            invested_amount: purchase.invested_amount,
+            budget_utilisation_percent: purchase.invested_amount / contribution * 100.0,
+            scheduled_contribution_amount: contribution,
+            core_invested_amount,
+            opportunity_invested_amount,
+            unallocated_amount: (contribution - purchase.invested_amount).max(0.0),
+            transaction_cost: purchase.transaction_cost,
+            strategy_rule_matched: spend.strategy_rule_matched,
+        });
         Ok(())
     }
 
@@ -482,15 +650,18 @@ impl SimulationState {
             .copied()
             .ok_or(DynamicBacktestError::InsufficientHistory)?;
         self.flows.push((last_date, self.last_value));
-        let nav_values = self
-            .points
-            .iter()
-            .map(|(_, value)| *value)
-            .collect::<Vec<_>>();
+        let drawdown = drawdown_analysis(&self.points);
         let total_return = last_nav / first_nav - 1.0;
         let elapsed_days = (last_date - first_date).num_days();
         let annualized_return = (elapsed_days > 0)
             .then(|| ((last_nav / first_nav).powf(365.25 / elapsed_days as f64) - 1.0) * 100.0);
+        let return_details = daily_return_details(&self.daily_returns);
+        let rule_matched_count = self
+            .execution_points
+            .iter()
+            .filter(|point| point.strategy_rule_matched)
+            .count();
+        let standard_execution_count = self.execution_points.len() - rule_matched_count;
         let normalized_points = self
             .points
             .into_iter()
@@ -504,49 +675,152 @@ impl SimulationState {
             strategy_version: strategy.version(),
             strategy_name: strategy.name().to_owned(),
             normalized_points,
+            execution_points: self.execution_points,
+            drawdown_points: drawdown.points,
             metrics: BacktestMetrics {
                 total_return_percent: total_return * 100.0,
                 annualized_return_percent: annualized_return,
                 xirr_percent: xirr(&self.flows).map(|value| value * 100.0),
-                maximum_drawdown_percent: maximum_drawdown(&nav_values) * 100.0,
-                annualized_volatility_percent: annualized_volatility_daily(&self.daily_returns)
-                    .map(|value| value * 100.0),
-                sortino_ratio: sortino_ratio_daily(&self.daily_returns),
+                maximum_drawdown_percent: drawdown.maximum * 100.0,
+                annualized_volatility_percent: return_details
+                    .sample_standard_deviation
+                    .map(|value| value * 252.0_f64.sqrt() * 100.0),
+                sortino_ratio: match (return_details.mean, return_details.downside_deviation) {
+                    (Some(mean), Some(downside)) if downside > 0.0 => {
+                        Some(mean / downside * 252.0_f64.sqrt())
+                    }
+                    _ => None,
+                },
                 total_contributed: self.contributed,
                 total_invested: self.invested,
                 cash_utilisation_percent: self.invested / self.contributed * 100.0,
                 terminal_wealth: self.last_value,
                 terminal_cash: self.cash,
             },
+            calculation_details: BacktestCalculationDetails {
+                elapsed_days,
+                daily_return_count: self.daily_returns.len(),
+                mean_daily_return_percent: return_details.mean.map(|value| value * 100.0),
+                daily_standard_deviation_percent: return_details
+                    .sample_standard_deviation
+                    .map(|value| value * 100.0),
+                downside_deviation_percent: return_details
+                    .downside_deviation
+                    .map(|value| value * 100.0),
+                drawdown_peak_date: drawdown.peak_date,
+                drawdown_trough_date: drawdown.trough_date,
+                drawdown_recovery_date: drawdown.recovery_date,
+                total_transaction_cost: self.transaction_cost,
+                rule_matched_count,
+                standard_execution_count,
+                trading_periods_per_year: 252,
+                calendar_days_per_year: 365.25,
+                buy_cost_bps: BUY_COST_BPS,
+            },
         })
     }
 }
 
-fn annualized_volatility_daily(returns: &[f64]) -> Option<f64> {
-    if returns.len() < 2 {
-        return None;
-    }
-    let average = returns.iter().sum::<f64>() / returns.len() as f64;
-    let variance = returns
-        .iter()
-        .map(|value| (value - average).powi(2))
-        .sum::<f64>()
-        / (returns.len() - 1) as f64;
-    Some(variance.sqrt() * 252.0_f64.sqrt())
+fn decimal_price_to_f64(price: Decimal) -> Result<f64, DynamicBacktestError> {
+    price
+        .to_f64()
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .ok_or(DynamicBacktestError::InvalidPrice)
 }
 
-fn sortino_ratio_daily(returns: &[f64]) -> Option<f64> {
-    if returns.len() < 2 {
-        return None;
+struct DailyReturnDetails {
+    mean: Option<f64>,
+    sample_standard_deviation: Option<f64>,
+    downside_deviation: Option<f64>,
+}
+
+fn daily_return_details(returns: &[f64]) -> DailyReturnDetails {
+    if returns.is_empty() {
+        return DailyReturnDetails {
+            mean: None,
+            sample_standard_deviation: None,
+            downside_deviation: None,
+        };
     }
-    let average = returns.iter().sum::<f64>() / returns.len() as f64;
+    let mean = returns.iter().sum::<f64>() / returns.len() as f64;
+    let sample_standard_deviation = (returns.len() >= 2).then(|| {
+        (returns
+            .iter()
+            .map(|value| (value - mean).powi(2))
+            .sum::<f64>()
+            / (returns.len() - 1) as f64)
+            .sqrt()
+    });
     let downside_deviation = (returns
         .iter()
         .map(|value| value.min(0.0).powi(2))
         .sum::<f64>()
         / returns.len() as f64)
         .sqrt();
-    (downside_deviation > 0.0).then(|| average / downside_deviation * 252.0_f64.sqrt())
+    DailyReturnDetails {
+        mean: Some(mean),
+        sample_standard_deviation,
+        downside_deviation: Some(downside_deviation),
+    }
+}
+
+struct DrawdownAnalysis {
+    points: Vec<BacktestDrawdownPoint>,
+    maximum: f64,
+    peak_date: Option<String>,
+    trough_date: Option<String>,
+    recovery_date: Option<String>,
+}
+
+fn drawdown_analysis(points: &[(NaiveDate, f64)]) -> DrawdownAnalysis {
+    let mut running_peak = f64::NEG_INFINITY;
+    let mut running_peak_index = 0_usize;
+    let mut maximum = 0.0_f64;
+    let mut maximum_peak_index = None;
+    let mut maximum_trough_index = None;
+    let drawdown_points = points
+        .iter()
+        .enumerate()
+        .map(|(index, (date, value))| {
+            if *value >= running_peak {
+                running_peak = *value;
+                running_peak_index = index;
+            }
+            let drawdown = if running_peak > 0.0 {
+                (running_peak - value) / running_peak
+            } else {
+                0.0
+            };
+            if drawdown > maximum {
+                maximum = drawdown;
+                maximum_peak_index = Some(running_peak_index);
+                maximum_trough_index = Some(index);
+            }
+            BacktestDrawdownPoint {
+                date: date.to_string(),
+                value_percent: -drawdown * 100.0,
+            }
+        })
+        .collect::<Vec<_>>();
+    let recovery_index =
+        maximum_peak_index
+            .zip(maximum_trough_index)
+            .and_then(|(peak_index, trough_index)| {
+                let peak_value = points[peak_index].1;
+                points
+                    .iter()
+                    .enumerate()
+                    .skip(trough_index + 1)
+                    .find(|(_, (_, value))| *value >= peak_value)
+                    .map(|(index, _)| index)
+            });
+    DrawdownAnalysis {
+        points: drawdown_points,
+        maximum,
+        peak_date: maximum_peak_index.map(|index| points[index].0.to_string()),
+        trough_date: maximum_trough_index.map(|index| points[index].0.to_string()),
+        recovery_date: recovery_index.map(|index| points[index].0.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -613,6 +887,25 @@ mod tests {
         .unwrap()
     }
 
+    fn always_skip_opportunity_formula() -> StrategySpec {
+        StrategySpec::new(
+            PolicyRef::new(
+                PolicyId::new("dsl_test_core_only").unwrap(),
+                PolicyVersion::new(1).unwrap(),
+            ),
+            "Always core only",
+            vec![StrategyRule::new(
+                Condition::compare(
+                    ValueExpression::indicator(IndicatorSpec::ClosePrice),
+                    ComparisonOperator::GreaterThan,
+                    Decimal::ZERO,
+                ),
+                PolicyAction::skip_opportunity(),
+            )],
+        )
+        .unwrap()
+    }
+
     #[test]
     fn compares_formula_and_dca_on_one_common_normalized_window() {
         let history = prices(500);
@@ -635,7 +928,46 @@ mod tests {
         assert_eq!(result.symbol, "US.SPY");
         assert_eq!(result.series.len(), 2);
         assert!(result.contribution_count >= 12);
+        assert_eq!(result.market_points[0].date, result.effective_start);
+        assert_eq!(
+            result.market_points.len(),
+            result.series[0].normalized_points.len()
+        );
         assert_eq!(result.series[0].normalized_points[0].value, 100.0);
+        assert_eq!(
+            result.series[0].execution_points.len(),
+            result.contribution_count
+        );
+        assert_eq!(
+            result.series[0].execution_points[0].invested_amount,
+            1_000.0
+        );
+        assert_eq!(
+            result.series[0].execution_points[0].budget_utilisation_percent,
+            100.0
+        );
+        assert!(!result.series[0].execution_points[0].strategy_rule_matched);
+        assert_eq!(
+            result.series[0].execution_points[0].core_invested_amount,
+            1_000.0
+        );
+        assert_eq!(
+            result.series[0].execution_points[0].opportunity_invested_amount,
+            0.0
+        );
+        assert_eq!(
+            result.series[0].drawdown_points.len(),
+            result.market_points.len()
+        );
+        assert_eq!(result.series[0].calculation_details.buy_cost_bps, 5.0);
+        assert_eq!(
+            result.series[0].calculation_details.daily_return_count,
+            result.series[0].normalized_points.len() - 1
+        );
+        assert!(result.series[1]
+            .execution_points
+            .iter()
+            .all(|point| !point.strategy_rule_matched));
         assert_eq!(
             result.series[0].normalized_points.len(),
             result.series[1].normalized_points.len()
@@ -713,6 +1045,10 @@ mod tests {
 
         assert_eq!(baseline_result.contribution_count, 1);
         assert_eq!(shocked_result.contribution_count, 1);
+        assert_ne!(
+            baseline_result.series[0].execution_points[0].adjusted_close,
+            shocked_result.series[0].execution_points[0].adjusted_close
+        );
         assert_eq!(
             baseline_result.series[0].metrics.total_invested,
             shocked_result.series[0].metrics.total_invested
@@ -730,9 +1066,70 @@ mod tests {
         .unwrap();
 
         assert_eq!(spend.amount, Decimal::new(1_000, 0));
+        assert!(spend.strategy_rule_matched);
         assert_eq!(
             formula_configuration().unwrap().opportunity_cash_policy(),
             OpportunityCashPolicy::ExpireEachPeriod
         );
+    }
+
+    #[test]
+    fn execution_points_expose_the_simulated_price_and_budget_share() {
+        let history = prices(100);
+        let result = run_dynamic_backtest(DynamicBacktestRequest {
+            symbol: "US.SPY".to_owned(),
+            start: NaiveDate::from_ymd_opt(2023, 2, 1).unwrap(),
+            end: history.last().unwrap().date(),
+            monthly_day: 18,
+            contribution_amount: Decimal::new(1_000, 0),
+            prices: history,
+            strategies: vec![BacktestStrategy::Formula(always_skip_opportunity_formula())],
+        })
+        .unwrap();
+
+        let execution = &result.series[0].execution_points[0];
+        let market = result
+            .market_points
+            .iter()
+            .find(|point| point.date == execution.date)
+            .unwrap();
+        assert_eq!(execution.adjusted_close, market.adjusted_close);
+        assert_eq!(execution.invested_amount, 700.0);
+        assert_eq!(execution.budget_utilisation_percent, 70.0);
+        assert_eq!(execution.scheduled_contribution_amount, 1_000.0);
+        assert_eq!(execution.core_invested_amount, 700.0);
+        assert_eq!(execution.opportunity_invested_amount, 0.0);
+        assert_eq!(execution.unallocated_amount, 300.0);
+        assert!((execution.transaction_cost - 0.349_825).abs() < 0.000_001);
+        assert!(execution.strategy_rule_matched);
+        assert!(result.series[0].calculation_details.total_transaction_cost > 0.0);
+        assert_eq!(
+            result.series[0].calculation_details.rule_matched_count,
+            result.series[0].execution_points.len()
+        );
+        assert_eq!(
+            result.series[0]
+                .calculation_details
+                .standard_execution_count,
+            0
+        );
+    }
+
+    #[test]
+    fn drawdown_details_track_peak_trough_and_recovery_dates() {
+        let start = NaiveDate::from_ymd_opt(2026, 1, 2).unwrap();
+        let points = [100.0, 120.0, 90.0, 110.0, 121.0]
+            .into_iter()
+            .enumerate()
+            .map(|(index, value)| (start + Duration::days(index as i64), value))
+            .collect::<Vec<_>>();
+
+        let analysis = drawdown_analysis(&points);
+
+        assert!((analysis.maximum - 0.25).abs() < f64::EPSILON);
+        assert_eq!(analysis.peak_date.as_deref(), Some("2026-01-03"));
+        assert_eq!(analysis.trough_date.as_deref(), Some("2026-01-04"));
+        assert_eq!(analysis.recovery_date.as_deref(), Some("2026-01-06"));
+        assert_eq!(analysis.points[2].value_percent, -25.0);
     }
 }
