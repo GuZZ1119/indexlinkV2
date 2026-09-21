@@ -1,6 +1,6 @@
 # IndexLink Web Plan / 前端计划
 
-> 2026-09-20 状态：M1 的 `Plan → readable Decision → user-reported execution → Audit` 已形成真实前端闭环；官方目录现包含一个 Fixed DCA 基准与 20 个规则家族的 100 个不可变 Formula 预设，真实多市场回测、动态标的建计划与 Formula 历史数据预检均已接入。工程下一步是发布验证，不扩张调度模型或自动交易范围。
+> 2026-09-22 状态：M1 的 `Plan → readable Decision → user-reported execution → Audit` 已形成真实前端闭环；统一目录包含 Fixed DCA、20 个官方家族的 100 个不可变 Formula 预设，以及本机个人 Formula 版本。受限“我的策略工坊”、精确版本真实回测、动态标的建计划与 Formula 历史数据预检均已接入。工程下一步是发布验证，不扩张调度模型或自动交易范围。
 
 ## V2.1 当前主路径 / Current V2.1 path
 
@@ -12,8 +12,9 @@ Web 的默认入口是本地优先的消费级外壳：个人中心、我的计�
 | --- | --- | --- |
 | 个人中心 / Personal | 从真实计划读取本期建议，理解策略方法、基础预算和下一评估日，手工确认已执行或跳过 | React Query 读取 `/investment-plans`、plan decisions 与 `GET/POST /decisions/:id/manual-executions`；一条 `due` 建议只能确认一次，不自动下单、不覆盖原建议 |
 | 我的计划 / My Plans | 查看、选择、暂停、继续或删除已建立计划；常驻“建立新计划”入口统一跳转策略中心，只有带精确 `policy_id` / `policy_version` 返回时才显示所选策略的配置表 | `/plans` 读取 `/strategy-catalog` 与真实 plan API；不再重复平铺策略目录。策略版本和用户参数冻结到计划，并接受 US/HK/SH/SZ 中可解析且满足数据要求的股票/ETF |
-| 策略中心 / Strategy Center | 以 Fixed DCA 为基准，按方法家族理解 100 个不可变 Formula 参数预设，搜索、筛选、分析并采用精确版本 | `/strategy-center` 读取 `GET /strategy-catalog`，按 `family` 聚合为 20 个入口、在家族内用实际观察天数选择 `preset`；自适应 70/20/10 暂不进入普通入口，不把受限 DSL 暴露为用户概念 |
-| 策略分析 / Strategy Analysis | 在同一自选标的、同一时间范围和同一现金流口径下比较官方策略 | `POST /strategy-backtests` 返回真实行情、归一化轨迹、专业指标、完整模拟执行记录、Formula 规则命中标记和来源元数据；支持 US/HK/SH/SZ 以及 1m/3m/6m/1y/3y/5y/all，无行情时明确失败，不生成演示曲线 |
+| 策略中心 / Strategy Center | 以 Fixed DCA 为基准，按家族理解官方参数，并在独立区域管理本机个人不可变版本 | `/strategy-center` 读取统一 `GET /strategy-catalog`；个人卡明确标记来源、版本、准入状态，并携带 exact policy ref 进入回测或计划 |
+| 我的策略工坊 / Strategy Builder | 用指标、观察窗口、比较和机会额度建立个人规则，不接触 DSL、脚本或内部 ID | `/strategy-builder` 只生成 Formula V1 白名单文档，先调用 `/strategies/validate`，通过后才保存不可变版本；最多三条规则、每条三个条件，核心桶不可取消 |
+| 策略分析 / Strategy Analysis | 在同一自选标的、同一时间范围和同一现金流口径下比较官方与个人策略 | `POST /strategy-backtests` 以 `strategy_refs` 读取精确版本，返回真实行情、归一化轨迹、专业指标、完整模拟执行记录、Formula 规则命中标记和来源元数据；支持 US/HK/SH/SZ 以及 1m/3m/6m/1y/3y/5y/all，无行情时明确失败，不生成演示曲线 |
 | 高级实验室 / Advanced Lab | 查看本地能力状态，按需配置 OpenD/Qwen 或运行兼容实验 | 可选能力失败不得影响 Plan、Decision 与 Audit；旧 MA200 回放只可手动触发；不保存密钥、不自动下单 |
 
 ## 页面与契约 / Pages and contracts
@@ -55,6 +56,7 @@ V2.1 不再用 `SPY / VOO / QQQ` 静态数组决定策略能否创建。统一�
 
 - [x] 真实 Plan、Decision、manual execution journal 与 Audit 前端闭环。
 - [x] 官方策略目录、20 家族 × 5 不可变 Formula 预设，以及按家族浏览、搜索和精确版本采用入口。
+- [x] 个人策略工坊、统一目录个人标签、精确版本真实回测与计划/建议运行时闭环。
 - [x] US/HK/SH/SZ 自选标的真实回测与七档时间范围。
 - [x] 专业研究直接展示 API 返回的公式代入值、资金账本、逐日回撤路径、峰值/低点/恢复日期与每期核心/机会/未投入资金拆分。
 - [x] 个人中心展示策略方法、基础预算和下一评估日。
@@ -82,4 +84,4 @@ pnpm --dir apps/web build
 cargo test -p core-domain
 ```
 
-完成本轮收口后，再让 3–5 位目标用户完成“建立计划 → 找到建议 → 记录执行 → 找回历史”的任务并形成 Go / Adjust / Stop 证据。分享、fork、自动下单和通用策略 Builder 不属于本轮范围。
+完成本轮收口后，再让 3–5 位目标用户完成“建立个人规则 → 真实回测 → 建立计划 → 找到建议 → 记录执行 → 找回历史”的任务并形成 Go / Adjust / Stop 证据。分享、fork、自由代码策略和自动下单不属于本轮范围。

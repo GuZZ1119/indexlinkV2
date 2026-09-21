@@ -152,6 +152,11 @@ export interface StrategyAdmissionRollingWindow {
 
 /** One server-owned strategy that ordinary users may inspect and turn into a plan. */
 export interface StrategyCatalogEntry {
+  /** Whether this immutable version ships with IndexLink or belongs to the local user. */
+  origin: 'official' | 'personal'
+  lifecycle: 'published' | 'saved'
+  /** `validated` is structurally safe but not yet eligible for a plan. */
+  status: 'usable' | 'validated'
   policy: PolicyReference
   name: string
   summary: string
@@ -210,7 +215,7 @@ export type StrategyBacktestRange = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'a
 /** Read-only request for a fair comparison on one market-qualified instrument. */
 export interface StrategyBacktestRequest {
   symbol: string
-  strategy_ids: string[]
+  strategy_refs: Array<{ policy_id: string; policy_version: number }>
   range: StrategyBacktestRange
   monthly_day: number
   contribution: string

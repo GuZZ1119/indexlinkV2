@@ -1,7 +1,7 @@
 import { proxy } from 'valtio'
 
 import type { StrategyId } from '@/features/v2_1/model'
-import type { StrategyBacktestRange, StrategyBacktestRequest } from '@/api/types'
+import type { PolicyReference, StrategyBacktestRange, StrategyBacktestRequest } from '@/api/types'
 
 export type ResearchMetricKey = 'total_return_percent' | 'annualized_return_percent' | 'xirr_percent' | 'maximum_drawdown_percent' | 'annualized_volatility_percent' | 'sortino_ratio' | 'cash_utilisation_percent'
 
@@ -25,7 +25,7 @@ export function setActiveStrategyId(strategyId: StrategyId) {
 export const strategyAnalysisStore = proxy<{
   symbol: string
   range: StrategyBacktestRange
-  strategyIds: StrategyId[]
+  strategyRefs: PolicyReference[]
   monthlyDay: number
   contribution: string
   view: 'plain' | 'research'
@@ -36,7 +36,7 @@ export const strategyAnalysisStore = proxy<{
 }>({
   symbol: 'US.SPY',
   range: '3y',
-  strategyIds: ['fixed_dca'],
+  strategyRefs: [{ id: 'fixed_dca', version: 1 }],
   monthlyDay: 18,
   contribution: '1000.00',
   view: 'plain',
@@ -45,7 +45,7 @@ export const strategyAnalysisStore = proxy<{
   appliedRouteStrategyId: null,
   submitted: {
     symbol: 'US.SPY',
-    strategy_ids: ['fixed_dca'],
+    strategy_refs: [{ policy_id: 'fixed_dca', policy_version: 1 }],
     range: '3y',
     monthly_day: 18,
     contribution: '1000.00',
@@ -53,12 +53,13 @@ export const strategyAnalysisStore = proxy<{
 })
 
 /** Toggle a local comparison selection while preserving at least one and at most three. */
-export function toggleAnalysisStrategy(strategyId: StrategyId) {
-  const current = strategyAnalysisStore.strategyIds
-  if (current.includes(strategyId)) {
-    if (current.length > 1) strategyAnalysisStore.strategyIds = current.filter((id) => id !== strategyId)
+export function toggleAnalysisStrategy(policy: PolicyReference) {
+  const current = strategyAnalysisStore.strategyRefs
+  const key = policyKey(policy)
+  if (current.some((item) => policyKey(item) === key)) {
+    if (current.length > 1) strategyAnalysisStore.strategyRefs = current.filter((item) => policyKey(item) !== key)
   } else if (current.length < 3) {
-    strategyAnalysisStore.strategyIds = [...current, strategyId]
+    strategyAnalysisStore.strategyRefs = [...current, policy]
   }
 }
 
@@ -66,7 +67,7 @@ export function toggleAnalysisStrategy(strategyId: StrategyId) {
 export function submitStrategyAnalysis() {
   strategyAnalysisStore.submitted = {
     symbol: strategyAnalysisStore.symbol.trim().toUpperCase(),
-    strategy_ids: [...strategyAnalysisStore.strategyIds],
+    strategy_refs: strategyAnalysisStore.strategyRefs.map((policy) => ({ policy_id: policy.id, policy_version: policy.version })),
     range: strategyAnalysisStore.range,
     monthly_day: strategyAnalysisStore.monthlyDay,
     contribution: strategyAnalysisStore.contribution.trim(),
@@ -74,9 +75,9 @@ export function submitStrategyAnalysis() {
 }
 
 /** Apply a deep-linked strategy and immediately run it on the current draft instrument. */
-export function openStrategyAnalysis(strategyId: StrategyId) {
-  if (!strategyId.trim()) return
-  strategyAnalysisStore.strategyIds = [strategyId]
+export function openStrategyAnalysis(policy: PolicyReference) {
+  if (!policy.id.trim()) return
+  strategyAnalysisStore.strategyRefs = [policy]
   submitStrategyAnalysis()
 }
 
@@ -84,7 +85,7 @@ export function openStrategyAnalysis(strategyId: StrategyId) {
 export function resetStrategyAnalysis() {
   strategyAnalysisStore.symbol = 'US.SPY'
   strategyAnalysisStore.range = '3y'
-  strategyAnalysisStore.strategyIds = ['fixed_dca']
+  strategyAnalysisStore.strategyRefs = [{ id: 'fixed_dca', version: 1 }]
   strategyAnalysisStore.monthlyDay = 18
   strategyAnalysisStore.contribution = '1000.00'
   strategyAnalysisStore.view = 'plain'
@@ -92,4 +93,9 @@ export function resetStrategyAnalysis() {
   strategyAnalysisStore.researchStrategyId = null
   strategyAnalysisStore.appliedRouteStrategyId = null
   submitStrategyAnalysis()
+}
+
+/** Stable key for one immutable policy version in browser-only selection state. */
+export function policyKey(policy: PolicyReference): string {
+  return `${policy.id}@${policy.version}`
 }

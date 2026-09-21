@@ -1,8 +1,9 @@
-import { BarChart3, BookOpen } from 'lucide-react'
+import { BarChart3, BookOpen, WandSparkles } from 'lucide-react'
 import { NavLink } from 'react-router'
 
 const items = [
   { to: '/strategy-center', label: '策略库', icon: BookOpen, end: true },
+  { to: '/strategy-builder', label: '我的策略', icon: WandSparkles, end: true },
   { to: '/strategy-analysis', label: '策略分析', icon: BarChart3, end: false },
 ] as const
 

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-22 07:53 AEST — 个人策略前端发现、精确版本分析与五 Push 收口（Push 5）
+
+- 执行模型：GPT-5 Codex（多 Agent；主线程完成前端集成、页面验收与五个 Push 总体验证）。
+- 变更类型：策略中心信息架构、个人策略导航、精确版本回测选择、React Query/Valtio 状态边界、前端测试与 V2.1 计划同步。
+- 涉及文件：`apps/web/src/{api/types.ts,stores/ui.ts,components/{layout/app-sidebar.tsx,v2_1/strategy-center-nav.tsx},i18n/locales/{zh.ts,en.ts},pages/{strategy-center/index.tsx,strategy-analysis/index.tsx,strategy-builder/page.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/plans/v2_1_productization_plan.md`、`CHANGE_LOG.md`。
+- 变更内容：策略中心新增与官方方法家族分离的“我的个人策略”区域，展示个人来源、生命周期、状态和不可变版本，并提供创建、精确版本分析及建立计划入口；侧边栏和策略中心导航加入“我的策略工坊”。策略分析的浏览器状态从策略 ID 升级为 `policy.id + policy.version`，回测请求统一发送 `strategy_refs`，深链、选择和提交均冻结同一版本且同一 policy 不允许同时选择多个版本，避免图表 series ID 冲突；服务端目录数据仍由 React Query 管理，Valtio 只保存临时分析选择。同步收口前端/API 类型、中文和英文文案、计划状态与个人策略页面测试。
+- 技能影响：`frontend-design` 用于将个人策略设计为独立、低噪声的内容层级并延续现有低饱和墨绿视觉；`vercel-react-best-practices` 用于维持服务端目录由 React Query 管理、临时筛选由 Valtio 管理，并以稳定的精确版本 key 避免错误重渲染；`browser:control-in-app-browser` 用于本地验证策略工坊新增条件交互、策略中心个人区域和控制台状态。
+- 验证：`cargo test -p core-domain`（13 项）、`cargo test -p indexlink-api`（全部单元/集成/文档测试）、`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（66 项；Statements 94.78%、Branches 90.46%、Functions 95.60%、Lines 96.84%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；浏览器确认个人策略工坊与策略中心加载、交互正常且无 console error/warning。生产构建仅保留既有策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
 ### 2026-09-22 00:08 AEST — 个人策略计划准入与建议运行时闭环（Push 4）
 
 - 执行模型：GPT-5 Codex（多 Agent；计划运行时 Agent 实现，主线程修复固定定投输入回归并提交）。

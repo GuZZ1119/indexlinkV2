@@ -9,6 +9,7 @@ export default {
     personal: 'My space',
     myPlans: 'My plans',
     strategiesCenter: 'Strategies',
+    strategyBuilder: 'My strategy workshop',
     strategyAnalysis: 'Strategy analysis',
     lab: 'Advanced lab',
     dashboard: 'Dashboard',

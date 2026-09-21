@@ -1,4 +1,4 @@
-import { BarChart3, BookOpen, ClipboardList, FlaskConical, UserRound } from 'lucide-react'
+import { BarChart3, BookOpen, ClipboardList, FlaskConical, UserRound, WandSparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { NavLink } from 'react-router'
 
@@ -6,6 +6,7 @@ const navItems = [
   { to: '/personal', key: 'nav.personal', icon: UserRound, nested: false },
   { to: '/plans', key: 'nav.myPlans', icon: ClipboardList, nested: true },
   { to: '/strategy-center', key: 'nav.strategiesCenter', icon: BookOpen, nested: false },
+  { to: '/strategy-builder', key: 'nav.strategyBuilder', icon: WandSparkles, nested: true },
   { to: '/strategy-analysis', key: 'nav.strategyAnalysis', icon: BarChart3, nested: true },
   { to: '/lab', key: 'nav.lab', icon: FlaskConical, nested: false },
 ] as const

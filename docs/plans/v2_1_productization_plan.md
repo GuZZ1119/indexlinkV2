@@ -241,6 +241,6 @@ strategy_version + dataset_version + assumptions_version → BacktestResult
 
 本轮动态标的与 Formula 预检完成后，优先执行用户任务验证，不继续堆叠策略数量。
 
-只有证据明确支持后，才评估：调度模型升级、Simple Builder、更多数据 provider、复杂多资产策略、桌面发行、分享与 fork。IBKR/QMT/Futu/moomoo 自动下单、云账户与公开策略社区仍不属于 V2.1。
+受限 Simple Builder 已在 V2.1 内按 Formula V1 白名单落地：它只调整机会桶并保存不可变个人版本，不接受自由代码。只有证据明确支持后，才评估：调度模型升级、更多条件/动作模块、更多数据 provider、复杂多资产策略、桌面发行、分享与 fork。IBKR/QMT/Futu/moomoo 自动下单、云账户与公开策略社区仍不属于 V2.1。
 
 V2.1 的成功标准不是跑赢市场或连接更多券商，而是普通长期投资者能够持续理解、执行并复盘自己的策略。

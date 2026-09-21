@@ -87,6 +87,30 @@ describe('V2.1 consumer shell', () => {
     expect(screen.queryByRole('link', { name: '按此参数建立计划' })).toBeNull()
   })
 
+  it('separates personal immutable versions and keeps exact analysis and plan links', async () => {
+    const personal = {
+      ...strategyCatalog()[1],
+      origin: 'personal' as const,
+      lifecycle: 'saved' as const,
+      status: 'usable' as const,
+      policy: { id: 'dsl_personal_drawdown', version: 3 },
+      name: '我的回撤规则',
+      family: undefined,
+      preset: undefined,
+      source: undefined,
+    }
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? [...strategyCatalog(), personal] : []))))
+    renderPage(<StrategyCenterPage />)
+
+    expect(await screen.findByRole('heading', { name: '我的个人策略' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '我的回撤规则' })).toBeTruthy()
+    expect(screen.getByText('v3')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '用真实标的回测' }).getAttribute('href')).toContain('strategy_version=3')
+    const personalPlanLink = screen.getAllByRole('link', { name: '按此参数建立计划' }).find((link) => link.getAttribute('href')?.includes('dsl_personal_drawdown'))
+    expect(personalPlanLink?.getAttribute('href')).toContain('policy_version=3')
+    expect(screen.getByText('3 个公式档位 · 2 个家族')).toBeTruthy()
+  })
+
   it('filters grouped strategy families by searchable tags and category', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : []))))
     renderPage(<StrategyCenterPage />)
@@ -152,7 +176,7 @@ describe('V2.1 consumer shell', () => {
     expect(screen.getByText(/不是预测出的最佳买点/)).toBeTruthy()
     expect(screen.getByLabelText('US.SPY复权收盘价与各策略规则触发点')).toBeTruthy()
     expect(screen.getByText(/悬停可查看触发日的模拟投入金额/)).toBeTruthy()
-    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_ma200_trend_guard' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_ma200_trend_guard@1' } })
     await waitFor(() => expect(screen.getByRole('button', { name: '移除价格与简单均线（200日）' }).getAttribute('aria-pressed')).toBe('true'))
     expect(screen.getByRole('button', { name: '移除每月稳步投入' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '近 6 个月' }))
@@ -162,7 +186,7 @@ describe('V2.1 consumer shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '全部样本' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '全部样本' }).getAttribute('aria-pressed')).toBe('true'))
     const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
-    expect(submitted.strategy_ids).toEqual(['fixed_dca', 'dsl_ma200_trend_guard'])
+    expect(submitted.strategy_refs).toEqual([{ policy_id: 'fixed_dca', policy_version: 1 }, { policy_id: 'dsl_ma200_trend_guard', policy_version: 1 }])
     expect(submitted.range).toBe('6m')
   })
 
@@ -188,20 +212,20 @@ describe('V2.1 consumer shell', () => {
   it('uses a deep link only to initialize and then respects the user comparison', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
       if (url.includes('/strategy-catalog')) return Promise.resolve(response(strategyCatalog()))
-      const ids = options?.body ? JSON.parse(String(options.body)).strategy_ids : ['dsl_ma200_trend_guard']
+      const ids = options?.body ? JSON.parse(String(options.body)).strategy_refs.map((item: { policy_id: string }) => item.policy_id) : ['dsl_ma200_trend_guard']
       return Promise.resolve(response(strategyBacktest(ids)))
     })
     vi.stubGlobal('fetch', fetchMock)
     renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_ma200_trend_guard&view=plain')
 
     expect(await screen.findByRole('button', { name: '价格与简单均线（200日）（至少保留一个）' })).toBeTruthy()
-    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'fixed_dca' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'fixed_dca@1' } })
     fireEvent.click(await screen.findByRole('button', { name: '移除价格与简单均线（200日）' }))
     fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
 
     await waitFor(() => {
       const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
-      expect(submitted.strategy_ids).toEqual(['fixed_dca'])
+      expect(submitted.strategy_refs).toEqual([{ policy_id: 'fixed_dca', policy_version: 1 }])
     })
   })
 
@@ -239,13 +263,13 @@ describe('V2.1 consumer shell', () => {
     renderPage(<StrategyAnalysisPage />)
 
     expect(await screen.findByText('US.SPY · 真实日线回测')).toBeTruthy()
-    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_generated_099' } })
+    fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'dsl_generated_099@1' } })
     expect(await screen.findByRole('button', { name: '移除规则预设 99' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
-    expect(submitted.strategy_ids).toEqual(['fixed_dca', 'dsl_generated_099'])
+    expect(submitted.strategy_refs).toEqual([{ policy_id: 'fixed_dca', policy_version: 1 }, { policy_id: 'dsl_generated_099', policy_version: 1 }])
   })
 
   it('uses the same real response for professional metrics', async () => {
@@ -363,6 +387,9 @@ describe('V2.1 consumer shell', () => {
 
 function strategyCatalog() {
   const base = {
+    origin: 'official' as const,
+    lifecycle: 'published' as const,
+    status: 'usable' as const,
     risk: 'stable' as const,
     supported_symbols: [],
     supported_markets: ['us', 'hong_kong', 'china_shanghai', 'china_shenzhen'] as Array<'us' | 'hong_kong' | 'china_shanghai' | 'china_shenzhen'>,

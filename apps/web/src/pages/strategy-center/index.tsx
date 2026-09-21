@@ -1,4 +1,4 @@
-import { BarChart3, Database, ExternalLink, Layers3, Loader2, Plus, RotateCcw, Search } from 'lucide-react'
+import { BarChart3, ExternalLink, Layers3, Loader2, Plus, RotateCcw, Search, ShieldCheck, WandSparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 
@@ -34,11 +34,13 @@ export default function StrategyCenterPage() {
         eyebrow="策略中心"
         title="先选方法，再挑适合你的参数"
         description="固定定投是共同基准；其余策略按规则家族收拢。每组参数都直接写明观察天数，可以用同一只标的真实回测后再建立计划。"
-        action={<span className="inline-flex items-center gap-2 rounded-full border border-[#cfded8] bg-[#f1f7f4] px-4 py-2.5 text-sm text-[#2d6a57]"><Database className="size-4" />Formula V1 · 20 个家族</span>}
+        action={<Link to="/strategy-builder" className="inline-flex items-center gap-2 rounded-full bg-[#102830] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,40,48,0.14)] hover:bg-[#1d3a43]"><WandSparkles className="size-4" />建立我的策略</Link>}
       />
       <StrategyCenterNav />
 
       <ActivePlansPanel plans={activePlans} strategies={catalog.data ?? []} pending={plans.isPending} failed={plans.isError} />
+
+      <PersonalStrategies strategies={catalogView.personalStrategies} loading={catalog.isPending} />
 
       <section aria-labelledby="official-strategies-heading">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
@@ -105,6 +107,26 @@ function CatalogFilters({ query, category, categories, onQuery, onCategory }: { 
   </div>
 }
 
+function PersonalStrategies({ strategies, loading }: { strategies: StrategyCatalogEntry[]; loading: boolean }) {
+  return <section id="personal-strategies" aria-labelledby="personal-strategies-heading" className="scroll-mt-24 rounded-[1.45rem] border border-[#cddfd6] bg-[#f7fbf9] p-5 sm:p-6">
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div><p className="text-sm font-medium text-[#2d6a57]">只保存在这台设备</p><h2 id="personal-strategies-heading" className="mt-1 text-xl font-semibold tracking-[-0.03em] text-[#102028]">我的个人策略</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">每张卡都是不可变版本。先用真实标的回测，再决定是否建立计划。</p></div>
+      <Link to="/strategy-builder" className="inline-flex items-center gap-2 rounded-full border border-[#9fbfaf] bg-white px-4 py-2.5 text-sm font-semibold text-[#245a49] hover:border-[#78a991]"><Plus className="size-4" />新建个人策略</Link>
+    </div>
+    {loading ? <p className="mt-5 flex items-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" />正在读取个人策略…</p> : strategies.length === 0 ? <div className="mt-5 rounded-xl border border-dashed border-[#b8d5c6] bg-white/70 px-4 py-5 text-sm leading-6 text-slate-600">还没有个人策略。你可以用指标、观察天数和机会额度搭出第一条规则；不需要写代码。</div> : <div className="mt-5 grid gap-4 lg:grid-cols-2">{strategies.map((strategy) => <PersonalStrategyCard key={policyKey(strategy)} strategy={strategy} />)}</div>}
+  </section>
+}
+
+function PersonalStrategyCard({ strategy }: { strategy: StrategyCatalogEntry }) {
+  return <article className="flex flex-col rounded-[1.2rem] border border-[#cfded8] bg-white p-5">
+    <div className="flex items-start justify-between gap-3"><div><span className="inline-flex items-center gap-1.5 rounded-full bg-[#e8f2ed] px-2.5 py-1 text-xs font-medium text-[#2d6a57]"><ShieldCheck className="size-3.5" />个人策略</span><h3 className="mt-3 text-lg font-semibold tracking-[-0.025em] text-[#102028]">{strategy.name}</h3></div><span className="text-xs font-medium text-slate-400">v{strategy.policy.version}</span></div>
+    <p className="mt-3 text-sm leading-6 text-slate-600">{strategy.rule}</p>
+    <dl className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-[#f6f8f7] p-3 text-xs"><div><dt className="text-slate-500">所需历史</dt><dd className="mt-1 font-semibold text-[#102028]">{historyLabel(strategy)}</dd></div><div><dt className="text-slate-500">当前状态</dt><dd className="mt-1 font-semibold text-[#102028]">{strategy.adoptable ? '可回测并建计划' : '已保存，暂不可建计划'}</dd></div></dl>
+    <p className="mt-3 text-xs leading-5 text-slate-500">{strategy.limitation}</p>
+    <div className="mt-auto flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4"><Link to={analysisHref(strategy)} className="inline-flex items-center gap-2 text-sm font-semibold text-[#245a49] underline decoration-[#aac7b9] underline-offset-4"><BarChart3 className="size-4" />用真实标的回测</Link><div className="ml-auto"><StrategyAction strategy={strategy} /></div></div>
+  </article>
+}
+
 function FamilyCard({ family, strategy, onSelect }: { family: StrategyFamilyGroup; strategy: StrategyCatalogEntry; onSelect: (policyId: string) => void }) {
   return <article className="flex flex-col rounded-[1.35rem] border border-slate-200 bg-white p-5 [content-visibility:auto] [contain-intrinsic-size:420px] sm:p-6">
     <div className="flex items-start justify-between gap-3">
@@ -145,9 +167,11 @@ function StrategyAction({ strategy }: { strategy: StrategyCatalogEntry }) {
 }
 
 function buildCatalogView(entries: StrategyCatalogEntry[], query: string, selectedCategory: string) {
-  const benchmark = entries.find((strategy) => strategy.policy.id === 'fixed_dca')
+  const personalStrategies = entries.filter((strategy) => strategy.origin === 'personal')
+  const officialEntries = entries.filter((strategy) => strategy.origin !== 'personal')
+  const benchmark = officialEntries.find((strategy) => strategy.policy.id === 'fixed_dca')
   const groups = new Map<string, StrategyFamilyGroup>()
-  for (const strategy of entries) {
+  for (const strategy of officialEntries) {
     if (strategy.policy.id === 'fixed_dca') continue
     const family = strategy.family ?? { id: strategy.policy.id, name: strategy.name, description: strategy.summary, category: '其他' }
     const group = groups.get(family.id) ?? { ...family, strategies: [] }
@@ -163,12 +187,15 @@ function buildCatalogView(entries: StrategyCatalogEntry[], query: string, select
   })
   return {
     benchmark,
+    personalStrategies,
     allFamilies,
     families,
     categories: [...new Set(allFamilies.map((family) => family.category))].sort((left, right) => left.localeCompare(right, 'zh-CN')),
     totalFormulaCount: allFamilies.reduce((total, family) => total + family.strategies.length, 0),
   }
 }
+
+function policyKey(strategy: StrategyCatalogEntry): string { return `${strategy.policy.id}@${strategy.policy.version}` }
 
 function strategySearchText(strategy: StrategyCatalogEntry, family: StrategyFamilyGroup): string {
   return [family.name, family.description, family.category, strategy.name, strategy.summary, strategy.rule, ...(strategy.tags ?? [])].join(' ').toLocaleLowerCase('zh-CN')

@@ -4,7 +4,7 @@ import { useSnapshot } from 'valtio'
 import { Link, useSearchParams } from 'react-router'
 
 import { ApiRequestError, useStrategyBacktest, useStrategyCatalog } from '@/api/queries'
-import type { BacktestMarketPoint, DynamicBacktestSeries, StrategyBacktestRequest, StrategyCatalogEntry } from '@/api/types'
+import type { BacktestMarketPoint, DynamicBacktestSeries, PolicyReference, StrategyBacktestRequest, StrategyCatalogEntry } from '@/api/types'
 import { PageHeading } from '@/components/v2_1/page-heading'
 import { StrategyCenterNav } from '@/components/v2_1/strategy-center-nav'
 import { strategyAnalysisColor, strategyAnalysisRanges, type StrategyId } from '@/features/v2_1/model'
@@ -12,30 +12,31 @@ import { buildMarketExecutionChartOption, buildNormalizedChartOption } from '@/p
 import { InteractiveChart } from '@/pages/strategy-analysis/interactive-chart'
 import { buildMarketChartData } from '@/pages/strategy-analysis/market-execution-model'
 import { ResearchView } from '@/pages/strategy-analysis/research-view'
-import { openStrategyAnalysis, strategyAnalysisStore, submitStrategyAnalysis, toggleAnalysisStrategy } from '@/stores/ui'
+import { openStrategyAnalysis, policyKey, strategyAnalysisStore, submitStrategyAnalysis, toggleAnalysisStrategy } from '@/stores/ui'
 
 export default function StrategyAnalysisPage() {
   const state = useSnapshot(strategyAnalysisStore)
   const [searchParams] = useSearchParams()
   const catalog = useStrategyCatalog()
-  const requestedStrategy = parsePolicyId(searchParams.get('strategy'))
+  const requestedStrategy = parsePolicyReference(searchParams.get('strategy'), searchParams.get('strategy_version'))
   const requestedView = searchParams.get('view') === 'research' ? 'research' : 'plain'
   const catalogEntries = useMemo(() => Array.isArray(catalog.data) ? catalog.data : [], [catalog.data])
-  const catalogById = useMemo(() => new Map(catalogEntries.map((strategy) => [strategy.policy.id, strategy])), [catalogEntries])
-  const requestedCatalogStrategy = requestedStrategy ? catalogById.get(requestedStrategy) : undefined
+  const catalogById = useMemo(() => newestCatalogEntryByPolicyId(catalogEntries), [catalogEntries])
+  const catalogByKey = useMemo(() => new Map(catalogEntries.map((strategy) => [policyKey(strategy.policy), strategy])), [catalogEntries])
+  const requestedCatalogStrategy = requestedStrategy ? catalogByKey.get(policyKey(requestedStrategy)) : undefined
   const invalidRequestedStrategy = Boolean(requestedStrategy && catalog.isSuccess && Array.isArray(catalog.data) && !requestedCatalogStrategy)
 
   useEffect(() => {
     strategyAnalysisStore.view = requestedView
-    if (requestedCatalogStrategy && state.appliedRouteStrategyId !== requestedCatalogStrategy.policy.id) {
-      strategyAnalysisStore.appliedRouteStrategyId = requestedCatalogStrategy.policy.id
-      openStrategyAnalysis(requestedCatalogStrategy.policy.id)
+    if (requestedCatalogStrategy && state.appliedRouteStrategyId !== policyKey(requestedCatalogStrategy.policy)) {
+      strategyAnalysisStore.appliedRouteStrategyId = policyKey(requestedCatalogStrategy.policy)
+      openStrategyAnalysis(requestedCatalogStrategy.policy)
     }
   }, [requestedCatalogStrategy, requestedView, state.appliedRouteStrategyId])
 
   const request = useMemo<StrategyBacktestRequest>(() => ({
     symbol: state.submitted.symbol,
-    strategy_ids: [...state.submitted.strategy_ids],
+    strategy_refs: state.submitted.strategy_refs.map((policy) => ({ ...policy })),
     range: state.submitted.range,
     monthly_day: state.submitted.monthly_day,
     contribution: state.submitted.contribution,
@@ -43,7 +44,7 @@ export default function StrategyAnalysisPage() {
   const effectiveRequest = useMemo<StrategyBacktestRequest | null>(() => {
     if (!requestedStrategy) return request
     if (!requestedCatalogStrategy) return null
-    return state.appliedRouteStrategyId === requestedCatalogStrategy.policy.id ? request : null
+    return state.appliedRouteStrategyId === policyKey(requestedCatalogStrategy.policy) ? request : null
   }, [request, requestedCatalogStrategy, requestedStrategy, state.appliedRouteStrategyId])
   const backtest = useStrategyBacktest(effectiveRequest)
   const result = backtest.data
@@ -64,26 +65,28 @@ export default function StrategyAnalysisPage() {
 
       <div className="flex w-fit rounded-full border border-slate-200 bg-white p-1 shadow-sm" aria-label="选择分析视角"><button type="button" aria-pressed={state.view === 'plain'} onClick={() => { strategyAnalysisStore.view = 'plain' }} className={`rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${state.view === 'plain' ? 'bg-[#102028] text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-[#102028]'}`}>直观视角</button><button type="button" aria-pressed={state.view === 'research'} onClick={() => { strategyAnalysisStore.view = 'research' }} className={`rounded-full px-3.5 py-2 text-sm font-medium transition-colors ${state.view === 'research' ? 'bg-[#102028] text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-[#102028]'}`}>专业研究</button></div>
 
-      {invalidRequestedStrategy ? <UnknownStrategyState policyId={requestedStrategy!} /> : catalog.isLoading && requestedStrategy ? <LoadingState label="正在确认策略目录…" /> : catalog.isError && requestedStrategy ? <CatalogErrorState /> : backtest.isLoading ? <LoadingState /> : backtest.isError ? <ErrorState error={backtest.error} /> : result ? <>
+      {invalidRequestedStrategy ? <UnknownStrategyState policyId={requestedStrategy!.id} /> : catalog.isLoading && requestedStrategy ? <LoadingState label="正在确认策略目录…" /> : catalog.isError && requestedStrategy ? <CatalogErrorState /> : backtest.isLoading ? <LoadingState /> : backtest.isError ? <ErrorState error={backtest.error} /> : result ? <>
         <ProvenanceStrip response={result} />
         {state.view === 'plain'
-          ? <PlainView series={result.result.series} marketPoints={result.result.market_points} currency={result.data.currency} symbol={result.result.symbol} selected={state.strategyIds as readonly StrategyId[]} catalog={catalogEntries} />
+          ? <PlainView series={result.result.series} marketPoints={result.result.market_points} currency={result.data.currency} symbol={result.result.symbol} selected={state.strategyRefs as readonly PolicyReference[]} catalog={catalogEntries} />
           : <ResearchView series={result.result.series} currency={result.data.currency} effectiveStart={result.result.effective_start} effectiveEnd={result.result.effective_end} contributionCount={result.result.contribution_count} catalogById={catalogById} />}
       </> : null}
     </div>
   )
 }
 
-function PlainView({ series, marketPoints, currency, symbol, selected, catalog }: { series: DynamicBacktestSeries[]; marketPoints: BacktestMarketPoint[]; currency: string; symbol: string; selected: readonly StrategyId[]; catalog: StrategyCatalogEntry[] }) {
-  const catalogById = useMemo(() => new Map(catalog.map((strategy) => [strategy.policy.id, strategy])), [catalog])
-  const available = catalog.filter((strategy) => !selected.includes(strategy.policy.id))
+function PlainView({ series, marketPoints, currency, symbol, selected, catalog }: { series: DynamicBacktestSeries[]; marketPoints: BacktestMarketPoint[]; currency: string; symbol: string; selected: readonly PolicyReference[]; catalog: StrategyCatalogEntry[] }) {
+  const catalogById = useMemo(() => newestCatalogEntryByPolicyId(catalog), [catalog])
+  const catalogByKey = useMemo(() => new Map(catalog.map((strategy) => [policyKey(strategy.policy), strategy])), [catalog])
+  const selectedPolicyIds = useMemo(() => new Set(selected.map((policy) => policy.id)), [selected])
+  const available = catalog.filter((strategy) => !selectedPolicyIds.has(strategy.policy.id))
   const selectionFull = selected.length >= 3
   const overlaps = useMemo(() => findOverlappingSeries(series), [series])
   const dashedSeries = useMemo(() => new Set(overlaps.map((overlap) => overlap.coveringId)), [overlaps])
   const normalizedOption = useMemo(() => buildNormalizedChartOption(series, catalogById, dashedSeries), [catalogById, dashedSeries, series])
   return <><section className="rounded-[1.45rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
     <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
-      <aside><p className="text-sm font-semibold text-[#102028]">选择要对比的策略</p><p className="mt-1 text-xs leading-5 text-slate-500">最多选择三条。改变选择后，再运行真实回测。</p><label className="mt-4 block"><span className="sr-only">添加对比策略</span><select aria-label="添加对比策略" value="" disabled={selectionFull || available.length === 0} onChange={(event) => { if (event.target.value) toggleAnalysisStrategy(event.target.value) }} className="h-11 w-full rounded-xl border border-[#bfd3c9] bg-white px-3 text-sm font-medium text-[#102028] outline-none transition focus:border-[#2d6a57] focus:ring-4 focus:ring-[#2d6a57]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"><option value="">{selectionFull ? '已选满 3 条策略' : '添加一个策略…'}</option>{available.map((strategy) => <option key={strategy.policy.id} value={strategy.policy.id}>{strategy.name}</option>)}</select></label><div className="mt-3 space-y-2">{selected.map((policyId) => { const strategy = catalogById.get(policyId); const name = strategy?.name ?? policyId; const canRemove = selected.length > 1; return <button key={policyId} type="button" aria-label={canRemove ? `移除${name}` : `${name}（至少保留一个）`} aria-pressed="true" disabled={!canRemove} onClick={() => toggleAnalysisStrategy(policyId)} className="flex w-full items-center gap-3 rounded-xl border border-[#a9cbbb] bg-[#f1f7f4] p-3 text-left shadow-[0_8px_24px_rgb(45_106_87_/_0.08)] transition hover:border-[#78a991] disabled:cursor-default"><span className="grid size-5 shrink-0 place-items-center rounded-full" style={{ backgroundColor: strategyAnalysisColor(policyId) }}><Check className="size-3.5 text-white" /></span><span className="min-w-0"><span className="block truncate text-sm font-medium text-[#102028]">{name}</span><span className="mt-0.5 block text-xs text-slate-500">{scheduleLabel(strategy)}</span></span></button> })}</div></aside>
+      <aside><p className="text-sm font-semibold text-[#102028]">选择要对比的策略</p><p className="mt-1 text-xs leading-5 text-slate-500">最多选择三条。改变选择后，再运行真实回测。</p><label className="mt-4 block"><span className="sr-only">添加对比策略</span><select aria-label="添加对比策略" value="" disabled={selectionFull || available.length === 0} onChange={(event) => { const strategy = catalogByKey.get(event.target.value); if (strategy) toggleAnalysisStrategy(strategy.policy) }} className="h-11 w-full rounded-xl border border-[#bfd3c9] bg-white px-3 text-sm font-medium text-[#102028] outline-none transition focus:border-[#2d6a57] focus:ring-4 focus:ring-[#2d6a57]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"><option value="">{selectionFull ? '已选满 3 条策略' : '添加一个策略…'}</option>{available.map((strategy) => <option key={policyKey(strategy.policy)} value={policyKey(strategy.policy)}>{strategy.name}{strategy.origin === 'personal' ? ` · 个人 v${strategy.policy.version}` : ''}</option>)}</select></label><div className="mt-3 space-y-2">{selected.map((policy) => { const key = policyKey(policy); const strategy = catalogByKey.get(key); const name = strategy?.name ?? policy.id; const canRemove = selected.length > 1; return <button key={key} type="button" aria-label={canRemove ? `移除${name}` : `${name}（至少保留一个）`} aria-pressed="true" disabled={!canRemove} onClick={() => toggleAnalysisStrategy(policy)} className="flex w-full items-center gap-3 rounded-xl border border-[#a9cbbb] bg-[#f1f7f4] p-3 text-left shadow-[0_8px_24px_rgb(45_106_87_/_0.08)] transition hover:border-[#78a991] disabled:cursor-default"><span className="grid size-5 shrink-0 place-items-center rounded-full" style={{ backgroundColor: strategyAnalysisColor(policy.id) }}><Check className="size-3.5 text-white" /></span><span className="min-w-0"><span className="block truncate text-sm font-medium text-[#102028]">{name}</span><span className="mt-0.5 block text-xs text-slate-500">{scheduleLabel(strategy)}{strategy?.origin === 'personal' ? ` · 个人 v${policy.version}` : ''}</span></span></button> })}</div></aside>
       <div className="min-w-0">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -176,7 +179,21 @@ function OverlapNotice({ overlaps, catalogById }: { overlaps: SeriesOverlap[]; c
   return <div className="mt-3 rounded-xl border border-[#d7c7a7] bg-[#fbf7ee] px-4 py-3 text-sm leading-6 text-[#6d5733]" role="note" aria-label="重合曲线说明"><strong className="font-semibold text-[#4d391d]">这些策略都已完成计算：</strong>{overlaps.map((overlap) => `${name(overlap.visibleId)}与${name(overlap.coveringId)}`).join('；')}在当前区间的净值路径重合。图中用虚线露出下方曲线；重合表示策略在这些评估日产生了相同或近乎相同的资金结果，不是策略缺失。</div>
 }
 
-function parsePolicyId(value: string | null): StrategyId | null { return value?.trim() || null }
+function parsePolicyReference(id: string | null, version: string | null): PolicyReference | null {
+  const normalizedId = id?.trim()
+  if (!normalizedId) return null
+  const normalizedVersion = Number(version ?? '1')
+  return Number.isInteger(normalizedVersion) && normalizedVersion > 0 ? { id: normalizedId as StrategyId, version: normalizedVersion } : null
+}
 function scheduleLabel(strategy?: StrategyCatalogEntry): string { return strategy?.default_plan.schedule_kind === 'weekly' ? '每周检查' : '每月检查' }
 function formatPercent(value: number): string { return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%` }
 function adjustmentLabel(value: string): string { return ({ all: '全量复权', forward: '前复权', raw: '不复权' } as Record<string, string>)[value] ?? value }
+
+function newestCatalogEntryByPolicyId(catalog: StrategyCatalogEntry[]): Map<string, StrategyCatalogEntry> {
+  const entries = new Map<string, StrategyCatalogEntry>()
+  for (const strategy of catalog) {
+    const current = entries.get(strategy.policy.id)
+    if (!current || strategy.policy.version > current.policy.version) entries.set(strategy.policy.id, strategy)
+  }
+  return entries
+}

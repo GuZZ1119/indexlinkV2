@@ -9,6 +9,7 @@ export default {
     personal: '个人中心',
     myPlans: '我的计划',
     strategiesCenter: '策略中心',
+    strategyBuilder: '我的策略工坊',
     strategyAnalysis: '策略分析',
     lab: '高级实验室',
     dashboard: '仪表盘',
