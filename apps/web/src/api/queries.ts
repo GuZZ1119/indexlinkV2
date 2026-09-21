@@ -399,7 +399,12 @@ export function useCreateStrategy() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: createStrategy,
-    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['strategies'] }) },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['strategies'] }),
+        queryClient.invalidateQueries({ queryKey: ['strategy-catalog'] }),
+      ])
+    },
   })
 }
 

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-21 22:25 AEST — 受限个人策略可视化构造器（Push 2）
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：个人策略工坊、Formula V1 安全映射、前端路由、React Query 缓存与聚焦测试。
+- 涉及文件：`apps/web/src/{App.tsx,api/queries.ts,pages/strategy-builder/{index.tsx,model.ts,model.test.ts}}`、`CHANGE_LOG.md`。
+- 变更内容：新增 `/strategy-builder` 普通用户策略工坊，以“指标—观察窗口—比较—机会额度”句式构造个人 Formula V1；最多三条优先规则、每条最多三个条件，动作固定为跳过或 50%/100%/120% 机会额度，核心桶不可被规则取消。用户不再填写 policy ID 或版本，页面生成合法的本机个人 ID，经现有 `/strategies/validate` 重建领域类型后才保存不可变 v1；百分比输入在边界处转换为公式 decimal，拒绝任意代码、任意倍率和非法窗口。保存成功同时失效个人版本与统一目录缓存。
+- 技能影响：`frontend-design` 用于把编辑器设计成可阅读的规则句式与单一保存出口，延续现有低饱和墨绿体系；`vercel-react-best-practices` 用于保持草稿为本地表单状态、服务端校验/保存交给 React Query，并避免把服务端策略写入 Valtio。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/model.test.ts`（5 项）与 `pnpm --dir apps/web exec tsc -b --pretty false` 通过；集成完成后再统一执行完整 lint、覆盖率和生产构建。
+
 ### 2026-09-21 22:20 AEST — 个人策略统一目录契约（Push 1）
 
 - 执行模型：GPT-5 Codex（多 Agent；目录契约 Agent 实现，主线程审查与提交）。
