@@ -16,6 +16,7 @@ use strategy_evaluation::{
     run_dynamic_backtest, BacktestPrice, BacktestStrategy, DynamicBacktestError,
     DynamicBacktestRequest, DynamicBacktestResult,
 };
+use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
 
 const MAX_STRATEGIES: usize = 3;
 const WARMUP_CALENDAR_DAYS: i64 = 400;
@@ -71,10 +72,19 @@ impl BacktestRange {
 #[derive(Debug, Deserialize)]
 struct StrategyBacktestRequest {
     symbol: String,
+    #[serde(default)]
     strategy_ids: Vec<String>,
+    #[serde(default)]
+    strategy_refs: Vec<StrategyBacktestReference>,
     range: BacktestRange,
     monthly_day: u8,
     contribution: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+struct StrategyBacktestReference {
+    policy_id: String,
+    policy_version: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -114,6 +124,7 @@ async fn run_backtest(
     if contribution <= Decimal::ZERO || !(1..=28).contains(&input.monthly_day) {
         return Err(ApiError::BadRequest);
     }
+    let strategies = resolve_strategies(&state, &input).await?;
 
     let end = Utc::now().date_naive();
     let display_start = input.range.display_start(end)?;
@@ -131,7 +142,6 @@ async fn run_backtest(
         .await
         .map_err(map_market_provider_error)?;
 
-    let strategies = resolve_strategies(&state, &input.strategy_ids).await?;
     let prices = dataset
         .bars()
         .iter()
@@ -185,36 +195,84 @@ async fn run_backtest(
 }
 
 fn validate_selection(input: &StrategyBacktestRequest) -> Result<(), ApiError> {
-    if input.strategy_ids.is_empty() || input.strategy_ids.len() > MAX_STRATEGIES {
+    if !input.strategy_ids.is_empty() && !input.strategy_refs.is_empty() {
         return Err(ApiError::BadRequest);
     }
-    let unique = input.strategy_ids.iter().collect::<BTreeSet<_>>();
-    if unique.len() != input.strategy_ids.len() {
+    let selection_len = if input.strategy_refs.is_empty() {
+        input.strategy_ids.len()
+    } else {
+        input.strategy_refs.len()
+    };
+    if selection_len == 0 || selection_len > MAX_STRATEGIES {
         return Err(ApiError::BadRequest);
+    }
+    if input.strategy_refs.is_empty() {
+        let unique = input.strategy_ids.iter().collect::<BTreeSet<_>>();
+        if unique.len() != input.strategy_ids.len() {
+            return Err(ApiError::BadRequest);
+        }
+    } else {
+        let unique = input.strategy_refs.iter().collect::<BTreeSet<_>>();
+        if unique.len() != input.strategy_refs.len() {
+            return Err(ApiError::BadRequest);
+        }
     }
     Ok(())
 }
 
 async fn resolve_strategies(
     state: &ApiState,
-    ids: &[String],
+    input: &StrategyBacktestRequest,
 ) -> Result<Vec<BacktestStrategy>, ApiError> {
-    let mut strategies = Vec::with_capacity(ids.len());
-    for id in ids {
+    if !input.strategy_refs.is_empty() {
+        let mut strategies = Vec::with_capacity(input.strategy_refs.len());
+        for strategy_ref in &input.strategy_refs {
+            let policy = PolicyRef::new(
+                PolicyId::new(strategy_ref.policy_id.clone()).map_err(|_| ApiError::BadRequest)?,
+                PolicyVersion::new(strategy_ref.policy_version)
+                    .map_err(|_| ApiError::BadRequest)?,
+            );
+            strategies.push(resolve_exact_strategy(state, &policy).await?);
+        }
+        return Ok(strategies);
+    }
+
+    let mut strategies = Vec::with_capacity(input.strategy_ids.len());
+    for id in &input.strategy_ids {
         if id == "fixed_dca" {
             strategies.push(BacktestStrategy::FixedDca);
             continue;
         }
         let policy = official_strategies::policy_by_id(id)?.ok_or(ApiError::BadRequest)?;
-        let stored = state.get_strategy_spec(&policy).await?;
-        strategies.push(BacktestStrategy::Formula(
-            stored
-                .document
-                .into_strategy_spec()
-                .map_err(|_| ApiError::ServiceUnavailable)?,
-        ));
+        strategies.push(resolve_exact_strategy(state, &policy).await?);
     }
     Ok(strategies)
+}
+
+async fn resolve_exact_strategy(
+    state: &ApiState,
+    policy: &PolicyRef,
+) -> Result<BacktestStrategy, ApiError> {
+    if let Some(official_policy) = official_strategies::policy_by_id(policy.id().as_str())? {
+        if official_policy.version() != policy.version() {
+            return Err(ApiError::BadRequest);
+        }
+        if policy.id().as_str() == "fixed_dca" {
+            return Ok(BacktestStrategy::FixedDca);
+        }
+    }
+
+    let stored = match state.get_strategy_spec(policy).await {
+        Ok(stored) => stored,
+        Err(ApiError::NotFound) => return Err(ApiError::BadRequest),
+        Err(error) => return Err(error),
+    };
+    Ok(BacktestStrategy::Formula(
+        stored
+            .document
+            .into_strategy_spec()
+            .map_err(|_| ApiError::ServiceUnavailable)?,
+    ))
 }
 
 fn map_market_request_error(error: MarketDataError) -> ApiError {

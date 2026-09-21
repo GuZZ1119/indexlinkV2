@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-21 22:30 AEST — 个人策略接入真实回测与精确版本对比（Push 3）
+
+- 执行模型：GPT-5 Codex（多 Agent；回测 Agent 实现，主线程审查与提交）。
+- 变更类型：动态回测请求契约、个人策略解析、故障关闭、API 文档与集成测试。
+- 涉及文件：`crates/api/src/routes/strategy_backtests.rs`、`crates/api/tests/strategy_backtests.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：`POST /strategy-backtests` 新增最多三项的 `strategy_refs[{policy_id,policy_version}]`，官方与本机个人 Formula 均按精确不可变版本进入同一 `run_dynamic_backtest`；旧 `strategy_ids` 仅保留为官方目录兼容入口，禁止与新字段混用。不存在/错版返回 400，损坏存储返回 503，绝不切换最新版、Fixed DCA 或演示策略；策略解析提前到行情读取前，避免无效引用触发外部数据请求。响应继续冻结真实策略 ID、版本和名称，可与官方 Fixed DCA 在同一标的、窗口、投入节奏和成本口径下比较。
+- 验证：`cargo test -p indexlink-api --test strategy_backtests`（8 项）、`cargo test -p core-domain`（13 项）、`cargo fmt --all -- --check` 与 `git diff --check` 通过；覆盖个人/官方同窗回测、错误版本、缺失版本、重复引用、双字段冲突与损坏 SQLite 文档。
+
 ### 2026-09-21 22:25 AEST — 受限个人策略可视化构造器（Push 2）
 
 - 执行模型：GPT-5 Codex。

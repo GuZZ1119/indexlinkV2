@@ -161,24 +161,35 @@ Fixed DCA 只做代码格式、市场与币种一致性检查，不读取行情�
 
 #### `GET /strategy-catalog`
 
-返回面向普通用户的服务端官方策略目录；它与本机用户自行保存的 `/strategies` 列表分离。V2.1 返回一个 `fixed_dca@1` 基准，以及由 20 个透明规则家族各生成 5 档参数预设的 100 个不可变 Formula V1 版本。原有 `dsl_ma200_trend_guard@1` 与 `dsl_growth_volatility_balance@1` 的 ID、版本和公式保持不变。旧 `core_opportunity_v1@1` 依赖历史 70/20/10 与 AI 降级口径，不进入普通目录，也不能被目录前端误显示为可采用策略。
+返回统一的本机策略目录。目录首先返回一个 `fixed_dca@1` 基准，以及由 20 个透明规则家族各生成 5 档参数预设的 100 个不可变官方 Formula V1 版本；随后追加通过 `POST /strategies` 保存到本机的个人受限 Formula 版本。原有 `dsl_ma200_trend_guard@1` 与 `dsl_growth_volatility_balance@1` 的 ID、版本和公式保持不变。旧 `core_opportunity_v1@1` 依赖历史 70/20/10 与 AI 降级口径，不进入普通目录，也不能被目录前端误显示为可采用策略。
+
+每项都以完整 `policy.id` / `policy.version` 作为唯一身份，并增加三个不能由名称推断的状态字段：
+
+- `origin`：`official` 表示随当前二进制发布的官方版本，`personal` 表示保存在本机 SQLite 的个人版本；
+- `lifecycle`：官方版本为 `published`，个人版本为 `saved`。个人版本的 `(policy_id, policy_version)` 是数据库主键，保存后不可原地覆盖；修改规则必须使用新版本；
+- `status`：`usable` 表示当前版本已满足现有计划准入边界，`validated` 只表示受限 DSL 结构已通过领域校验，不代表可以建立计划。客户端仍必须以 `adoptable` 作为是否开放计划创建的直接布尔值。
+
+个人条目会内嵌保存时的规范化 `formula`，不提供伪造的官方 family、preset 或公开研究来源；`source` 因此省略，`tags` 标记为个人受限规则。可由当前倍率/跳过运行时执行的个人版本会运行既有固定样本 admission：通过时 `validation_mode=fixed_fixture`、`research_status=available`、`status=usable`；未通过，或含线上计划运行时尚不支持的固定金额动作时，保持 `status=validated`、`adoptable=false` 与 `research_status=blocked`。保存状态和可用状态是两件事，目录不会把“已保存”包装成“已发布”或“可执行”。目录合并只是现有官方注册表与不可变策略存储的只读投影，不创建新版本、不修改公式，也不需要新增数据库迁移。
 
 Formula 条目通过 `family`、`preset`、`tags` 与 `source` 提供分组、参数、检索标签和公开思想来源。`name` 是面向目录的参数化展示名（例如 `价格与指数（20日）`），`preset.name` 直接写出窗口组合（例如 `20日` 或 `趋势150日 / 波动63日`），不再使用“灵敏 / 稳健 / 长期”等无法直接核验的定性名称；策略的 `policy.id` / `policy.version` 与内部不可变名称不受展示文案调整影响。`source.adaptation` 会明确说明 IndexLink 只参考指标或研究思想，Formula 规则为独立实现，不复制第三方交易代码。`validation_mode` 有三种取值：`reference` 表示固定投入基准，`fixed_fixture` 表示兼容的两条原有策略附带完整固定样本研究，`compiled_formula` 表示其余生成预设已完成结构、预算和公式编译校验。为避免目录响应重复携带 98 份大型公式与研究结果，`compiled_formula` 条目不内嵌 `formula` / `research`；客户端可按精确 ID 读取 `/strategies/:id/:version`，实际采用仍必须通过所选标的的历史数据预检，回测则使用 `/strategy-backtests`。
 
-每项包含 `policy`、普通话名称/摘要、确定性规则、局限、风险标签、`supported_markets`、默认计划配置、可读 `data_requirements`、机器可读 `data_requirement.required_close_observations`、`adoptable` 与 `research_status`。`supported_symbols` 是只为旧客户端保留的弃用字段，固定返回空数组。官方 DSL 项还返回规范化 `formula` 和真实固定样本 `research`；只有 admission 的 `eligible` 为真时 `adoptable` 才为真。Fixed DCA 是对照基准，因此 `research_status` 为 `reference` 且不伪造 DSL 公式或差异化回测。当前官方 Formula V1 的准入研究仍只覆盖固定样本中的 S&P 500 / Nasdaq Composite 指数代理；其他 US/HK/SH/SZ 标的可以在满足数据窗口时运行，但界面必须明确“可计算”不等于“已证明适合”。
+每项包含 `origin`、`lifecycle`、`status`、`policy`、普通话名称/摘要、确定性规则、局限、风险标签、`supported_markets`、默认计划配置、可读 `data_requirements`、机器可读 `data_requirement.required_close_observations`、`adoptable` 与 `research_status`。`supported_symbols` 是只为旧客户端保留的弃用字段，固定返回空数组。官方 DSL 项还返回规范化 `formula` 和真实固定样本 `research`；只有 admission 的 `eligible` 为真时 `adoptable` 才为真。Fixed DCA 是对照基准，因此 `research_status` 为 `reference` 且不伪造 DSL 公式或差异化回测。当前官方 Formula V1 的准入研究仍只覆盖固定样本中的 S&P 500 / Nasdaq Composite 指数代理；其他 US/HK/SH/SZ 标的可以在满足数据窗口时运行，但界面必须明确“可计算”不等于“已证明适合”。
 
 两个 Formula V1 策略默认使用 70% 核心桶与 30% 弹性桶：规则只能调整弹性桶，不能取消核心投入。目录读取不会保存计划、创建 decision、读取 AI 或提交订单。
 
 #### `POST /strategy-backtests`
 
-在一个用户选择的标的上，以相同日线快照、显示区间、月度投入日、外部现金流、5 bps 买入成本和成交时点比较 1–3 个官方策略。该接口读取配置到 `ApiState` 的通用 `HistoricalPriceProvider`，再调用无 IO 的生产 Formula V1 回测 runtime；它不读取旧 `historical-backtest`，也不调用 broker 或自动下单。
+在一个用户选择的标的上，以相同日线快照、显示区间、月度投入日、外部现金流、5 bps 买入成本和成交时点比较 1–3 个官方或本机已保存的个人策略。该接口读取配置到 `ApiState` 的通用 `HistoricalPriceProvider`，再调用无 IO 的生产 Formula V1 回测 runtime；它不读取旧 `historical-backtest`，也不调用 broker 或自动下单。
 
-请求中的 `symbol` 接受 `US.SPY`、`HK.00700`、`SH.600519`、`SZ.000001`；无前缀符号兼容解释为美股。`range` 只接受 `1m`、`3m`、`6m`、`1y`、`3y`、`5y`、`all`。`monthly_day` 限制为 1–28，避免不同月份没有该日；`strategy_ids` 接受当前官方目录中的不可变策略 ID，不得重复且最多三条。金额使用十进制字符串，禁止 0 或负数，并以响应 `data.currency` 所示的标的交易币种解释。
+请求中的 `symbol` 接受 `US.SPY`、`HK.00700`、`SH.600519`、`SZ.000001`；无前缀符号兼容解释为美股。`range` 只接受 `1m`、`3m`、`6m`、`1y`、`3y`、`5y`、`all`。`monthly_day` 限制为 1–28，避免不同月份没有该日。新调用方使用 `strategy_refs` 提交 1–3 个精确的 `policy_id` / `policy_version`，从而让个人策略和官方策略采用同一不可变身份；引用不存在、版本错误或本地文档损坏时明确失败，不会改用最新版本、Fixed DCA 或演示策略。兼容字段 `strategy_ids` 只接受当前官方目录 ID，并由服务端解析到其目录版本；`strategy_refs` 与 `strategy_ids` 不能同时出现。金额使用十进制字符串，禁止 0 或负数，并以响应 `data.currency` 所示的标的交易币种解释。
 
 ```json
 {
   "symbol": "HK.00700",
-  "strategy_ids": ["fixed_dca", "dsl_ma200_trend_guard"],
+  "strategy_refs": [
+    {"policy_id": "fixed_dca", "policy_version": 1},
+    {"policy_id": "dsl_ma200_trend_guard", "policy_version": 1}
+  ],
   "range": "3y",
   "monthly_day": 18,
   "contribution": "1000.00"

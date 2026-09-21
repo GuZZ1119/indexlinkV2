@@ -8,12 +8,18 @@ use axum::{
 use chrono::{Duration as ChronoDuration, Utc};
 use http_body_util::BodyExt;
 use indexlink_api::{build_router, ApiState};
-use indexlink_storage::SqliteStorage;
+use indexlink_storage::{SqliteStorage, SqliteStrategySpecRepository};
 use market_data::{
     Adjustment, DatasetSource, HistoricalPriceBar, HistoricalPriceDataset, HistoricalPriceProvider,
     HistoricalPriceRequest, Market, MarketDataError,
 };
+use rust_decimal::Decimal;
 use serde_json::{json, Value};
+use strategy_dsl::{
+    ComparisonOperator, Condition, IndicatorSpec, LookbackWindow, PolicyAction, StrategyRule,
+    StrategySpec, ValueExpression,
+};
+use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
 use tower::ServiceExt;
 
 #[derive(Debug)]
@@ -69,6 +75,42 @@ async fn app(provider: Option<Arc<dyn HistoricalPriceProvider>>) -> axum::Router
     })
 }
 
+async fn app_with_personal_strategy(
+    provider: Arc<dyn HistoricalPriceProvider>,
+    strategy: &StrategySpec,
+) -> axum::Router {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    SqliteStrategySpecRepository::new(storage.pool().clone())
+        .save(strategy)
+        .await
+        .unwrap();
+    build_router(ApiState::new(storage, "0.1.0").with_historical_price_provider(provider))
+}
+
+async fn app_with_corrupt_personal_strategy(
+    provider: Arc<dyn HistoricalPriceProvider>,
+    strategy: &StrategySpec,
+) -> axum::Router {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    SqliteStrategySpecRepository::new(storage.pool().clone())
+        .save(strategy)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE strategy_specs SET spec_json = '{\"corrupt\":true}' WHERE policy_id = ?1 AND policy_version = ?2")
+        .bind(strategy.policy().id().as_str())
+        .bind(i64::from(strategy.policy().version().value()))
+        .execute(storage.pool())
+        .await
+        .unwrap();
+    build_router(ApiState::new(storage, "0.1.0").with_historical_price_provider(provider))
+}
+
 async fn post(app: axum::Router, body: Value) -> axum::response::Response {
     app.oneshot(
         Request::builder()
@@ -95,6 +137,27 @@ fn request(range: &str) -> Value {
         "monthly_day": 18,
         "contribution": "1000.00"
     })
+}
+
+fn personal_strategy() -> StrategySpec {
+    StrategySpec::new(
+        PolicyRef::new(
+            PolicyId::new("dsl_personal_price_guard").unwrap(),
+            PolicyVersion::new(7).unwrap(),
+        ),
+        "My price guard",
+        vec![StrategyRule::new(
+            Condition::compare(
+                ValueExpression::indicator(IndicatorSpec::PriceReturn(
+                    LookbackWindow::new(20).unwrap(),
+                )),
+                ComparisonOperator::LessThan,
+                Decimal::ZERO,
+            ),
+            PolicyAction::set_opportunity_multiplier(core_domain::Multiplier::new_clamped(0.5)),
+        )],
+    )
+    .unwrap()
 }
 
 #[tokio::test]
@@ -206,11 +269,103 @@ async fn generated_formula_preset_runs_against_provider_history() {
 }
 
 #[tokio::test]
+async fn personal_and_official_exact_versions_share_one_backtest_window() {
+    let response = post(
+        app_with_personal_strategy(
+            Arc::new(StaticHistory { fails: false }),
+            &personal_strategy(),
+        )
+        .await,
+        json!({
+            "symbol": "US.SPY",
+            "strategy_refs": [
+                {"policy_id": "fixed_dca", "policy_version": 1},
+                {"policy_id": "dsl_personal_price_guard", "policy_version": 7}
+            ],
+            "range": "1y",
+            "monthly_day": 18,
+            "contribution": "1000.00"
+        }),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    let series = body["result"]["series"].as_array().unwrap();
+    assert_eq!(series.len(), 2);
+    assert_eq!(series[0]["strategy_id"], "fixed_dca");
+    assert_eq!(series[0]["strategy_version"], 1);
+    assert_eq!(series[1]["strategy_id"], "dsl_personal_price_guard");
+    assert_eq!(series[1]["strategy_version"], 7);
+    assert_eq!(series[1]["strategy_name"], "My price guard");
+    assert_eq!(
+        series[0]["normalized_points"].as_array().unwrap().len(),
+        series[1]["normalized_points"].as_array().unwrap().len()
+    );
+}
+
+#[tokio::test]
+async fn missing_or_wrong_personal_strategy_version_is_rejected_without_fallback() {
+    for strategy_ref in [
+        json!({"policy_id": "dsl_personal_price_guard", "policy_version": 8}),
+        json!({"policy_id": "dsl_missing_personal", "policy_version": 1}),
+    ] {
+        let response = post(
+            app_with_personal_strategy(
+                Arc::new(StaticHistory { fails: false }),
+                &personal_strategy(),
+            )
+            .await,
+            json!({
+                "symbol": "US.SPY",
+                "strategy_refs": [strategy_ref],
+                "range": "1y",
+                "monthly_day": 18,
+                "contribution": "1000.00"
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(json_body(response).await["error"]["code"], "bad_request");
+    }
+}
+
+#[tokio::test]
+async fn corrupt_personal_strategy_is_unavailable_instead_of_falling_back() {
+    let response = post(
+        app_with_corrupt_personal_strategy(
+            Arc::new(StaticHistory { fails: false }),
+            &personal_strategy(),
+        )
+        .await,
+        json!({
+            "symbol": "US.SPY",
+            "strategy_refs": [
+                {"policy_id": "dsl_personal_price_guard", "policy_version": 7}
+            ],
+            "range": "1y",
+            "monthly_day": 18,
+            "contribution": "1000.00"
+        }),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        json_body(response).await["error"]["code"],
+        "service_unavailable"
+    );
+}
+
+#[tokio::test]
 async fn malformed_or_unsafe_requests_use_the_existing_bad_request_envelope() {
     let cases = [
         json!({"symbol":"US.SPY","strategy_ids":["fixed_dca"],"range":"2y","monthly_day":18,"contribution":"1000"}),
         json!({"symbol":"US.SPY","strategy_ids":[],"range":"1y","monthly_day":18,"contribution":"1000"}),
         json!({"symbol":"US.SPY","strategy_ids":["fixed_dca","fixed_dca"],"range":"1y","monthly_day":18,"contribution":"1000"}),
+        json!({"symbol":"US.SPY","strategy_refs":[{"policy_id":"fixed_dca","policy_version":1},{"policy_id":"fixed_dca","policy_version":1}],"range":"1y","monthly_day":18,"contribution":"1000"}),
+        json!({"symbol":"US.SPY","strategy_ids":["fixed_dca"],"strategy_refs":[{"policy_id":"fixed_dca","policy_version":1}],"range":"1y","monthly_day":18,"contribution":"1000"}),
         json!({"symbol":"US.SPY","strategy_ids":["fixed_dca","dsl_ma200_trend_guard","dsl_growth_volatility_balance","fourth"],"range":"1y","monthly_day":18,"contribution":"1000"}),
         json!({"symbol":"JP.7974","strategy_ids":["fixed_dca"],"range":"1y","monthly_day":18,"contribution":"1000"}),
         json!({"symbol":"US.SPY","strategy_ids":["unknown"],"range":"1y","monthly_day":18,"contribution":"1000"}),
