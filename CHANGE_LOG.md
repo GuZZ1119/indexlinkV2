@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-21 22:20 AEST — 个人策略统一目录契约（Push 1）
+
+- 执行模型：GPT-5 Codex（多 Agent；目录契约 Agent 实现，主线程审查与提交）。
+- 变更类型：统一策略目录、个人策略状态投影、API 聚焦测试与实施 Hardness。
+- 涉及文件：`crates/api/src/routes/strategy_catalog.rs`、`crates/api/tests/strategy_catalog.rs`、`docs/plans/personal_strategy_catalog_push1.md`、`CHANGE_LOG.md`。
+- 变更内容：`GET /strategy-catalog` 在既有 101 个官方版本之后追加本机 SQLite 中的不可变个人 Formula 版本；每项明确返回 `origin`、`lifecycle` 与 `status`，并继续以完整 `policy.id + policy.version` 作为唯一身份。个人文档在目录投影前重新经过领域校验；倍率/跳过版本复用固定样本准入，当前运行时不支持的固定金额动作只标记为已验证且不可建立计划。复用既有不可变主键，不新增数据库迁移。
+- 验证：新增个人多版本目录、不可覆盖、可用/仅验证状态测试通过；官方 101 条目录回归通过；`cargo test -p indexlink-api --test strategies`（8 项）、`cargo test -p core-domain`（13 项）、`cargo fmt --all -- --check` 与 `git diff --check` 通过。完整目录测试暂受并行中的计划绑定修改影响，留待五个 Push 集成后统一复跑。
+
 ### 2026-09-21 21:18 AEST — 可审计的专业研究公式与资金路径
 
 - 执行模型：GPT-5 Codex。

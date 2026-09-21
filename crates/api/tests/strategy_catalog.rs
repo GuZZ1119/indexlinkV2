@@ -76,6 +76,43 @@ async fn response_json(response: axum::response::Response) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+async fn save_personal_strategy(app: &axum::Router, document: Value) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/strategies")
+                .header("content-type", "application/json")
+                .body(Body::from(document.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+fn personal_strategy_document(policy_version: u32, name: &str, fixed_amount: bool) -> Value {
+    let action = if fixed_amount {
+        json!({ "kind": "set_opportunity_fixed_amount", "amount": "1001" })
+    } else {
+        json!({ "kind": "set_opportunity_multiplier", "multiplier": 0.8 })
+    };
+    json!({
+        "policy_id": "dsl_personal_catalog_test",
+        "policy_version": policy_version,
+        "name": name,
+        "rules": [{
+            "condition": {
+                "kind": "comparison",
+                "expression": { "kind": "indicator", "indicator": { "kind": "close_price" } },
+                "operator": "greater_than",
+                "threshold": "0"
+            },
+            "action": action
+        }]
+    })
+}
+
 async fn create_plan(app: axum::Router, body: Value) -> axum::response::Response {
     app.oneshot(
         Request::builder()
@@ -133,6 +170,11 @@ async fn consumer_catalog_exposes_grouped_versioned_non_ai_presets() {
 
     assert_eq!(entries.len(), 101);
     assert_eq!(ids[0], "fixed_dca");
+    assert!(entries.iter().all(|entry| entry["origin"] == "official"));
+    assert!(entries
+        .iter()
+        .all(|entry| entry["lifecycle"] == "published"));
+    assert!(entries.iter().all(|entry| entry["status"] == "usable"));
     assert_eq!(
         ids.iter()
             .copied()
@@ -217,6 +259,76 @@ async fn consumer_catalog_exposes_grouped_versioned_non_ai_presets() {
         .unwrap();
     assert_eq!(ema20["name"], "价格与指数（20日）");
     assert_eq!(ema20["family"]["name"], "价格与指数");
+}
+
+#[tokio::test]
+async fn unified_catalog_appends_exact_immutable_personal_versions_with_honest_status() {
+    let app = app(None).await;
+    assert_eq!(
+        save_personal_strategy(
+            &app,
+            personal_strategy_document(1, "个人价格规则 v1", false)
+        )
+        .await,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        save_personal_strategy(&app, personal_strategy_document(2, "个人价格规则 v2", true)).await,
+        StatusCode::CREATED
+    );
+
+    let duplicate =
+        save_personal_strategy(&app, personal_strategy_document(1, "试图覆盖 v1", false)).await;
+    assert_ne!(duplicate, StatusCode::CREATED);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/strategy-catalog")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    let entries = body.as_array().unwrap();
+    assert_eq!(entries.len(), 103);
+
+    let personal = entries
+        .iter()
+        .filter(|entry| entry["origin"] == "personal")
+        .collect::<Vec<_>>();
+    assert_eq!(personal.len(), 2);
+    assert!(personal
+        .iter()
+        .all(|entry| entry["policy"]["id"] == "dsl_personal_catalog_test"));
+    assert_eq!(personal[0]["policy"]["version"], 2);
+    assert_eq!(personal[1]["policy"]["version"], 1);
+    assert_eq!(personal[1]["name"], "个人价格规则 v1");
+    assert!(personal.iter().all(|entry| entry["lifecycle"] == "saved"));
+    assert!(personal
+        .iter()
+        .all(|entry| entry["formula"]["policy_id"] == "dsl_personal_catalog_test"));
+
+    let fixed_amount = personal
+        .iter()
+        .find(|entry| entry["policy"]["version"] == 2)
+        .unwrap();
+    assert_eq!(fixed_amount["status"], "validated");
+    assert_eq!(fixed_amount["adoptable"], false);
+    assert_eq!(fixed_amount["validation_mode"], "compiled_formula");
+    assert_eq!(fixed_amount["research_status"], "blocked");
+    assert!(fixed_amount.get("research").is_none());
+
+    let plan_usable = personal
+        .iter()
+        .find(|entry| entry["policy"]["version"] == 1)
+        .unwrap();
+    assert_eq!(plan_usable["status"], "usable");
+    assert_eq!(plan_usable["adoptable"], true);
+    assert_eq!(plan_usable["validation_mode"], "fixed_fixture");
+    assert_eq!(plan_usable["research"]["eligible"], true);
 }
 
 #[tokio::test]
