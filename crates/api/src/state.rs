@@ -703,6 +703,30 @@ impl ApiState {
             })
     }
 
+    /// Resolve the exact persisted Formula version that may execute for a plan.
+    ///
+    /// Built-in policies are handled by [`BuiltinPolicyResolver`] and therefore return `None`.
+    /// Every other policy must exist as either an official immutable document or an exact SQLite
+    /// version. The document is reconstructed through the DSL invariant checks; clients cannot
+    /// provide or override the executable formula through a plan or preview request.
+    pub(crate) async fn executable_plan_formula(
+        &self,
+        policy: &strategy_policy::PolicyRef,
+    ) -> Result<Option<StrategySpec>, ApiError> {
+        if self.policy_resolver().supports(policy) {
+            return Ok(None);
+        }
+        let stored = self.get_strategy_spec(policy).await?;
+        let strategy = stored
+            .document
+            .into_strategy_spec()
+            .map_err(|_| ApiError::ServiceUnavailable)?;
+        if strategy.policy() != policy || strategy.has_fixed_opportunity_amount_action() {
+            return Err(ApiError::BadRequest);
+        }
+        Ok(Some(strategy))
+    }
+
     /// 保存一份已通过领域校验的不可变受限 DSL 策略版本。
     pub(crate) async fn save_strategy_spec(
         &self,
@@ -727,15 +751,11 @@ impl ApiState {
         if self.policy_resolver().supports(policy) {
             return Ok(true);
         }
-        match self.get_strategy_spec(policy).await {
-            Ok(strategy) => {
-                let strategy = strategy
-                    .document
-                    .into_strategy_spec()
-                    .map_err(|_| ApiError::ServiceUnavailable)?;
-                Ok(!strategy.has_fixed_opportunity_amount_action())
-            }
+        match self.executable_plan_formula(policy).await {
+            Ok(Some(_)) => Ok(true),
+            Ok(None) => Ok(true),
             Err(ApiError::NotFound) => Ok(false),
+            Err(ApiError::BadRequest) => Ok(false),
             Err(error) => Err(error),
         }
     }

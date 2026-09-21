@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-22 00:08 AEST — 个人策略计划准入与建议运行时闭环（Push 4）
+
+- 执行模型：GPT-5 Codex（多 Agent；计划运行时 Agent 实现，主线程修复固定定投输入回归并提交）。
+- 变更类型：计划版本冻结、Formula 数据准入、建议运行时解析、入站 DTO 安全与 API 集成测试。
+- 涉及文件：`crates/api/src/{state.rs,routes/{investment_plans.rs,decision_preview.rs}}`、`crates/api/tests/strategies.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：新增统一 `executable_plan_formula`，按 exact policy ID/version 从官方注册表或 SQLite 个人存储重建公式；创建、更新与激活计划统一执行标的/币种、真实预算、指标、最长 lookback、行情完整性及时效预检，不支持的固定金额动作、VIX 数据依赖和缺失行情能力均故障关闭且不落库。计划 DTO 拒绝客户端注入 `formula`，自动建议与 decision preview 只运行服务端保存的同一不可变版本。集成时恢复 Fixed DCA 的市场代码与币种校验，避免非 Formula 路径绕过输入边界。
+- 验证：`cargo test -p indexlink-api --test strategies`（9 项）、`--test decision_preview`（17 项）、`--test investment_plans`（10 项）、`--test strategy_catalog`（7 项）、`cargo test -p core-domain`（13 项）、`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+
 ### 2026-09-21 22:30 AEST — 个人策略接入真实回测与精确版本对比（Push 3）
 
 - 执行模型：GPT-5 Codex（多 Agent；回测 Agent 实现，主线程审查与提交）。

@@ -19,15 +19,17 @@ use investment_plans::{
 use market_data::{HistoricalPriceRequest, Instrument, MarketDataError};
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use strategy_dsl::{IndicatorSpec, StrategySpec};
 use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
 use uuid::Uuid;
 
 use crate::{ApiError, ApiState};
 
-const MAX_OFFICIAL_HISTORY_STALENESS_DAYS: i64 = 10;
+const MAX_FORMULA_HISTORY_STALENESS_DAYS: i64 = 10;
 
 /// 创建 investment plan 的入站 DTO。
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateInvestmentPlanRequest {
     /// 用户可读计划名称。
     name: String,
@@ -66,6 +68,7 @@ struct CreateInvestmentPlanRequest {
 
 /// 更新 investment plan 的入站 DTO。
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct UpdateInvestmentPlanRequest {
     /// 可选的新用户可读计划名称。
     name: Option<String>,
@@ -389,16 +392,20 @@ async fn create_plan(
         .policy
         .clone()
         .unwrap_or_else(default_fixed_dca_policy);
-    if crate::official_strategies::is_catalog_policy(&policy) {
-        let instrument =
-            validate_and_normalize_official_instrument(&mut input.symbol, &mut input.currency)?;
-        validate_official_formula_history(&state, &policy, &instrument).await?;
-    }
     if !state
         .is_plan_policy_eligible_for_activation(&policy)
         .await?
     {
         return Err(ApiError::BadRequest);
+    }
+    let formula = state.executable_plan_formula(&policy).await?;
+    if crate::official_strategies::is_catalog_policy(&policy) || formula.is_some() {
+        let instrument =
+            validate_and_normalize_formula_instrument(&mut input.symbol, &mut input.currency)?;
+        if let Some(strategy) = formula {
+            validate_formula_plan_binding(&state, &strategy, input.base_contribution, &instrument)
+                .await?;
+        }
     }
     Ok((
         StatusCode::CREATED,
@@ -429,14 +436,24 @@ async fn update_plan(
     let Path(id) = id.map_err(|_| ApiError::BadRequest)?;
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
     let input = input.into_domain()?;
-    if let Some(policy) = &input.policy {
+    if input.policy.is_some() || input.base_contribution.is_some() {
         let plan = state.plans().get(id).await?;
-        if crate::official_strategies::is_catalog_policy(policy) {
-            let instrument = validate_official_instrument(&plan.symbol, &plan.currency)?;
-            validate_official_formula_history(&state, policy, &instrument).await?;
-        }
+        let policy = input.policy.as_ref().unwrap_or(&plan.policy);
         if !state.is_plan_policy_eligible_for_activation(policy).await? {
             return Err(ApiError::BadRequest);
+        }
+        let formula = state.executable_plan_formula(policy).await?;
+        if crate::official_strategies::is_catalog_policy(policy) || formula.is_some() {
+            let instrument = validate_formula_instrument(&plan.symbol, &plan.currency)?;
+            if let Some(strategy) = formula {
+                validate_formula_plan_binding(
+                    &state,
+                    &strategy,
+                    input.base_contribution.unwrap_or(plan.base_contribution),
+                    &instrument,
+                )
+                .await?;
+            }
         }
     }
     Ok(Json(state.plans().update(id, input).await?))
@@ -452,15 +469,19 @@ async fn activate_policy(
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
     let policy = input.policy.into_domain()?;
     let plan = state.plans().get(id).await?;
-    if crate::official_strategies::is_catalog_policy(&policy) {
-        let instrument = validate_official_instrument(&plan.symbol, &plan.currency)?;
-        validate_official_formula_history(&state, &policy, &instrument).await?;
-    }
     if !state
         .is_plan_policy_eligible_for_activation(&policy)
         .await?
     {
         return Err(ApiError::BadRequest);
+    }
+    let formula = state.executable_plan_formula(&policy).await?;
+    if crate::official_strategies::is_catalog_policy(&policy) || formula.is_some() {
+        let instrument = validate_formula_instrument(&plan.symbol, &plan.currency)?;
+        if let Some(strategy) = formula {
+            validate_formula_plan_binding(&state, &strategy, plan.base_contribution, &instrument)
+                .await?;
+        }
     }
     Ok(Json(
         state
@@ -476,13 +497,13 @@ async fn activate_policy(
     ))
 }
 
-/// Validate one official-plan instrument and normalize its storage representation.
-fn validate_and_normalize_official_instrument(
+/// Validate one Formula-plan instrument and normalize its storage representation.
+fn validate_and_normalize_formula_instrument(
     symbol: &mut String,
     currency: &mut String,
 ) -> Result<Instrument, ApiError> {
     let raw_symbol = symbol.trim().to_ascii_uppercase();
-    let instrument = validate_official_instrument(&raw_symbol, currency)?;
+    let instrument = validate_formula_instrument(&raw_symbol, currency)?;
     *symbol = if instrument.market() == market_data::Market::Us && !raw_symbol.starts_with("US.") {
         instrument.symbol().to_owned()
     } else {
@@ -493,7 +514,7 @@ fn validate_and_normalize_official_instrument(
 }
 
 /// Reject malformed symbols and client-supplied currencies that disagree with market metadata.
-fn validate_official_instrument(symbol: &str, currency: &str) -> Result<Instrument, ApiError> {
+fn validate_formula_instrument(symbol: &str, currency: &str) -> Result<Instrument, ApiError> {
     let instrument = Instrument::parse(symbol).map_err(map_plan_market_request_error)?;
     if currency.trim().to_ascii_uppercase() != instrument.currency() {
         return Err(ApiError::BadRequest);
@@ -501,15 +522,20 @@ fn validate_official_instrument(symbol: &str, currency: &str) -> Result<Instrume
     Ok(instrument)
 }
 
-/// Fail closed before binding an official Formula version to a plan without usable history.
-async fn validate_official_formula_history(
+/// Fail closed before binding any official or personal Formula version without usable history.
+async fn validate_formula_plan_binding(
     state: &ApiState,
-    policy: &PolicyRef,
+    strategy: &StrategySpec,
+    budget: Decimal,
     instrument: &Instrument,
 ) -> Result<(), ApiError> {
-    let Some(strategy) = crate::official_strategies::strategy(policy)? else {
-        return Ok(());
-    };
+    strategy
+        .validate_for_budget(budget)
+        .map_err(|_| ApiError::BadRequest)?;
+    if strategy.required_indicators().contains(&IndicatorSpec::Vix) {
+        tracing::warn!(policy = %strategy.policy(), "Formula requires VIX but no canonical VIX history provider is configured");
+        return Err(ApiError::ServiceUnavailable);
+    }
     let required_closes = strategy.required_close_observations();
     if required_closes == 0 {
         return Ok(());
@@ -547,7 +573,7 @@ async fn validate_official_formula_history(
         .map(|bar| bar.date())
         .ok_or(ApiError::BadRequest)?;
     if request_end.signed_duration_since(latest_close).num_days()
-        > MAX_OFFICIAL_HISTORY_STALENESS_DAYS
+        > MAX_FORMULA_HISTORY_STALENESS_DAYS
     {
         return Err(ApiError::BadRequest);
     }

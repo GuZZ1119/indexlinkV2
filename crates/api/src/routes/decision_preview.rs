@@ -512,11 +512,9 @@ async fn automatic_decision_input(
 
     if builtin_evidence_kind.is_none() {
         let strategy = state
-            .get_strategy_spec(&plan.policy)
+            .executable_plan_formula(&plan.policy)
             .await?
-            .document
-            .into_strategy_spec()
-            .map_err(|_| ApiError::ServiceUnavailable)?;
+            .ok_or(ApiError::ServiceUnavailable)?;
         let (dsl_evidence, input_source) =
             dsl_evidence_for_live_runtime(state, &strategy, &plan.symbol, Utc::now().date_naive())
                 .await?;
@@ -924,11 +922,9 @@ async fn resolve_policy_decision(
     .map_err(|_| ApiError::BadRequest)?;
     if !state.policy_resolver().supports(&plan.policy) {
         let strategy = state
-            .get_strategy_spec(&plan.policy)
+            .executable_plan_formula(&plan.policy)
             .await?
-            .document
-            .into_strategy_spec()
-            .map_err(|_| ApiError::ServiceUnavailable)?;
+            .ok_or(ApiError::ServiceUnavailable)?;
         let evidence = input.dsl_evidence.clone().ok_or(ApiError::BadRequest)?;
         let context = DecisionContext::new(date, plan.base_contribution, evidence)
             .map_err(|_| ApiError::BadRequest)?;

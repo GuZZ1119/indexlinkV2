@@ -115,7 +115,9 @@
 
 `schedule_kind` 接受 `monthly`（日期为 `1..=28`）或 `weekly`（ISO 星期为 `1..=7`）。`schedule_days` 可提供同一周期的多个固定日，必须有序、无重复，且其第一项必须等于兼容字段 `schedule_day`；省略时等价于仅 `[schedule_day]`。scheduler 使用此集合按 UTC 日期运行。
 
-普通用户从 `GET /strategy-catalog` 采用策略时，必须原样提交目录中的 `policy.id` / `policy.version` 与 `default_plan` 的核心桶、弹性桶和风险模式。`fixed_dca@1` 使用 100% 核心桶；100 个官方 Formula V1 预设使用 70% 核心桶、30% 弹性桶和 `approval`。目录使用 `supported_markets` 和 `data_requirement.required_close_observations` 声明能力；已弃用的 `supported_symbols` 始终为空，不能再作为准入白名单。
+普通用户从 `GET /strategy-catalog` 采用策略时，必须原样提交目录中的 `policy.id` / `policy.version` 与 `default_plan` 的核心桶、弹性桶和风险模式。`fixed_dca@1` 使用 100% 核心桶；官方与个人 Formula V1 使用 70% 核心桶、30% 弹性桶和 `approval`。服务端只按这份精确引用读取官方注册表或 SQLite 中已经保存并重新校验的公式，创建与更新 DTO 会拒绝客户端额外提交的 `formula` 字段；计划一旦创建便冻结该版本，不会自动跟随同 ID 的后续版本。
+
+Formula 计划在写入前统一执行标的/市场/币种校验、真实周期预算检查、所需指标与最长 lookback 推导、行情完整性和最近数据时效检查；缺少行情能力、历史长度不足、数据过期、固定金额动作或当前没有 canonical provider 的 VIX 依赖都会故障关闭，且不会留下半条计划记录。自动建议、scheduler 与 decision preview 随后从服务端再次解析同一个已保存版本并复用 DSL 解释器。目录使用 `supported_markets` 和 `data_requirement.required_close_observations` 声明能力；已弃用的 `supported_symbols` 始终为空，不能再作为准入白名单。
 
 Fixed DCA 只做代码格式、市场与币种一致性检查，不读取行情，因此未配置 OpenD/历史数据 provider 时仍可创建。官方 Formula 在创建、更新策略版本或激活既有计划之前，会通过当前 `HistoricalPriceProvider` 为该标的读取策略声明的最小有效日线窗口；历史不足或不支持的请求返回 `400 bad_request`，provider 未配置、认证/网络故障或数据集不一致返回 `503 service_unavailable`，且不会保存半成品计划。通过这项检查只代表数据足够运行确定性公式，不代表策略适合该证券，也不构成投资建议。
 
