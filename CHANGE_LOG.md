@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-23 11:13 AEST — 修复 SQLite-only 收口后的依赖图 CI
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：GitHub Actions CI 契约修复。
+- 涉及文件：`.github/workflows/rust-ci.yml`、`CHANGE_LOG.md`。
+- 变更内容：删除已经失效的“`indexlink-storage` 必须提供 `postgres` feature”断言；依赖图门禁现在检查整个受支持 workspace 不得引入 `sqlx-postgres`，并单独确认 storage 真实包含 `sqlx-sqlite`。这与 V2.1 本地安全收口后的 SQLite-only 公开边界一致，修复同一失败分别由 push 与 pull_request 触发而显示的两个红色检查。
+- 验证：本地依赖图检查两项通过，`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+
 ### 2026-09-23 11:01 AEST — V2.1 本地安全收口、公开仓库瘦身与发布文档重建
 
 - 执行模型：GPT-5 Codex。
