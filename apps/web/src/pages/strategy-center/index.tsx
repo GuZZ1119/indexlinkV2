@@ -34,7 +34,7 @@ export default function StrategyCenterPage() {
         eyebrow="策略中心"
         title="先选方法，再挑适合你的参数"
         description="固定定投是共同基准；其余策略按规则家族收拢。每组参数都直接写明观察天数，可以用同一只标的真实回测后再建立计划。"
-        action={<Link to="/strategy-builder" className="inline-flex items-center gap-2 rounded-full bg-[#102830] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,40,48,0.14)] hover:bg-[#1d3a43]"><WandSparkles className="size-4" />建立我的策略</Link>}
+        action={<Link to="/strategy-builder" className="inline-flex items-center gap-2 rounded-full bg-[#102830] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(16,40,48,0.14)] hover:bg-[#1d3a43]"><WandSparkles className="size-4" />进入策略工坊</Link>}
       />
       <StrategyCenterNav />
 

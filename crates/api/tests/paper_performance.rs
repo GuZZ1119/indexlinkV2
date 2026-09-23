@@ -136,3 +136,19 @@ async fn opening_balance_and_performance_routes_use_local_sqlite_ledger() {
     assert_eq!(body["total_return"], "0.00000000");
     assert_eq!(body["points"].as_array().unwrap().len(), 1);
 }
+
+/// The hard-coded MA200 compatibility replay is no longer part of the public product API.
+#[tokio::test]
+async fn legacy_historical_backtest_route_is_removed() {
+    let response = app()
+        .await
+        .oneshot(
+            Request::builder()
+                .uri("/paper-performance/historical-backtest")
+                .body(Body::empty())
+                .expect("request must build"),
+        )
+        .await
+        .expect("request must complete");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 /** Keep browser-like frontend tests independent from production Vite configuration. */
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   test: {
     environment: 'jsdom',
     coverage: {
@@ -14,12 +14,10 @@ export default defineConfig({
         'src/i18n/locales/en.ts',
         'src/i18n/locales/zh.ts',
         'src/pages/decisions/filters.ts',
-        'src/pages/strategies/copilot-review.ts',
         'src/features/v2_1/model.ts',
         'src/components/v2_1/page-heading.tsx',
         'src/components/v2_1/strategy-card.tsx',
         'src/components/v2_1/strategy-center-nav.tsx',
-        'src/components/v2_1/legacy-replay-panel.tsx',
         'src/components/v2_1/manual-execution-history.tsx',
         'src/pages/personal/index.tsx',
         'src/pages/plans/index.tsx',

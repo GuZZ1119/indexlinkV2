@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  Bot,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -15,10 +16,13 @@ import { useSnapshot } from 'valtio'
 
 import {
   ApiRequestError,
+  describeAiActionError,
   useAppendManualExecution,
+  useAiProviders,
   useDecisionRecords,
   useManualExecutions,
   usePlans,
+  usePersonalAiSummary,
   useStrategyCatalog,
 } from '@/api/queries'
 import type {
@@ -133,6 +137,8 @@ export default function PersonalPage() {
         </section>
       ) : null}
 
+      <PersonalAiSummary />
+
       {plans.isPending || (activePlan && decisions.isPending) ? <LoadingState /> : null}
       {!plans.isPending && requestError ? <RequestErrorState /> : null}
       {!plans.isPending && !requestError && !activePlan ? <NoPlanState /> : null}
@@ -147,6 +153,15 @@ export default function PersonalPage() {
       ) : null}
     </div>
   )
+}
+
+function PersonalAiSummary() {
+  const providers = useAiProviders()
+  const summary = usePersonalAiSummary()
+  const [profileId, setProfileId] = useState('')
+  const available = (providers.data?.providers ?? []).filter((provider) => provider.capabilities.read_only_explanations)
+  const effectiveProfileId = profileId || available[0]?.id || ''
+  return <section className="rounded-[1.2rem] border border-slate-200 bg-white px-5 py-4" aria-labelledby="personal-ai-title"><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#e8f1ed] text-[#2d6a57]"><Bot className="size-4" /></span><div><h2 id="personal-ai-title" className="font-semibold text-[#102028]">帮我整理近期计划</h2><p className="mt-1 text-sm leading-6 text-slate-500">可选的小摘要。只有点击后才会把本机计划和最近 20 条建议状态发送给你选的 API；不会读取新闻、生成交易或自动运行。</p></div></div>{available.length > 0 ? <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-end"><label className="grid gap-1 text-xs font-medium text-slate-500">摘要模型<select aria-label="个人摘要模型" value={effectiveProfileId} onChange={(event) => setProfileId(event.target.value)} className="h-10 min-w-48 rounded-xl border border-slate-200 bg-[#f7f9f8] px-3 text-sm text-[#102028]">{available.map((provider) => <option key={provider.id} value={provider.id}>{provider.display_name}</option>)}</select></label><Button type="button" disabled={summary.isPending} onClick={() => { summary.reset(); summary.mutate(effectiveProfileId) }} className="h-10 rounded-full bg-[#102830] px-4">{summary.isPending ? <><Loader2 className="animate-spin" />正在整理…</> : '手动生成摘要'}</Button></div> : <p className="shrink-0 text-xs text-slate-400">未配置解释型 AI</p>}</div>{summary.isError ? <p role="alert" className="mt-4 rounded-xl border border-[#dec9a6] bg-[#fff8eb] px-4 py-3 text-sm text-[#73572f]">{describeAiActionError(summary.error, '这次摘要没有生成。个人中心原有数据不受影响，请稍后重试。')}</p> : null}{summary.data ? <article className="mt-4 rounded-xl bg-[#f1f7f4] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-[#102028]">{summary.data.explanation.headline}</h3><span className="text-xs text-slate-500">{summary.data.provider.display_name} · {summary.data.plan_count} 个计划 / {summary.data.decision_count} 条记录</span></div><p className="mt-2 text-sm leading-7 text-slate-700">{summary.data.explanation.summary}</p>{summary.data.explanation.observations.length > 0 ? <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-slate-600">{summary.data.explanation.observations.map((item) => <li key={item}>{item}</li>)}</ul> : null}{summary.data.explanation.risks.length > 0 ? <p className="mt-3 text-xs leading-5 text-[#7a5a2b]">注意：{summary.data.explanation.risks.join('；')}</p> : null}<p className="mt-3 text-xs text-slate-400">摘要不落库，不会改变任何计划、建议或执行记录。</p></article> : null}</section>
 }
 
 function DecisionExecution({ plan, decision, strategy, catalogPending }: { plan: InvestmentPlan; decision: DecisionRecord; strategy?: StrategyCatalogEntry; catalogPending: boolean }) {

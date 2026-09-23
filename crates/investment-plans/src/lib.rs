@@ -4,8 +4,8 @@
 //! Investment Plan 领域与应用层基础。
 //!
 //! 本 crate 采用模块化单体内的轻量六边形边界：这里定义投资计划的领域模型、
-//! 输入校验、执行预览、应用服务和 repository port；PostgreSQL、Axum、Broker、Qwen、
-//! Scheduler 与真实订单生成均属于外部 adapter 或后续阶段。
+//! 输入校验、执行预览、应用服务和 repository port；SQLite、Axum、Broker、AI、
+//! Scheduler 与订单意图均属于外部 adapter。
 //!
 //! MVP 假设：单用户系统、无计划级 timezone、不验证 symbol 是否真实可交易、不生成
 //! 任何真实订单。计划可持久化月度或周度配置，并可为同一周期保存多个固定执行日。
@@ -920,7 +920,7 @@ pub enum PlanValidationError {
 
 /// 投资计划 repository port。
 ///
-/// 这是应用层依赖的 outbound port；PostgreSQL adapter 将在后续 PR 中实现。
+/// 这是应用层依赖的 outbound port；V2.1 生产组合根使用本地 SQLite adapter。
 #[async_trait]
 pub trait InvestmentPlanRepository: Send + Sync {
     /// 创建并持久化投资计划。

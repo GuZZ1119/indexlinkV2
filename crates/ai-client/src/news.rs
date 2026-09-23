@@ -30,6 +30,9 @@ pub const CNBC_TOP_NEWS_RSS: &str =
 
 /// RSS HTTP 请求默认超时（30 秒）。
 const DEFAULT_HTTP_TIMEOUT: StdDuration = StdDuration::from_secs(30);
+/// Maximum accepted RSS response body. News feeds are small; larger responses
+/// are rejected before they can consume unbounded process memory.
+const MAX_RSS_BODY_BYTES: usize = 1024 * 1024;
 
 // ─── NewsItem ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +72,10 @@ pub enum NewsSourceError {
     /// Feed 中没有新闻条目。
     #[error("news feed returned no items")]
     Empty,
+
+    /// Feed body exceeded the local safety boundary.
+    #[error("news feed response exceeded the local size limit")]
+    BodyTooLarge,
 }
 
 // ─── NewsSource trait ─────────────────────────────────────────────────────────
@@ -129,7 +136,7 @@ impl RssNewsSource {
     async fn fetch_xml(&self) -> Result<String, NewsSourceError> {
         debug!(url = %self.url, "fetching news RSS feed");
 
-        let response = self.http.get(&self.url).send().await.map_err(|err| {
+        let mut response = self.http.get(&self.url).send().await.map_err(|err| {
             warn!(?err, "news feed HTTP request failed");
             NewsSourceError::Http(err)
         })?;
@@ -145,10 +152,31 @@ impl RssNewsSource {
             });
         }
 
-        response.text().await.map_err(|err| {
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_RSS_BODY_BYTES as u64)
+        {
+            warn!("news feed response exceeded the local size limit");
+            return Err(NewsSourceError::BodyTooLarge);
+        }
+
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|err| {
             warn!(?err, "failed to read news feed response body");
             NewsSourceError::Http(err)
-        })
+        })? {
+            let next_len = body
+                .len()
+                .checked_add(chunk.len())
+                .ok_or(NewsSourceError::BodyTooLarge)?;
+            if next_len > MAX_RSS_BODY_BYTES {
+                warn!("news feed response exceeded the local size limit");
+                return Err(NewsSourceError::BodyTooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        String::from_utf8(body).map_err(|_| NewsSourceError::Parse("invalid UTF-8".to_owned()))
     }
 
     fn parse_items(xml: &str) -> Result<Vec<RawNewsItem>, NewsSourceError> {
@@ -165,29 +193,23 @@ impl RssNewsSource {
         let mut buf = Vec::new();
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    match tag.as_str() {
-                        "item" => {
-                            in_item = true;
-                            current = RawNewsItem::default();
-                            capture_title = false;
-                            capture_description = false;
-                            capture_link = false;
-                            capture_pubdate = false;
-                        }
-                        "title" if in_item => capture_title = true,
-                        "description" if in_item => capture_description = true,
-                        "link" if in_item => capture_link = true,
-                        "pubDate" if in_item => capture_pubdate = true,
-                        _ => {}
+                Ok(Event::Start(ref e)) => match e.name().as_ref() {
+                    "item" => {
+                        in_item = true;
+                        current = RawNewsItem::default();
+                        capture_title = false;
+                        capture_description = false;
+                        capture_link = false;
+                        capture_pubdate = false;
                     }
-                }
+                    "title" if in_item => capture_title = true,
+                    "description" if in_item => capture_description = true,
+                    "link" if in_item => capture_link = true,
+                    "pubDate" if in_item => capture_pubdate = true,
+                    _ => {}
+                },
                 Ok(Event::Text(ref e)) => {
-                    let text = e.unescape().map_err(|err| {
-                        warn!(?err, "RSS XML entity decode error");
-                        NewsSourceError::Parse(err.to_string())
-                    })?;
+                    let text = e.html_content();
                     append_text(
                         &text,
                         capture_title,
@@ -198,7 +220,7 @@ impl RssNewsSource {
                     );
                 }
                 Ok(Event::CData(ref e)) => {
-                    let text = String::from_utf8_lossy(e.as_ref());
+                    let text = e.html_content();
                     append_text(
                         text.as_ref(),
                         capture_title,
@@ -209,8 +231,7 @@ impl RssNewsSource {
                     );
                 }
                 Ok(Event::End(ref e)) => {
-                    let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    match tag.as_str() {
+                    match e.name().as_ref() {
                         "item" if in_item => {
                             in_item = false;
                             // 条目解析完成后统一 trim，避免内联标签
@@ -638,8 +659,8 @@ mod tests {
 
     #[test]
     fn parse_rejects_malformed_xml() {
-        // 非法的 XML 字符引用
-        let result = RssNewsSource::parse_items("<item><title>bad &invalid; entity</title></item>");
+        // 标签闭合顺序不合法。
+        let result = RssNewsSource::parse_items("<item><title>bad</item></title>");
         assert!(result.is_err());
     }
 

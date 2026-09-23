@@ -23,6 +23,12 @@ pub enum ApiError {
     /// 依赖服务当前不可用。
     #[error("service unavailable")]
     ServiceUnavailable,
+    /// The AI provider answered, but its outer structured response was invalid.
+    #[error("AI response is invalid")]
+    AiResponseInvalid,
+    /// The AI form candidate could not compile into the bounded Strategy Workshop contract.
+    #[error("AI draft is invalid")]
+    AiDraftInvalid,
 }
 
 /// 统一错误响应外层结构。
@@ -93,6 +99,26 @@ impl IntoResponse for ApiError {
                     error: ErrorBody {
                         code: "service_unavailable",
                         message: "service is unavailable",
+                        request_id: None,
+                    },
+                },
+            ),
+            Self::AiResponseInvalid => (
+                StatusCode::BAD_GATEWAY,
+                ErrorEnvelope {
+                    error: ErrorBody {
+                        code: "ai_response_invalid",
+                        message: "AI response did not match the required structure",
+                        request_id: None,
+                    },
+                },
+            ),
+            Self::AiDraftInvalid => (
+                StatusCode::BAD_GATEWAY,
+                ErrorEnvelope {
+                    error: ErrorBody {
+                        code: "ai_draft_invalid",
+                        message: "AI draft did not match the strategy form contract",
                         request_id: None,
                     },
                 },

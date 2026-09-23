@@ -10,7 +10,21 @@ use std::{collections::BTreeMap, fmt, time::Duration};
 use async_trait::async_trait;
 use serde::Serialize;
 
-use crate::{AiClientError, AiCopilotDraft, AiCopilotDraftRequest, Sentiment, SentimentAnalysis};
+use crate::{
+    AiClientError, AiCopilotDraft, AiCopilotDraftRequest, AiExplanationRequest,
+    AiReadOnlyExplanation, Sentiment, SentimentAnalysis,
+};
+
+/// Wire protocol used by one locally configured provider profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiApiProtocol {
+    /// OpenAI-compatible `POST /v1/chat/completions` (Qwen and DeepSeek).
+    OpenAiChatCompletions,
+    /// OpenAI `POST /v1/responses` (GPT).
+    OpenAiResponses,
+    /// Anthropic `POST /v1/messages` (Claude).
+    AnthropicMessages,
+}
 
 /// Stable identifier for one deployed AI provider implementation.
 ///
@@ -83,6 +97,8 @@ pub struct AiProviderCapabilities {
     ///
     /// This describes output shape only. It never grants save, activation, or order authority.
     pub restricted_policy_drafts: bool,
+    /// Whether the profile may explain server-built facts without changing them.
+    pub read_only_explanations: bool,
 }
 
 impl AiProviderCapabilities {
@@ -92,6 +108,7 @@ impl AiProviderCapabilities {
         Self {
             market_evidence: true,
             restricted_policy_drafts: false,
+            read_only_explanations: true,
         }
     }
 
@@ -101,6 +118,7 @@ impl AiProviderCapabilities {
         Self {
             market_evidence: true,
             restricted_policy_drafts: true,
+            read_only_explanations: true,
         }
     }
 }
@@ -255,7 +273,8 @@ impl AiProviderRegistry {
 /// LLM 后端的可替换抽象。
 ///
 /// 当前实现：
-/// - [`QwenClient`]：兼容 Qwen / OpenAI API。
+/// - [`QwenClient`]：支持 OpenAI-compatible Chat Completions、OpenAI Responses 与
+///   Anthropic Messages；保留旧名称以兼容既有调用方。
 /// - 测试：`MockAiProvider`（不发起网络请求）。
 ///
 /// [`QwenClient`]: crate::QwenClient
@@ -268,6 +287,12 @@ pub trait AiProvider: Send + Sync {
     /// return their concrete profile.
     fn profile(&self) -> AiProviderProfile {
         AiProviderProfile::external_default()
+    }
+
+    /// Perform one minimal, read-only provider call to verify credentials, model access, and
+    /// transport without producing strategy, plan, market, or broker side effects.
+    async fn probe(&self) -> Result<(), AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
     }
 
     /// 分析新闻/财报文本，返回有界情绪得分。
@@ -306,6 +331,14 @@ pub trait AiProvider: Send + Sync {
         &self,
         _request: &AiCopilotDraftRequest,
     ) -> Result<AiCopilotDraft, AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
+    }
+
+    /// Explain deterministic server-built facts without persisting or executing anything.
+    async fn explain(
+        &self,
+        _request: &AiExplanationRequest,
+    ) -> Result<AiReadOnlyExplanation, AiClientError> {
         Err(AiClientError::UnsupportedCapability)
     }
 }
@@ -408,12 +441,12 @@ mod tests {
     #[test]
     fn config_debug_redacts_api_key() {
         let config = AiConfig {
-            api_key: "sk-secret-key-12345".to_owned(),
+            api_key: "unit-test-secret-12345".to_owned(),
             ..Default::default()
         };
         let debug = format!("{config:?}");
         assert!(debug.contains("<redacted>"));
-        assert!(!debug.contains("sk-secret-key-12345"));
+        assert!(!debug.contains("unit-test-secret-12345"));
         assert!(debug.contains("qwen-plus"));
         assert!(debug.contains("dashscope"));
     }
@@ -422,7 +455,7 @@ mod tests {
     fn config_display_hides_api_key_and_url_credentials() {
         let config = AiConfig {
             base_url: "https://user:password@evil.example.com/v1".to_owned(),
-            api_key: "sk-secret-key-12345".to_owned(),
+            api_key: "unit-test-secret-12345".to_owned(),
             ..Default::default()
         };
         let display = format!("{config}");
@@ -432,7 +465,7 @@ mod tests {
             "URL 凭据不应出现在 Display 中"
         );
         assert!(display.contains("<redacted>"));
-        assert!(!display.contains("sk-secret-key-12345"));
+        assert!(!display.contains("unit-test-secret-12345"));
     }
 
     #[test]
@@ -467,6 +500,7 @@ mod tests {
         assert_eq!(listed[0].model(), "qwen-plus");
         assert!(listed[0].capabilities().market_evidence);
         assert!(listed[0].capabilities().restricted_policy_drafts);
+        assert!(listed[0].capabilities().read_only_explanations);
         assert!(!format!("{listed:?}").contains("sk-"));
     }
 

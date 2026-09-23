@@ -1,228 +1,205 @@
 <p align="center">
-  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="400">
+  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="160">
 </p>
 
 <p align="center">
-  <a href="./README.md">中文文档</a> | English
+  <strong>Turn a long-term investing method into an understandable, testable and auditable personal plan.</strong>
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-V2%20demo%20MVP-blue" alt="V2 Demo MVP"></a>
-  <a href="./docs/architecture/strategy-studio-migration-plan.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
+  <a href="./readme.md">中文文档</a> · English
 </p>
 
-# IndexLink V2
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f7661" alt="MIT License"></a>
+  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/release-V2.1%20local--first-10242c" alt="V2.1 local-first"></a>
+  <a href="./SECURITY.md"><img src="https://img.shields.io/badge/security-loopback%20only-c19a55" alt="Loopback only"></a>
+</p>
 
-IndexLink V2 is a **transparent, auditable, extensible quantitative DCA strategy studio and paper-trading execution platform** for long-term investors. It helps students and working professionals with limited budgets preserve a traceable answer to “why was this suggested, was it executed, and what actually happened?” rather than presenting opaque judgement as investment advice.
+# IndexLink V2.1
 
-The current release is a demonstrable V2 MVP. It runs locally with SQLite or on Alibaba Cloud ECS, creates investment plans, configures and activates versioned policies, retrieves market inputs, produces bounded Qwen explanations, and lets a deployed AI profile produce a **read-only** DSL candidate; it then stores decision evidence, reads a paper account, and submits a paper order to MockBroker or a local Futu/Moomoo OpenD **paper account** only after an explicit operator request. Strategy Studio, the unified policy runtime, fixed-sample admission, and Web runtime-status hints are integrated; the system remains a single-user, paper-only demonstration.
+IndexLink is a **local strategy-planning and research tool for long-term investors**. It turns an investing method into explainable rules, real historical backtests, periodic suggestions, and append-only execution records.
 
-> **No outperformance promise.** IndexLink does not predict markets, determine intrinsic value, or guarantee returns. Fixed DCA remains the required fair benchmark; every policy must be validated under matched cash flows, costs, data, and execution timing.
+V2.1 is single-user, local-first, and manually executed. It does not place live orders, promise returns, or grant an AI model trading authority.
 
-## Project Demo
+> **Risk notice:** This project is for education, strategy research, and paper-trading demonstrations only. It is not investment advice. Historical backtests do not predict future results.
 
-Watch the historical demo: [IndexLink V1 fixed-policy demo on YouTube](https://www.youtube.com/watch?v=t8TCjlqE7D0).
+## What works today
 
-This video records the **V1 fixed-policy** local/paper-account flow. It does not demonstrate the current V2 Strategy Studio, multi-provider AI profiles, restricted Copilot drafts, or policy admission workflow. It is not investment advice, live-trading capability, or a return promise. The repository and [documentation index](./docs/README.md) are the source of truth for V2.
+| Area | Current capability | Boundary |
+| --- | --- | --- |
+| Personal | Reads real plans, the current suggestion, next evaluation date, and append-only execution history | No automatic orders; one due decision can receive only one final confirmation |
+| Plans | Creates, pauses, resumes, and deletes long-term plans; freezes the policy version, instrument, budget, and evaluation cadence | Fixed DCA works without market data; formula plans require a history preflight |
+| Strategy Center | One Fixed DCA baseline plus 20 rule families with five immutable parameter sets each: 101 official versions in total | Availability is not suitability or a performance claim |
+| Strategy Workshop | Builds personal policies from allowlisted indicators, windows, comparisons, thresholds, and opportunity allocations | No arbitrary code; at most three priority rules and three conditions per rule |
+| Strategy Analysis | Runs real daily-bar backtests for user-selected US/HK/SH/SZ instruments over 1m/3m/6m/1y/3y/5y/all | Every comparison shares the same instrument, dates, cash flow, and cost assumptions; missing data fails explicitly |
+| Advanced Lab | Temporarily connects a local Futu/Moomoo OpenD and user-provided QwenCloud, DashScope, GPT, Claude, or DeepSeek credentials | Credentials live only in the current Rust process; Lab OpenD access is read-only market data |
+| Optional AI | Manually runs natural-language-to-bounded-draft, backtest explanation, and recent-plan summary | AI does not calculate returns, save or activate policies, create orders, or run automatically |
 
-## Product Goal
-
-The target is not one formula but a reproducible strategy lifecycle:
-
-```text
-Create Strategy → Validate → Backtest → Review → Save Version → Activate
-→ Schedule → Evaluate → Paper Execute → Monitor → Audit
-```
-
-| Goal | Meaning |
-| :--- | :--- |
-| **Transparent** | Users can inspect the policy version, evidence, recommended amount, warnings, and order acknowledgement. |
-| **Auditable** | Each decision retains input snapshots, policy reference, Qwen rationale, order data, and related fill observations. |
-| **Reproducible** | The same policy version and complete context must produce the same recommendation; history and live use the same deterministic runtime. |
-| **Extensible** | Built-in policies, fixed DCA, and later restricted DSL policies share one execution and audit boundary. |
-| **Safe** | Paper trading only; the scheduler creates audit records but never submits orders; AI has no trading authority. |
-
-See the [Strategy Studio Migration Plan](./docs/architecture/strategy-studio-migration-plan.md) for the complete target design, compatibility rules, and PR sequence.
-
-## Implementation and Policy Research
-
-The current demo still includes the historical 70/20/10 decision path: fundamental/historical-position, trend, and bounded Qwen sentiment produce a recommendation and evidence. This is the candidate semantics of `CoreOpportunityV1`; it is **not** a proven claim of superior returns.
-
-The repository keeps C1–C4, calibration fixtures, and reports as reproducible research assets. Under matched fixed-DCA historical samples, some candidates primarily changed cash utilisation, drawdown, or volatility and did not establish a stable return advantage. The legacy model is now retained as a versioned built-in policy, and `FixedDcaPolicy` is the new-plan default and fair benchmark. The restricted DSL has a deterministic, I/O-free interpreter shared by historical evaluation and live simulation; SQLite stores immutable versions, while Studio validates and saves them. A DSL version must pass fixed-fixture backtest, budget, and core-bucket safety gates before it can activate.
-
-### Original 70/20/10 research: reproducible risk observations, not a return claim
-
-The original `CoreOpportunityV1` combines 70% fundamentals, 20% trend, and 10% AI sentiment. Historical Qwen news judgements cannot be faithfully replayed, so the return/risk baseline below strictly uses the **90/10/0 AI-unavailable fallback** and calls the production domain functions directly. Frozen Qwen samples are used only for score/action-distribution sensitivity, never for return attribution.
-
-The baseline uses versioned `calibration-v1` data, matched monthly USD 1,000 external cash flows, 5 bps buy cost, zero cash interest, and a no-look-ahead protocol; uninvested cash always remains in terminal wealth. SPY/QQQ are index proxies, not a complete total-return backtest of tradable ETFs.
-
-| Index proxy | Fixed DCA: XIRR / terminal wealth | Original Core/Opportunity: XIRR / terminal wealth | Terminal difference vs DCA | Max drawdown (DCA → policy) | Annualised volatility (DCA → policy) | Cash utilisation (DCA → policy) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| S&P 500 (SPY proxy) | 19.61% / $71,669 | 17.54% / $68,926 | -3.83% | 9.70% → 9.44% | 13.32% → 12.28% | 100.00% → 82.65% |
-| NASDAQ Composite (QQQ proxy) | 16.88% / $815,385 | 15.84% / $740,761 | -9.15% | 33.03% → 31.29% | 16.83% → 15.71% | 100.00% → 83.31% |
-
-Both samples do show lower observed maximum drawdown and annualised volatility, but alongside roughly 17% undeployed cash and lower terminal wealth. That **must not** be presented as unconditional “stability improvement” or policy superiority. V2's verifiable value is exposing the trade-off: policy version, `as_of`, sources, input snapshots, recommendation, budget constraints, order intent, and acknowledgement are traceable, reproducible, and reviewable.
-
-See [Strategy Calibration Baseline V1](./docs/research/calibration/STRATEGY_CALIBRATION_BASELINE_V1.md) for the full data protocol, score/action distributions, rolling out-of-sample windows, and frozen-Qwen sensitivity. See [C4 Research V1](./docs/research/calibration/STRATEGY_C4_RESEARCH_V1.md) for C1–C4 research and why none was promoted as the default policy.
-
-| Implementation | Detail and boundary |
-| :--- | :--- |
-| Plans, schedule rules, and local SQLite | Single-user local persistence; existing plans retain their established behaviour and compatible reads. |
-| 70/20 inputs, AI Evidence, and Copilot Draft | Fundamental/trend inputs and bounded AI Evidence with a provider identity retain source and time semantics. Only `CoreOpportunityV1` maps its score into the legacy 10% input. A deployed profile can turn an operator objective into a read-only `StrategySpecDocument` candidate, but the API rebuilds domain validation; Fixed DCA/DSL are never rewritten by AI. Source failure explicitly degrades or rejects an automatic decision. |
-| Decision evidence and history | Retains policy ID/version, generic recommendation, inputs, result, credential-free AI profile, rationale/news/warnings, and an optional order acknowledgement; legacy records remain readable. |
-| Minimum scheduler | Creates idempotent evidence on due dates; **never auto-submits an order**. |
-| Two-bucket budget, opportunity cash, and period constraints | Core/opportunity buckets are jointly constrained by the plan budget, available cash, cumulative period cap, and paper-only boundary. |
-| Mock/OpenD paper trading | Connects to local-loopback OpenD paper accounts only; no live-trading capability exists. |
-| Built-in policies and unified execution entry | New plans use `fixed_dca@1`; existing SQLite plans migrate to `core_opportunity_v1@1`; preview, scheduler, audit, and paper-only orders use the same resolver. |
-| Immutable technical research fixture | `technical-v1` versions FRED S&P 500 / NASDAQ Composite daily closes as SPY / QQQ index proxies alongside raw Cboe VIX snapshots. Source, applicable-terms notice, date/gap rules, common coverage, and SHA-256 are verified. It reads compile-time embedded files only: no network, forward-fill, or interpolation; dated technical snapshots accept observations only when `timestamp <= as_of`. |
-| Restricted DSL, deterministic runtime, Studio, and admission | Represents only allow-listed indicators, bounded expressions, and opportunity actions. Saving rebuilds domain invariants; activation compares a fixed-fixture backtest and checks budget/core-bucket safety. Close, SMA, EMA, RSI, drawdown, and VIX all use causal `technical-v1` evidence as of the decision date, with execution on the first later trading day. Admission compares matched cash flows, execution timing, and costs with Fixed DCA; it reports XIRR, terminal wealth, maximum drawdown, annualised volatility, Sortino, cash utilisation, and rolling windows. Outperformance is not an activation condition; insufficient warm-up or evidence rejects activation. |
-
-### Using Strategy Studio and the restricted Copilot
-
-1. Create a plan in “Recurring holdings”. A new plan defaults to `fixed_dca@1`; AI and market signals never rewrite its core budget.
-2. Open “Strategy Studio”, choose an actually server-deployed AI profile with `restricted_policy_drafts` capability, then describe the desired **opportunity-bucket** constraint in natural language.
-3. Copilot first presents a read-only review of the candidate and its field/rule differences from the current form. The operator must explicitly apply it to the editable form; it also shows the provider, concise explanation, warnings, and server-supplied trusted references. It never saves, backtests, activates, binds a plan, or submits an order by itself.
-4. Review and edit the allow-listed indicators, conditions, and opportunity actions, then explicitly validate and save an immutable version. Scripts, user code, core-bucket vetoes, and actions outside the allowlist are rejected.
-5. Run fixed-sample admission for the saved version. The page truthfully reports XIRR, terminal wealth, maximum drawdown, volatility, Sortino, cash utilisation, and rolling windows against Fixed DCA; none is a return forecast.
-6. Only an eligible version can be explicitly bound to a plan. Decision Preview, the scheduler, and audit then use that same version; approval mode still requires a separate confirmation of the persisted decision record before a paper order.
-
-Without `DASHSCOPE_API_KEY` or another compatible provider deployed by the server, the profile list is empty and Studio disables draft generation. Manual DSL editing, validation, and fixed-sample admission do not require an AI key. Keys belong only in server environment variables or a secret manager and must never enter the repository, browser, or decision evidence.
-
-### V2 demo loop
-
-Create a plan → select Fixed DCA or an admitted DSL version → optionally review and explicitly apply a read-only Copilot draft → run automatic Decision Preview → inspect AI trace/safe fallback reason, changes from the prior decision, and the persisted audit → explicitly confirm a paper order for an `approval` plan. The scheduler creates audits only; neither it nor AI receives order or activation authority.
-
-## Architecture and Safety Boundaries
-
-IndexLink uses **Hexagonal Architecture + Modular Monolith**. Domain policies remain pure functions; network, database, Qwen, market data, and brokers remain outside the adapter boundary.
-
-```mermaid
-graph TD
-    WEB[Web Dashboard]
-    SCH[Scheduler]
-    API[API / Application Service]
-    POLICY[Policy Runtime\nDeterministic, no IO]
-    LEGACY[CoreOpportunityV1\nlegacy adapter]
-    DCA[Fixed DCA\nimplemented]
-    EVIDENCE[Market Data + Qwen Evidence]
-    RECORDS[(SQLite\nplans, records, ledger)]
-    BROKER[Paper Broker\nMock / OpenD]
-    ECS[Alibaba Cloud ECS\nDocker Compose]
-    QWEN[DashScope / Qwen]
-
-    WEB --> API
-    SCH --> API
-    API --> POLICY
-    POLICY --> LEGACY
-    POLICY -. planned .-> DCA
-    EVIDENCE --> API
-    API --> RECORDS
-    API --> BROKER
-    ECS -. hosts .-> API
-    ECS -. hosts .-> SCH
-    QWEN --> EVIDENCE
-```
-
-Key constraints:
-
-- **No I/O in policy runtime:** a policy receives resolved context only. It cannot query a database, call the network, read secrets, or place an order.
-- **AI is bounded:** registered profiles produce explanations, warnings, and read-only restricted policy candidates only. A candidate must pass DSL validation, fixed-sample admission, and explicit user save/activation; it cannot bypass budget, operator confirmation, or paper-only restrictions.
-- **Order safety:** only an explicit, due, validated paper-order request can be submitted. There is no live trading, automated cancellation, or scheduler auto-ordering.
-- **Audit first:** retain inputs rather than conclusions only. New records retain policy ID, version, and a generic recommendation snapshot while old records remain readable.
-
-## Current Workspace
+## The local workflow
 
 ```text
-indexlink/
-├─ crates/
-│  ├─ core-domain/          # Amount, Action, Percentile and other invariant types
-│  ├─ quant-engine/         # Current percentile, fundamental, and trend pure functions
-│  ├─ decision-engine/      # Current 70/20/10 legacy decision implementation
-│  ├─ investment-plans/     # Plans, schedules, two-bucket budget, execution preview
-│  ├─ decision-records/     # Auditable decision-record port
-│  ├─ market-data/          # Market-input providers
-│  ├─ ai-client/            # DashScope/Qwen adapter and degradation
-│  ├─ broker/               # Mock/OpenD paper-only adapters
-│  ├─ storage/              # SQLite and persistence adapters
-│  ├─ strategy-evaluation/  # Offline, versioned policy research
-│  ├─ strategy-dsl/         # Restricted policy AST and pure validation
-│  └─ api/                  # Axum HTTP and application orchestration
-├─ apps/
-│  ├─ server/               # Composition root and scheduler
-│  └─ web/                  # Vite + React dashboard
-├─ docs/                    # API, architecture plans, policy research, historical experiments
-└─ deployment/aliyun/       # ECS Docker Compose deployment scripts
+Strategy Center / Workshop
+        → real-instrument backtest and data preflight
+        → create a personal plan
+        → scheduler idempotently creates a due suggestion
+        → the user trades in their own broker
+        → manually record executed or skipped
+        → keep immutable evidence and execution history
 ```
 
-> `strategy-policy`, two built-in policies, and the restricted Strategy DSL runtime are implemented. Arbitrary user scripts will never enter the runtime.
+“Execution” normally means a user-reported fact. The optional OpenD paper broker is an explicit local experiment only; neither the scheduler nor AI can submit orders automatically.
 
-## Run Locally
+## Policy and backtest model
 
-1. Install stable Rust, `rustfmt`, `clippy`, and pnpm.
-2. Create local configuration and start the server:
+The catalog is not a collection of unrelated scripts. Official and personal formula policies share a bounded, immutable model:
 
-   ```bash
-   cp .env.example .env
-   cargo run -p indexlink-server
-   ```
+```text
+historical daily bars
+  → causal indicators using observations available at the evaluation date
+  → first matching priority rule
+  → adjust only the opportunity allocation
+  → preserve the core contribution
+```
 
-3. Check health:
+The allowlist covers price/index moving averages, dual and triple moving averages, RSI, historical price percentile, volatility and volatility expansion, drawdown, proximity to highs, and several trend/momentum/volatility combinations. Fixed DCA remains the mandatory baseline.
 
-   ```bash
-   curl http://localhost:8080/health
-   curl http://localhost:8080/ready
-   ```
+Backtests use the same instrument, date window, contribution schedule, execution-day mapping, and cost model for every selected policy. The normalized wealth chart starts all paths at `100`; it is neither the stock price nor an account balance. Professional results include total and annualized return, XIRR, maximum drawdown, annualized volatility, Sortino, cash utilization, transaction costs, drawdown dates, ledger details, and substituted formula values.
 
-4. Start the web app:
+Warm-up shortages, stale or unavailable data, and provider permission failures are explicit errors. The application does not replace missing data with demo curves.
 
-   ```bash
-   pnpm --dir apps/web install --frozen-lockfile
-   pnpm --dir apps/web dev
-   ```
+## Run locally
 
-The local `.env` is Git-ignored. `DASHSCOPE_API_KEY` optionally enables Qwen evidence. `AI_PROVIDER_PROFILES` can instead declare multiple deployed OpenAI-compatible profiles: its credential-free manifest refers only to an `api_key_env` name, requires exactly one default profile, and permits remote HTTPS endpoints only. Users and browsers can select only those deployed profiles and never receive a key or endpoint. `OPEND_PROVIDER`, `OPEND_HOST`, `OPEND_PORT`, and `OPEND_ACCOUNT_ID` are only for a local-loopback OpenD paper account. None may be committed or logged.
-
-After startup, open the local Vite address (normally `http://localhost:5173`). For restricted Copilot, first confirm that the status strip shows “AI configured”; without it, all non-AI Studio steps still work.
-
-### Docker / Alibaba Cloud ECS
-
-The project can run on Alibaba Cloud ECS with Docker Compose. SQLite is persisted in a local Docker volume:
+Requirements: stable Rust, Node.js, and pnpm. Futu/Moomoo OpenD is optional and is needed for new real-data US/HK/SH/SZ backtests.
 
 ```bash
-docker compose -f deployment/docker-compose.yml up --build -d
-docker compose -f deployment/docker-compose.yml ps
+git clone https://github.com/GuZZ1119/indexlinkV2.git
+cd indexlinkV2
+cp .env.example .env
+cargo run -p indexlink-server
+```
+
+The API binds to `127.0.0.1:8080` by default:
+
+```bash
+curl http://127.0.0.1:8080/health
 curl http://127.0.0.1:8080/ready
 ```
 
-See [deployment/aliyun/README.md](./deployment/aliyun/README.md) for deployment instructions.
+Start the web application in another terminal:
 
-## Roadmap
+```bash
+pnpm --dir apps/web install --frozen-lockfile
+pnpm --dir apps/web dev
+```
 
-1. **Policy contract and legacy wrapper:** completed: the generic `InvestmentPolicy` contract wraps legacy logic as `CoreOpportunityV1` and locks its behaviour with regression tests.
-2. **Fixed DCA and unified resolver:** completed; fixed DCA and the legacy policy run through one preview, scheduler, audit, and paper-only flow.
-3. **Policy-version and audit upgrade:** complete; new records retain the policy version and generic recommendation snapshot while legacy records remain readable.
-4. **Restricted DSL/AST, validation, and deterministic runtime:** complete; it allows only allow-listed indicators, bounded expressions, and opportunity actions, rejecting arbitrary scripts, excessive condition trees, and fixed actions above budget. The first matching rule produces a generic recommendation from a complete snapshot.
-5. **Unified historical evaluation:** complete; `strategy-evaluation` calls the same DSL interpreter with all allow-listed technical indicators limited to raw evidence available by the decision date and execution on the next trading day.
-6. **Strategy storage, Studio, and admission:** complete; immutable SQLite version storage, controlled creation/validation, current-data simulation, and plan activation are available. A DSL version must compare XIRR, terminal wealth, drawdown, volatility, Sortino, cash utilisation, and rolling windows against Fixed DCA on a fixed fixture and pass evidence-integrity, budget, and core-bucket safety gates before activation; results are not return promises.
-7. **Runtime observability and Web integration:** complete; the Web app uses `/health`, `/ready`, and `/runtime-status` to distinguish API, SQLite, Qwen, OpenD, and scheduler state, with React Query managing server-data caching.
-8. **AI Evidence Registry and Copilot Draft:** complete for a credential-free multi-profile OpenAI-compatible registry, a read-only DSL-draft endpoint, and Studio draft interaction. Qwen is the default example; users can select only server-deployed profiles while keys remain in server environment or secret management. A candidate only populates an editable form and remains subject to deterministic validation, backtesting, explicit user save/activation, and review; it never receives order authority.
+Open the local Vite URL, usually `http://127.0.0.1:5173`.
 
-See the [Strategy Studio Migration Plan](./docs/architecture/strategy-studio-migration-plan.md) and [documentation index](./docs/README.md) for details.
+### Optional OpenD market data
 
-## Disclaimer
+Start and sign in to Futu/Moomoo OpenD, then configure it from Advanced Lab or a local, ignored `.env`:
 
-> This project is for learning, technical research, and paper-trading demonstrations only. It is not investment advice.
+```dotenv
+OPEND_PROVIDER=moomoo
+OPEND_HOST=127.0.0.1
+OPEND_PORT=11111
+OPEND_MARKET_DATA_ENABLED=true
+OPEND_PAPER_BROKER_ENABLED=false
+```
 
-- Every policy can lose money; historical results do not predict future returns.
-- A policy without demonstrated, reproducible advantage must not be marketed as “improving returns” or “beating the market.”
-- Users are responsible for understanding policy logic, data sources, delays, costs, taxes, regulatory obligations, and trading risk.
-- No live-trading function is provided, and AI never receives order authority.
+Without OpenD, plan management, Fixed DCA, the manual execution journal, and bundled research remain usable. New arbitrary-instrument backtests and market-dependent formula policies fail with a clear data-unavailable state.
 
-## Copyright and Contributors
+### Optional user-provided AI
 
-Copyright © 2026 IndexLink Contributors. Released under the [MIT License](./LICENSE).
+Select a provider and model in Advanced Lab, enter a key, and click the availability test. The key is sent only to the local backend process and is not written to browser storage, SQLite, `.env`, or logs. Saving a connection does not invoke the model; every AI action is manually triggered.
 
-- [Jame (`jamesra26`)](https://github.com/jamesra26) — project initiator; architecture, 70/20/10 fundamental and trend-layer design, frontend implementation, PR review, and ongoing maintenance.
-- [Xuanzhou Gu (`GuZZ1119`)](https://github.com/GuZZ1119) — independent V2 maintainer; backend and API, SQLite persistence, plan/two-bucket/scheduler flows, policy contracts and DSL Studio, evaluation and calibration, Qwen/OpenD paper-trading integration, Alibaba Cloud deployment, testing, documentation, and demo-loop implementation.
-- [Yucong Peng (`YucongPeng`)](https://github.com/YucongPeng) — AI-layer design and implementation.
+### Optional local Docker
+
+```bash
+docker compose -f deployment/docker-compose.yml up --build
+```
+
+Compose publishes the API on host loopback only. This repository no longer ships cloud-server deployment scripts. Before exposing the API remotely, add authentication, TLS, rate limits, and CSRF/Origin protections.
+
+## Security model
+
+- The server and Docker bind/publish to loopback by default. The current API has **no account authentication** and must not be exposed to a LAN or the public internet.
+- HTTP request and RSS response bodies are bounded to 1 MiB; parser failures do not log raw model output.
+- Provider endpoints are server-controlled, remote endpoints require HTTPS, and API keys are never echoed.
+- OpenD must use a loopback address; a Lab session does not grant paper-broker authority.
+- Domain newtypes, policy documents, immutable versions, and execution records are revalidated server-side.
+- Policy runtime code cannot execute user scripts or directly reach the network, database, or broker.
+
+Read [SECURITY.md](./SECURITY.md) for the threat model and remaining dependency advisories, and the [V2.1 code audit](./docs/reviews/v2_1_code_audit_2026-09-23.md) for the closeout evidence.
+
+## Architecture
+
+IndexLink uses **Hexagonal Architecture (Ports & Adapters) in a Rust modular monolith**. Domain behavior is internal; SQLite, OpenD, AI, HTTP, and the React application are adapters.
+
+```mermaid
+flowchart LR
+  Web[React Web] --> API[Axum application API]
+  Scheduler[Local scheduler] --> API
+  API --> Plans[Plans and decisions]
+  API --> Runtime[Deterministic policy runtime]
+  API --> Backtest[Backtest and research]
+  Runtime --> Journal[(SQLite snapshots and journal)]
+  Backtest --> Data[OpenD daily bars and cache]
+  API -. manual only .-> AI[User-provided AI provider]
+  API -. explicit paper only .-> Broker[OpenD paper broker]
+```
+
+Key directories:
+
+```text
+apps/server                 composition root and local scheduler
+apps/web                    Vite + React + Tailwind application
+crates/core-domain          invariant-carrying domain types
+crates/investment-plans     plans, schedules, and budget rules
+crates/strategy-policy      shared policy contract
+crates/strategy-dsl         bounded formula AST, validation, and interpreter
+crates/builtin-policies     Fixed DCA and compatibility policies
+crates/strategy-evaluation  backtests, metrics, and research fixtures
+crates/market-data          read-only data adapters and cache contract
+crates/ai-client            bounded multi-provider AI protocols
+crates/broker               Mock/OpenD paper-only adapters
+crates/storage              SQLite audit storage
+crates/api                  HTTP contracts and application orchestration
+```
+
+See the [API guide](./docs/reference/api-management.md), [Web Plan](./apps/web/PLAN.md), and [documentation index](./docs/README.md).
+
+## Verification
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+pnpm --dir apps/web lint
+pnpm --dir apps/web test:coverage
+pnpm --dir apps/web build
+```
+
+Behavior changes require focused tests and an entry in [CHANGE_LOG.md](./CHANGE_LOG.md). The frontend coverage threshold is 90%.
+
+## Open-source and research references
+
+IndexLink does not copy QuantConnect LEAN, TA-Lib, or paper strategy implementations into its runtime. They are cross-checks for indicator semantics, causal backtesting boundaries, and strategy research. The formula runtime, budget rules, and audit model are implemented and tested in this repository.
+
+- Architecture: Alistair Cockburn's [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture).
+- Backtesting and research: [QuantConnect LEAN](https://github.com/QuantConnect/Lean) (Apache-2.0), [TA-Lib](https://ta-lib.github.io/) (BSD), and Meb Faber's [A Quantitative Approach to Tactical Asset Allocation](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461).
+- UI and charts: [shadcn/ui](https://github.com/shadcn-ui/ui) (MIT, component patterns and a small Tailwind variant layer), [Recharts](https://recharts.github.io/) (MIT), [Apache ECharts](https://echarts.apache.org/) (Apache-2.0), and [TanStack Query](https://github.com/TanStack/query) (MIT).
+- Market interface: Futu's official [OpenD / OpenAPI documentation](https://openapi.futunn.com/futu-api-doc/en/intro/intro.html).
+- Research data: exact FRED and Cboe source URLs and checksums are stored in `crates/strategy-evaluation/data/generated/*.manifest.json`; users remain responsible for provider terms.
+
+See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for usage, license, and reference-only boundaries.
+
+## Scope
+
+V2.1 deliberately does not provide multi-user accounts, cloud synchronization, public hosting, automated live trading, high-frequency strategies, arbitrary Python/JavaScript policies, social copy trading, or automatic AI news signals.
+
+The next priorities are data-license review, remaining dependency-audit work, exchange calendars, and separating contribution cadence from strategy observation frequency.
+
+## License
+
+Copyright © 2026 IndexLink Contributors. Project code is released under the [MIT License](./LICENSE). Third-party libraries, research data, and external services retain their own licenses and terms.

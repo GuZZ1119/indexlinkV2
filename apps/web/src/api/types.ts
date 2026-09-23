@@ -72,6 +72,7 @@ export interface StrategyValidationResponse {
 export interface AiProviderCapabilities {
   market_evidence: boolean
   restricted_policy_drafts: boolean
+  read_only_explanations: boolean
 }
 
 /** One AI profile that the server explicitly permits the user to select. */
@@ -86,6 +87,52 @@ export interface AiProviderProfile {
 /** Response envelope for the server-side, credential-free provider registry. */
 export interface AiProviderListResponse {
   providers: AiProviderProfile[]
+}
+
+/** Frontend-entered AI connection retained only in the current backend process. */
+export interface ConfigureSessionAiProviderRequest {
+  provider: 'qwen_cloud' | 'qwen' | 'gpt' | 'claude' | 'deepseek'
+  model: string
+  api_key: string
+}
+
+/** Credential-free acknowledgement for one process-memory AI connection. */
+export interface ConfigureSessionAiProviderResponse {
+  provider: AiProviderProfile
+  storage: 'process_memory'
+}
+
+/** Safe result of one explicit, minimal call to the process-memory AI provider. */
+export type SessionAiProbeStatus =
+  | 'available'
+  | 'authentication_failed'
+  | 'access_denied'
+  | 'model_unavailable'
+  | 'rate_limited'
+  | 'request_rejected'
+  | 'network_unavailable'
+  | 'provider_unavailable'
+  | 'response_invalid'
+
+/** Credential-free provider probe response; no prompt or API key is returned. */
+export interface SessionAiProbeResponse {
+  provider: AiProviderProfile
+  status: SessionAiProbeStatus
+}
+
+/** Loopback-only OpenD connection entered from the local Advanced Lab. */
+export interface ConfigureSessionOpenDRequest {
+  host: string
+  port: number
+}
+
+/** Safe acknowledgement for process-memory read-only market-data adapters. */
+export interface ConfigureSessionOpenDResponse {
+  provider: 'opend'
+  host: string
+  port: number
+  storage: 'process_memory'
+  access: 'read_only_market_data'
 }
 
 /** Input accepted by the read-only restricted DSL Copilot endpoint. */
@@ -109,6 +156,34 @@ export interface CopilotDraftResponse {
   explanation: string
   warnings: string[]
   evidence: CopilotEvidenceReference[]
+}
+
+/** Bounded explanation returned only after a user explicitly requests it. */
+export interface AiReadOnlyExplanation {
+  headline: string
+  summary: string
+  observations: string[]
+  risks: string[]
+}
+
+/** Manual request to explain a newly recomputed real backtest. */
+export interface ExplainStrategyBacktestRequest {
+  profile_id: string
+  backtest: StrategyBacktestRequest
+}
+
+export interface ExplainStrategyBacktestResponse {
+  provider: AiProviderProfile
+  source_checksum: string
+  explanation: AiReadOnlyExplanation
+}
+
+/** Manually triggered summary of local plans and recent decision records. */
+export interface PersonalAiSummaryResponse {
+  provider: AiProviderProfile
+  plan_count: number
+  decision_count: number
+  explanation: AiReadOnlyExplanation
 }
 
 /** Fixed-fixture safety and comparison report required before activating a DSL strategy. */
@@ -482,20 +557,6 @@ export interface HoldingPriceHistory {
   symbol: string
   prices: Array<{ date: string; close: number }>
   trades: PaperTradeMarker[]
-}
-
-/** One value point in the transparent one-year historical replay. */
-export interface HistoricalBacktestPoint {
-  date: string
-  plain_dca_value: number
-  adaptive_value: number
-}
-
-/** Explicitly scoped historical comparison, not an account return claim. */
-export interface HistoricalBacktest {
-  currency: string
-  methodology: string
-  points: HistoricalBacktestPoint[]
 }
 
 /** Read-only service liveness response. */

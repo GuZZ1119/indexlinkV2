@@ -39,6 +39,7 @@
 mod client;
 mod copilot;
 mod error;
+mod guidance;
 mod mock;
 pub mod news;
 mod provider;
@@ -49,6 +50,9 @@ pub use copilot::{
     AiCopilotDraft, AiCopilotDraftError, AiCopilotDraftRequest, AiCopilotEvidenceReference,
 };
 pub use error::AiClientError;
+pub use guidance::{
+    AiExplanationError, AiExplanationKind, AiExplanationRequest, AiReadOnlyExplanation,
+};
 pub use mock::MockAiProvider;
 pub use news::{
     fetch_market_sentiment, fetch_market_sentiment_report, format_sentiment_prompt, AiEvidence,
@@ -56,7 +60,7 @@ pub use news::{
     PipelineError, RssNewsSource, CNBC_TOP_NEWS_RSS,
 };
 pub use provider::{
-    AiConfig, AiProvider, AiProviderCapabilities, AiProviderId, AiProviderProfile,
+    AiApiProtocol, AiConfig, AiProvider, AiProviderCapabilities, AiProviderId, AiProviderProfile,
     AiProviderProfileError, AiProviderProfileId, AiProviderRegistry,
 };
 pub use sentiment::{Sentiment, SentimentAnalysis, SentimentAnalysisError, SentimentError};

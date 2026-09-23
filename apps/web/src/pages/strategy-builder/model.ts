@@ -38,6 +38,15 @@ const PERCENT_INDICATORS = new Set<StrategyIndicatorDocument['kind']>([
   'moving_average_distance',
   'drawdown',
 ])
+const PERSONAL_INDICATORS = new Set<StrategyIndicatorDocument['kind']>([
+  'price_return',
+  'annualized_volatility',
+  'price_percentile',
+  'moving_average_distance',
+  'relative_strength_index',
+  'drawdown',
+  'close_price',
+])
 
 /** Start from a useful, legible rule rather than exposing the transport DSL. */
 export function createPersonalStrategyDraft(): PersonalStrategyDraft {
@@ -65,6 +74,47 @@ export function buildPersonalStrategyDocument(
       : { kind: 'set_opportunity_multiplier', multiplier: rule.multiplier },
   }))
   return { policy_id: policyId, policy_version: policyVersion, name: draft.name.trim(), rules }
+}
+
+/** Convert a validated AI candidate into the smaller consumer-editor contract. */
+export function personalDraftFromDocument(document: StrategySpecDocument): PersonalStrategyDraft {
+  if (document.rules.length < 1 || document.rules.length > MAX_PERSONAL_RULES) {
+    throw new Error('AI 草案超出个人工坊最多三条规则的范围')
+  }
+  const rules = document.rules.map<PersonalRuleDraft>((rule) => {
+    const comparisons = rule.condition.kind === 'comparison'
+      ? [rule.condition]
+      : rule.condition.conditions
+    if (comparisons.length < 1 || comparisons.length > MAX_CONDITIONS_PER_RULE) {
+      throw new Error('AI 草案中的条件数量超出个人工坊范围')
+    }
+    const multiplier: PersonalMultiplier = rule.action.kind === 'skip_opportunity'
+      ? 0
+      : rule.action.kind === 'set_opportunity_multiplier' && PERSONAL_MULTIPLIERS.includes(rule.action.multiplier as PersonalMultiplier)
+        ? rule.action.multiplier as PersonalMultiplier
+        : (() => { throw new Error('AI 草案包含个人工坊不支持的额度动作') })()
+    return {
+      match: rule.condition.kind === 'any' ? 'any' : 'all',
+      multiplier,
+      conditions: comparisons.map((comparison) => {
+        const indicator = comparison.expression.indicator
+        if (!PERSONAL_INDICATORS.has(indicator.kind)) {
+          throw new Error(`AI 草案使用了个人工坊暂不支持的指标：${indicator.kind}`)
+        }
+        const rawThreshold = Number(comparison.threshold)
+        if (!Number.isFinite(rawThreshold)) throw new Error('AI 草案包含无效阈值')
+        return {
+          indicator: indicator.kind,
+          lookbackDays: 'lookback_days' in indicator ? indicator.lookback_days : 20,
+          operator: comparison.operator,
+          threshold: String(PERCENT_INDICATORS.has(indicator.kind) ? rawThreshold * 100 : rawThreshold),
+        }
+      }),
+    }
+  })
+  const draft = { name: document.name, rules }
+  assertPersonalDraft(draft)
+  return draft
 }
 
 /** Generate a valid opaque local identity without asking ordinary users to manage IDs. */
@@ -120,8 +170,8 @@ function assertPersonalDraft(draft: PersonalStrategyDraft): void {
         throw new Error('阈值必须是有效数字')
       }
       if (!WINDOWLESS_INDICATORS.has(condition.indicator)
-        && (!Number.isInteger(condition.lookbackDays) || condition.lookbackDays < 2 || condition.lookbackDays > 2520)) {
-        throw new Error('观察窗口必须是 2–2520 个交易日')
+        && (!Number.isInteger(condition.lookbackDays) || condition.lookbackDays < 2 || condition.lookbackDays > 365)) {
+        throw new Error('观察窗口必须是 2–365 个交易日')
       }
     }
   }

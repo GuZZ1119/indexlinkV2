@@ -134,7 +134,7 @@ struct PolicyReferenceRequest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ActivatePolicyRequest {
-    /// Strategy version selected by the user from the Strategy Studio.
+    /// Strategy version selected by the user from the Strategy Center or Workshop.
     policy: PolicyReferenceRequest,
 }
 

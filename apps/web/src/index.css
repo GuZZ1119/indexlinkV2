@@ -1,9 +1,22 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
+/*
+ * Radix data-state variants adapted from shadcn/ui's MIT-licensed Tailwind
+ * preset. Keeping this tiny local layer avoids shipping the shadcn CLI and
+ * its build-time dependency tree in the production application.
+ */
+@custom-variant data-open (&:is([data-state="open"]));
+@custom-variant data-closed (&:is([data-state="closed"]));
+@custom-variant data-checked (&:is([data-state="checked"]));
+@custom-variant data-unchecked (&:is([data-state="unchecked"]));
+@custom-variant data-selected (&:is([data-state="selected"]));
+@custom-variant data-disabled (&:is([data-disabled]));
+@custom-variant data-active (&:is([data-active="true"]));
+@custom-variant data-horizontal (&:is([data-orientation="horizontal"]));
+@custom-variant data-vertical (&:is([data-orientation="vertical"]));
 
 @theme inline {
     --font-heading: var(--font-sans);

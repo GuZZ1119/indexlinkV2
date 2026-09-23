@@ -1,234 +1,156 @@
-# IndexLink V2.1 收口 Hardness 与执行门槛
+# IndexLink V2.1 收口 Hardness 与发布门槛
 
-> 状态：**已生效**
-> 项目负责人确认日期：2026-09-15
-> Gate 1 实现集成基线：`f8bf9ee`（Push 2 / Push 3）
-> 外部审查基线：`0cae8d5e00221ff245acf483119c0e8921d37b86`
+> 状态：**工程收口完成，等待真实用户任务验证**
+>
+> 最后核对：2026-09-23
+> 当前产品事实以根 README、公开 API、自动化测试和本文件为准。
 
-## 1. 这份 Hardness 解决什么
+## 1. 唯一产品定义
 
-这份文件把正式《IndexLink V2.1 Codex 收口执行手册》的产品边界、工程不变量、停止条件和验收顺序固化到仓库。它不是新的功能路线图，也不授权一次性实现全部功能。
-
-当前唯一需要尽快验证的闭环是：
+IndexLink V2.1 是单用户、本地优先、人工执行的长期策略计划工具。它只承诺一条闭环：
 
 ```text
-Plan → readable Decision → user-reported execution → Audit
+选择/建立受限策略 → 真实回测与数据预检 → 建立本地计划
+→ 到期建议 → 用户在外部券商操作 → 手工记录结果 → 回看审计
 ```
 
-Fixed DCA 是这条闭环的强制基线。策略中心、统一回测、更多数据源、Simple Builder、Tauri 与 paper broker 都不能抢在这条闭环之前成为新的上线前置条件。
+它不是多用户 SaaS、社交策略社区、任意代码量化平台或自动交易终端。70/20/10 自适应模型是历史研究，不是 V2.1 默认产品。
 
-## 2. 资料优先级与冲突处理
-
-发生冲突时按以下顺序执行：
-
-1. 项目负责人在当前任务中确认的正式 V2.1 收口手册；
-2. 根目录 `AGENTS.md` 中的 V2.1 产品与架构硬约束；
-3. 本文件的阶段门槛和停止条件；
-4. `docs/plans/v2_1_productization_plan.md` 的产品能力地图；
-5. 旧实验、旧 README、旧 Dashboard 文案和历史百分比估计。
-
-所有“后端约 80%”“整体约 55–60%”“固定 10 周”等估计均失效。完成度只按可复现的验收项判断。
-
-## 3. 当前进度的事实基线
-
-正式手册审查的是 `main@0cae8d5`。当前分支从该提交到 `0ff5920` 的变化集中在前端消费级壳、演示交互和计划文档，没有修改 Rust 后端、SQLite schema、市场数据、broker 初始化或执行日志。
-
-| 区域 | 当前事实 | 判断 |
-| --- | --- | --- |
-| 普通首页 | `/personal` 已读取真实 plan 与最新 `due` decision，仅支持一次性确认完成或跳过，并通过真实 journal API 自动刷新当前建议的执行结果；无建议时显示真实计划节奏与下一计划日 | Gate 2 已通过；不使用演示金额或浏览器会话伪状态，历史 `partial` 只读兼容 |
-| 旧 MA200 回放 | 普通首页与旧 Dashboard 均不再渲染；旧 API 保留，只有高级实验室可由用户手动触发 disabled query | Push 1 已隔离；端点仅作兼容，产品回测仍须重建 |
-| Plan 与 Decision | `/plans` 已作为侧边栏“我的计划”收口为真实计划列表、管理动作与 Fixed DCA 最小表单；其余策略/双桶/风险默认值由产品冻结。Decision detail 同时展示不可变原建议与关联执行结果 | Gate 2 已通过；旧高级 API 仍保留但不进入普通路径 |
-| 手工执行留痕 | 已有独立 append-only `ManualExecutionEvent`、SQLite migration/repository 与 `POST/GET /decisions/:id/manual-executions`；只允许 `due` decision 写入且每条 decision 最多一个最终结果；API 保留 `partial` 兼容，普通界面仅开放 `executed/skipped` | Push 4–5B 已形成前后端闭环，第二次结果返回冲突 |
-| 可选能力隔离 | Web 错误已局部化；OpenD 行情与 paper broker 现可独立启用、独立装配并报告 `not_configured/configured/unavailable`；失败不会阻止 SQLite 核心启动，也不会回退 Mock | Push 2 已完成 |
-| DSL 数据依赖 | 除 Fixed DCA 外仍先拉完整宏观/趋势/VIX；价格型 DSL 不能只依赖价格历史 | M2 前置项，不阻塞 M1 |
-| PostgreSQL | server 默认依赖图不再包含 `sqlx-postgres`；storage 仅在显式 `postgres` feature 下编译 PostgreSQL adapter 与测试 | Push 3 已完成 |
-| 策略中心 | 三张静态卡、归一化演示曲线与浏览器选择状态已完成 | 仅前端壳，不是真实策略产品 |
-| 专业研究 | 只对已保存 DSL 调用 admission API；内置策略没有统一研究结果 | M2 未闭环 |
-| 本地市场数据 | 只有现有 market adapter 与研究 fixtures，没有产品级版本化本地历史数据层 | M2 未开始 |
-| 桌面发行 | 没有 Tauri 壳和桌面 release 流程；服务默认 `APP_HOST=0.0.0.0` | M3 未开始 |
-
-## 4. 不可破坏的不变量
+## 2. 不可破坏的不变量
 
 ### H1 本地优先
 
-- 核心流程不依赖 IndexLink 云服务。
-- 无 API Key、无 AI、无 OpenD、无 broker、无 Docker 时，Fixed DCA 核心仍可使用。
-- Docker 是部署方式，不是普通用户配置项。
+- API 默认绑定 `127.0.0.1`；Docker host 端口也只发布到 loopback。
+- SQLite 是唯一公开、受支持的存储后端。
+- 无 AI、OpenD、broker、外部 Key 或 Docker 时，Fixed DCA 的 Plan、Decision、manual journal 与 Audit 仍可使用。
+- 当前没有认证；任何局域网或公网暴露都不属于受支持场景。
 
 ### H2 用户拥有执行权
 
-- V2.1 不做无人值守实盘交易。
-- scheduler 只能生成可审计建议，不能自动下单。
-- paper trading 是可选实验能力，与用户手工执行记录完全分离。
+- scheduler 只能幂等生成建议，不能自动下单。
+- 普通路径只记录用户报告的 `executed/skipped`；历史 `partial` 只读兼容。
+- OpenD paper broker 是独立、显式的高级实验能力，不得与 manual journal 混写。
+- AI 没有保存策略、激活策略、修改计划或提交订单的权限。
 
 ### H3 审计不可变
 
-- 原始 `DecisionRecord`、策略版本与输入快照不可被后续操作覆盖。
-- 手工执行采用 append-only 事件；同一 `due` decision 只能确认一次，普通界面只开放 `executed` 与 `skipped`，API 与历史记录保留 `partial` 兼容。
-- planned 与 actual 同时保留，所有手工事件明确标记 `user-reported`。
+- `DecisionRecord`、策略 ID/version、输入快照和原始建议不可被后续操作覆盖。
+- 手工执行为 append-only 事件；同一 `due` decision 最多一个最终结果。
+- 重试通过 event/idempotency key 保持幂等；服务重启后约束仍由 SQLite 保持。
 
-### H4 可选能力失败局部化
+### H4 数据与回测真实
 
-- AI、市场数据、broker、研究回放分别报告 capability 与错误。
-- 可选能力失败不得汇总成核心 Plan、Decision、Audit 不可用。
-- 失败的真实 broker 不得静默替换为 Mock；对应交易入口必须明确禁用。
+- 新的任意标的回测只能使用真实 provider 数据或可复核 cache；缺失时明确失败。
+- 同一比较共享标的、时间范围、外部投入、现金、成本、成交时点和因果 cutoff。
+- Fixed DCA 始终是匹配现金流的基线。
+- 归一化净值起点 `100` 不是股价或账户余额；UI 必须解释计算口径。
+- Formula 只读取观察日及以前的证据；预热不足、数据过期或授权失败必须拒绝，不得补造。
 
-### H5 数据与回测可复现
+### H5 策略安全
 
-- 供应商只负责导入，本地 canonical store 负责策略、Today 与回测运行。
-- 每个 observation 与结果必须携带来源、口径、`as_of`、`dataset_version` 和 checksum。
-- 同一 symbol/date 只有一个显式生效来源；冲突不得静默混拼。
-- 调整价不冒充真实成交价；币种、时区和复权口径不得丢失。
-- 同一比较必须使用相同外部投入、现金余额、成本、执行时点和因果 cutoff。
-- Fixed DCA 始终是匹配现金流的基线；旧 `historical_backtest` 不得作为产品回测。
+- 不执行用户 Python、JavaScript、Pine Script 或第三方仓库代码。
+- 普通用户只面对策略、计划、规则和行动；AST/DSL 是内部受限实现。
+- 个人策略最多三条优先规则、每条三个白名单条件，只能调整机会额度，不能取消核心投入。
+- 计划冻结精确策略版本；目录更新不能静默改变已存在的计划。
 
-### H6 策略安全
+### H6 可选能力隔离
 
-- 不执行第三方 Python、JavaScript 或任意仓库代码。
-- 普通用户面对策略、计划和行动，不面对 Policy ID、AST、DSL 或 Admission JSON。
-- 没有真实、版本化研究结果的策略不能标记为可采用。
+- AI、OpenD 行情、paper broker 和新闻实验分别报告 capability。
+- 一个可选能力失败不得让 SQLite 核心不可用。
+- 真实连接失败不能回退成 Mock 并伪装成功。
+- 页面输入的 AI Key/OpenD 会话配置只留在当前 Rust 进程，重启即失效。
 
 ### H7 界面不伪造完成度
 
-- 演示曲线、演示金额、浏览器会话状态只能明确标记为演示。
-- 真实产品卡片、专业指标和采用状态必须来自后端契约。
-- UI 不得自行计算并持久化金融结论；服务端状态使用 React Query，Valtio 只保存临时交互。
+- 真实卡片、策略可用性、收益、回撤、买点和专业指标必须来自后端契约。
+- React Query 保存服务端状态；Valtio 只保存筛选、选择、modal 和图表范围等临时 UI 状态。
+- 不存在真实结果时必须显示不可用，而不是演示金额、静态曲线或浏览器伪完成状态。
 
-## 5. 数据来源登记 Financial API
+## 3. 当前事实
 
-候选项目：[HiThink-Tech Financial-API](https://github.com/HiThink-Tech/Financial-API)
+| 能力 | 当前状态 | V2.1 判断 |
+| --- | --- | --- |
+| Plan → Decision → manual execution → Audit | SQLite/API/Web 完整闭环；同一到期建议只能确认一次 | 已完成 |
+| 策略目录 | Fixed DCA + 20 家族 × 5 参数的 100 个不可变 Formula 版本 | 已完成；数量不是收益排行 |
+| 策略工坊 | 白名单表单、个人不可变版本、目录个人标签、真实回测/计划运行时 | 已完成 |
+| 真实回测 | US/HK/SH/SZ、七档时间范围、OpenD 日线/cache、净值/买点/专业指标 | 已完成；无数据明确失败 |
+| 动态标的计划 | 服务端 canonical symbol/market/currency；Formula 创建前历史预检 | 已完成 |
+| AI 辅助 | QwenCloud、百炼、GPT、Claude、DeepSeek；仅手动草案/解释/摘要 | 已完成；不参与计算或执行 |
+| OpenD | 行情与 paper broker 独立；Lab 会话只授予只读行情 | 已完成 |
+| 本地安全 | loopback 默认、RSS 上限、依赖升级、凭据不落盘/不回显 | 已完成本地边界 |
+| 用户任务验证 | 尚无 3–5 位目标用户的结构化证据 | 发布前主要缺口 |
+| 自动实盘、多用户、云同步 | 不存在 | 明确不做 |
 
-当前登记结论：**保留为 M2 的 A 股和 A 股 ETF 可选导入来源候选，不进入 M0/M1，不成为 IndexLink 核心运行依赖，也不替代 OpenD 的港美股候选位置。**
+## 4. 发布 Gate
 
-### 可利用的能力
+### Gate A — 核心闭环
 
-- 官方公开范围覆盖 A 股日线、公司行动与复权、指数、板块、公募基金和本地 DuckDB；支持 REST、CLI、Python SDK、MCP 与 Agent Skill。
-- 代码仓库采用 MIT License，适合参考或复用 adapter/client 层实现。
-- 本地 marketdb 提供原始、前复权、后复权视图和数据质量工具，可作为导入阶段的上游缓存或人工研究工具。
+通过。必须持续满足：
 
-### 不得误判的边界
+1. Fixed DCA 无外部依赖可建立计划；
+2. 到期建议幂等；
+3. 用户只能最终确认一次；
+4. 原建议与执行结果分开保存；
+5. 删除/暂停计划不篡改历史。
 
-- 当前公开能力明确不含海外行情、分钟 K、tick、宏观数据和新闻原文，因此不能解决首发 US ETF 数据，也不能支撑依赖这些输入的策略。
-- 远端能力和 marketdb 更新需要 API Key；它不能成为 V2.1 的零配置启动条件。
-- MIT 只覆盖仓库软件，不自动授予供应商数据的缓存、展示或再分发权。未取得明确条款前，不把真实数据随 IndexLink release 打包。
-- 不能让 IndexLink runtime 直接依赖 Python、Node、MCP、Agent Skill 或外部 DuckDB。优先实现窄的导入 adapter，把通过校验的数据写入 IndexLink 自己的 canonical market-data store。
-- ETF 历史窗口、复权正确性、停牌/缺失语义、额度、限流和版本稳定性必须通过样本验收后才能声明覆盖。
+### Gate B — 策略与回测
 
-### M2 前的准入问题
+通过。必须持续满足：
 
-1. 账号可访问的精确 capability、历史长度、频率和费用是什么；
-2. A 股 ETF、股票和指数能否分别映射到明确 `instrument_type`；
-3. 原始价、前复权、后复权和公司行动能否形成一致且可验证的 dataset version；
-4. 服务条款是否允许本地长期缓存、产品内展示和向 release 用户分发；
-5. provider 失败时是否可保留已导入数据的完全离线查询和回测；
-6. 能否用 pinned CLI/API contract 和 fixture 覆盖分页、幂等、冲突、缺失与 checksum。
+1. 目录和前端以服务端精确版本为准；
+2. Formula 计划创建前检查数据窗口；
+3. 真实回测复用确定性 runtime；
+4. 同图比较共享标的、日期和现金流；
+5. 专业指标与公式代入值来自同一响应。
 
-以上问题未关闭前，只能做 adapter spike 或开发 fixture，不得把该来源写成 V2.1 已支持数据源。
+### Gate C — 本地安全与开源收口
 
-## 6. 阶段门槛
+通过本机边界：
 
-### Gate 0 文档与 ownership
+- loopback 默认已落实；
+- 前端生产依赖审计为 0；
+- Rust 运行路径漏洞已修复，保留一个 SQLx 锁文件中未链接的 `rsa` 公告并公开说明；
+- 旧页面、旧云脚本、PostgreSQL 草稿和过期 push 文档不再进入公开上游；
+- README、Security、第三方引用和 changelog 与当前代码一致。
 
-通过条件：
+### Gate D — 目标用户验证
 
-- 产品总定义已从 70/20/10 收束到 M1 人工执行闭环；
-- `AGENTS.md`、本文件和产品计划没有相反的当前执行顺序；
-- 0B、0C、0D 的文件 ownership、非目标、测试和回滚方式已登记；
-- 不修改生产代码。
+尚未通过。发布 `v2.1.0` 前让 3–5 位目标用户分别完成：
 
-当前状态：**本次文档变更完成后通过。**
+1. 找到并理解一个策略；
+2. 对自选标的运行真实回测；
+3. 建立计划并找到本期/下期安排；
+4. 记录“已执行”或“跳过”；
+5. 找回并复述历史记录；
+6. 说明最困惑的概念和是否愿意下周期继续使用。
 
-### Gate 1 M0 工程收敛
+记录任务成功率、阻塞点、误解和 Go / Adjust / Stop 结论。没有这组证据，不用增加更多策略、券商或自动化。
 
-必须依次关闭：
+## 5. 发布前验证
 
-1. 旧 MA200 回放退出普通 Today，保留兼容端点并完成 caller 检查；
-2. 首页可选 query 按 capability/task 启用，错误局部展示；
-3. market-data 与 paper broker 独立初始化、独立状态；
-4. broker 失败不阻止 SQLite 核心启动，也不静默切换 Mock；
-5. PostgreSQL 在默认 feature graph 中关闭，显式 feature 下仍可编译；
-6. 历史决策、migration 与 SQLite 数据保持兼容。
+每个行为变更必须有聚焦测试并更新 `CHANGE_LOG.md`。候选提交至少运行：
 
-未通过 Gate 1，不开始新的数据源、BacktestService 或完整策略目录。
-
-当前状态：**已通过。** Push 1–3 已依序完成；合并后 workspace 测试、storage 默认/显式 PostgreSQL feature、依赖图断言、前端 lint / 90% 覆盖门槛 / production build 均通过。下一项是 Gate 2 的 Push 4：append-only Manual Execution Journal。
-
-### Gate 2 M1 最小人工执行闭环
-
-只做一个标的和 Fixed DCA：
-
-1. 简化 Plan：标的、金额/周期、策略；
-2. Today 读取真实 plan 与决策，只回答现在要做什么、金额、日期和原因；
-3. append-only Manual Execution Journal；
-4. 用户只能在计划日对同一建议确认一次完成或跳过；历史 `partial` 保持可读；
-5. 决策详情同时显示原建议和所有手工事件；
-6. 无 AI、OpenD、broker 与市场数据时全流程仍可用。
-
-当前状态：**已通过。** Push 4–5B 已完成 append-only journal、真实个人中心、最小 Fixed DCA 建立流程与 Decision detail journal。Fixed DCA 创建后可在无 AI、OpenD、broker、市场数据和 Docker 的环境中生成真实 `due` 建议；成功的计划日自动预览会写入同一 `(plan_id, scheduled_for)` 调度标记，避免服务重启后生成第二条同日建议并使执行结果看似丢失。后续 UX 收口又将普通确认精简为“已执行/跳过”，并由 SQLite 保证同一建议只有一个最终结果；既有 `partial` 记录保持只读兼容。下一项唯一主线是 3–5 位目标用户任务验证。
-
-通过后立即让 3–5 位目标用户完成一次任务，不先扩展策略数量。
-
-### Gate 3 用户任务验证
-
-每位测试用户至少验证：创建 Fixed DCA 计划、找到本期建议、用普通语言复述原因、记录完成/跳过、找回历史记录。记录任务成功率、阻塞点、误解和是否愿意在下一周期继续使用。
-
-只有反馈明确支持“需要比较或定制策略”，才进入 M2。
-
-### Gate 4 M2 两策略公平比较
-
-执行顺序必须串行：
-
-```text
-Market Data Dependency Refactor
-→ Product Local Market Data Store
-→ Product-facing BacktestService
-→ 两策略 Compare
-→ Backtest adversarial review
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit
+pnpm --dir apps/web lint
+pnpm --dir apps/web test:coverage
+pnpm --dir apps/web build
+pnpm --dir apps/web audit --prod
+git diff --check
 ```
 
-Fixed DCA 加一个受限规则策略即可。完整策略目录、三到五个策略和 Simple Builder 不是首次用户验证门槛。
+前端 statements、branches、functions、lines 均不得低于 90%。真实网络/OpenD 测试可以保持 `ignored`，但必须在发布记录中说明未自动运行的原因。
 
-### Gate 5 M3 扩展与发行
+## 6. 后续而非 V2.1 阻塞项
 
-- 只有用户反馈支持时才扩展策略中心与 Simple Builder。
-- 只有安装成为真实测试阻碍时才提前做单平台 Tauri 壳。
-- 桌面版必须强制 loopback、限制 sidecar 权限、使用 app-data、处理迁移与崩溃；当前通用 server 的 `0.0.0.0` 默认不能直接沿用到桌面。
-- 最终执行 V2.1 release audit，并只审计已约定 milestone，不把延期能力重新变成阻塞项。
+- 将资金周期与策略观察频率拆成独立契约；
+- 引入交易所日历、时区、节假日顺延和周期级幂等；
+- 更完整的小屏布局与图表触控优化；
+- 数据许可/再分发专项复核；
+- 单平台桌面壳、app-data、sidecar 生命周期和签名发布；
+- 只有用户证据支持时再评估策略分享、fork、更多 provider 或更复杂的多资产策略。
 
-## 7. 接下来按 Push 拆分
-
-| 顺序 | Push | 文件 ownership | 完成条件 |
-| --- | --- | --- | --- |
-| 0 | `docs: establish V2.1 closeout hardness` | `AGENTS.md`、V2.1 计划、文档索引、`CHANGE_LOG.md` | Gate 0 通过；不改生产代码 |
-| 1（已完成） | `fix(web): isolate legacy replay and optional errors` | 新普通首页、Dashboard caller、query hooks、路由；不碰 Rust 公式 | 普通首页不请求旧回放；旧回放仅在 Lab 手动触发；可选失败不造成全局错误 |
-| 2（已完成） | `refactor(server): decouple market and paper broker capabilities` | `apps/server/src/{main,config}.rs`、必要的 `ApiState` capability 契约 | 无 broker 或 broker 失败时核心启动；真实失败不伪装 Mock |
-| 3（已完成） | `build(storage): make PostgreSQL opt in` | workspace Cargo、storage modules/exports/tests | 默认依赖图无 SQLx postgres；显式 feature 仍编译 |
-| 4（已完成） | `feat(execution): add manual execution journal` | 新 domain/service、SQLite migration/repository、API、API 文档 | append-only；每条 `due` decision 最多一个最终结果；API 兼容 executed/skipped/partial；DecisionRecord 不变 |
-| 5（已完成） | `feat(web): connect personal execution loop` | `/personal`、manual execution types/hooks/tests；不改 Rust 决策公式 | 已有计划的真实 `due` 建议可一次性记录 executed/skipped，追加后自动刷新真实结果；历史 partial 只读兼容；无演示金额或浏览器会话伪状态 |
-| 5B（已完成） | `feat(web): close minimal Plan and Decision detail` | 最小 Fixed DCA 建立流程、Decision detail journal；不扩展策略 | 普通用户可建立最小计划；决策详情同时展示原建议与所有手工事件；Gate 2 通过 |
-| 6 | `test(product): run M1 user-task validation` | 验收记录，不扩展功能 | 3–5 位用户证据和 Go/Adjust/Stop 决策 |
-| 7 | 条件 Push | M2 数据、回测与两策略对比 | 仅在 Gate 3 支持后创建 |
-
-Push 1–3 的共享文件 ownership 必须在开始前再次核对；`apps/server/src/main.rs`、`config.rs` 与 `ApiState` 发生重叠时串行，不并发修改。
-
-## 8. 当前明确不做
-
-- Gate 1 不新增 migration、不运行数据导入；
-- 不安装或接入 Financial-API Skill、MCP、CLI、Python SDK 或 DuckDB；
-- 不把当前前端演示策略改名后当成真实策略；
-- 不先建立三到五个策略、200 日均线策略、股债组合或更多专业指标；
-- 不做 IBKR、QMT、Futu/moomoo 自动下单；
-- 不启动 Tauri、多 Agent 全路线并行或 V3 功能。
-
-## 9. 每个实现 Push 的统一交付格式
-
-每个 Push 必须交付：
-
-1. 一句话 Goal；
-2. 真实 Current state 与调用路径；
-3. 可判定 true/false 的 Acceptance criteria；
-4. Explicit non-goals；
-5. 文件 ownership 与回滚方式；
-6. 行为测试和实际运行命令；
-7. `CHANGE_LOG.md` 记录；
-8. 未验证项、剩余风险与是否允许进入下一 Gate。
+IBKR/QMT/Futu/Moomoo 自动实盘、云账户、公开策略社区和任意代码执行不属于 V2.1。

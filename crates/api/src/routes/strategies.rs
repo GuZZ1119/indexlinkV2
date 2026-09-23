@@ -12,7 +12,9 @@ use indexlink_storage::StoredStrategySpec;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use strategy_dsl::{
-    DslEvidence, StrategySpecDocument, TechnicalClose, TechnicalMarketSnapshot, TechnicalVix,
+    ComparisonOperatorDocument, ConditionDocument, DslEvidence, IndicatorDocument,
+    PolicyActionDocument, StrategyRuleDocument, StrategySpecDocument, TechnicalClose,
+    TechnicalMarketSnapshot, TechnicalVix, ValueExpressionDocument,
 };
 use strategy_policy::DecisionContext;
 use strategy_policy::{PolicyId, PolicyRef, PolicyVersion};
@@ -80,6 +82,61 @@ struct CopilotDraftRequest {
     objective: String,
 }
 
+/// Small provider-authored form contract shared with the consumer Strategy Workshop.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CopilotFormDraft {
+    name: String,
+    rules: Vec<CopilotFormRule>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CopilotFormRule {
+    #[serde(rename = "match")]
+    match_mode: CopilotFormMatch,
+    conditions: Vec<CopilotFormCondition>,
+    multiplier: f64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CopilotFormMatch {
+    All,
+    Any,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CopilotFormCondition {
+    indicator: CopilotFormIndicator,
+    #[serde(default)]
+    lookback_days: Option<u16>,
+    operator: CopilotFormOperator,
+    threshold: f64,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CopilotFormIndicator {
+    PriceReturn,
+    AnnualizedVolatility,
+    PricePercentile,
+    MovingAverageDistance,
+    RelativeStrengthIndex,
+    Drawdown,
+    ClosePrice,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum CopilotFormOperator {
+    GreaterThan,
+    GreaterThanOrEqual,
+    LessThan,
+    LessThanOrEqual,
+}
+
 /// One trustworthy evidence reference selected by the model from the server-supplied closed list.
 #[derive(Debug, Serialize)]
 struct CopilotEvidenceReferenceResponse {
@@ -132,7 +189,7 @@ async fn generate_copilot_draft(
     if !policy_id.as_str().starts_with("dsl_") {
         return Err(ApiError::BadRequest);
     }
-    let evidence = copilot_evidence_references(&request.objective)?;
+    let evidence = copilot_evidence_references()?;
     let provider_request = AiCopilotDraftRequest::new(
         policy_id.as_str().to_owned(),
         policy_version.value(),
@@ -144,16 +201,10 @@ async fn generate_copilot_draft(
         .ai_policy_draft(request.profile_id.as_deref(), &provider_request)
         .await?;
 
-    let document = serde_json::from_value::<StrategySpecDocument>(draft.document().clone())
-        .map_err(|_| ApiError::ServiceUnavailable)?;
-    if document.policy_id != provider_request.policy_id()
-        || document.policy_version != provider_request.policy_version()
-    {
-        return Err(ApiError::ServiceUnavailable);
-    }
-    let strategy = document
-        .into_strategy_spec()
-        .map_err(|_| ApiError::ServiceUnavailable)?;
+    let form = serde_json::from_value::<CopilotFormDraft>(draft.form_config().clone())
+        .map_err(|_| ApiError::AiDraftInvalid)?;
+    let strategy = compile_copilot_form(form, &policy_id, policy_version)
+        .map_err(|_| ApiError::AiDraftInvalid)?;
     let document = StrategySpecDocument::from_strategy_spec(&strategy);
     let selected_evidence = draft
         .evidence_reference_ids()
@@ -179,14 +230,126 @@ async fn generate_copilot_draft(
     }))
 }
 
+/// Compile the deliberately small AI form into the canonical DSL and re-run every invariant.
+fn compile_copilot_form(
+    form: CopilotFormDraft,
+    policy_id: &PolicyId,
+    policy_version: PolicyVersion,
+) -> Result<strategy_dsl::StrategySpec, ()> {
+    let name = form.name.trim();
+    if name.is_empty() || name.chars().count() > 60 || name.chars().any(char::is_control) {
+        return Err(());
+    }
+    if !(1..=3).contains(&form.rules.len()) {
+        return Err(());
+    }
+
+    let rules = form
+        .rules
+        .into_iter()
+        .map(compile_copilot_rule)
+        .collect::<Result<Vec<_>, _>>()?;
+    let document = StrategySpecDocument {
+        policy_id: policy_id.as_str().to_owned(),
+        policy_version: policy_version.value(),
+        name: name.to_owned(),
+        rules,
+    };
+    document.into_strategy_spec().map_err(|_| ())
+}
+
+fn compile_copilot_rule(rule: CopilotFormRule) -> Result<StrategyRuleDocument, ()> {
+    if !(1..=3).contains(&rule.conditions.len()) || ![0.0, 0.5, 1.0, 1.2].contains(&rule.multiplier)
+    {
+        return Err(());
+    }
+    let mut conditions = rule
+        .conditions
+        .into_iter()
+        .map(compile_copilot_condition)
+        .collect::<Result<Vec<_>, _>>()?;
+    let condition = if conditions.len() == 1 {
+        conditions.pop().ok_or(())?
+    } else {
+        match rule.match_mode {
+            CopilotFormMatch::All => ConditionDocument::All { conditions },
+            CopilotFormMatch::Any => ConditionDocument::Any { conditions },
+        }
+    };
+    let action = if rule.multiplier == 0.0 {
+        PolicyActionDocument::SkipOpportunity
+    } else {
+        PolicyActionDocument::SetOpportunityMultiplier {
+            multiplier: rule.multiplier,
+        }
+    };
+    Ok(StrategyRuleDocument { condition, action })
+}
+
+fn compile_copilot_condition(condition: CopilotFormCondition) -> Result<ConditionDocument, ()> {
+    if !condition.threshold.is_finite() {
+        return Err(());
+    }
+    let (indicator, percentage_points) = match condition.indicator {
+        CopilotFormIndicator::ClosePrice => (IndicatorDocument::ClosePrice, false),
+        indicator => {
+            let lookback_days = condition
+                .lookback_days
+                .filter(|days| (2..=365).contains(days))
+                .ok_or(())?;
+            let indicator = match indicator {
+                CopilotFormIndicator::PriceReturn => {
+                    IndicatorDocument::PriceReturn { lookback_days }
+                }
+                CopilotFormIndicator::AnnualizedVolatility => {
+                    IndicatorDocument::AnnualizedVolatility { lookback_days }
+                }
+                CopilotFormIndicator::PricePercentile => {
+                    IndicatorDocument::PricePercentile { lookback_days }
+                }
+                CopilotFormIndicator::MovingAverageDistance => {
+                    IndicatorDocument::MovingAverageDistance { lookback_days }
+                }
+                CopilotFormIndicator::RelativeStrengthIndex => {
+                    IndicatorDocument::RelativeStrengthIndex { lookback_days }
+                }
+                CopilotFormIndicator::Drawdown => IndicatorDocument::Drawdown { lookback_days },
+                CopilotFormIndicator::ClosePrice => unreachable!("close price handled above"),
+            };
+            let percentage_points = matches!(
+                condition.indicator,
+                CopilotFormIndicator::PriceReturn
+                    | CopilotFormIndicator::AnnualizedVolatility
+                    | CopilotFormIndicator::PricePercentile
+                    | CopilotFormIndicator::MovingAverageDistance
+                    | CopilotFormIndicator::Drawdown
+            );
+            (indicator, percentage_points)
+        }
+    };
+    let mut threshold = Decimal::from_f64_retain(condition.threshold).ok_or(())?;
+    if percentage_points {
+        threshold /= Decimal::new(100, 0);
+    }
+    let operator = match condition.operator {
+        CopilotFormOperator::GreaterThan => ComparisonOperatorDocument::GreaterThan,
+        CopilotFormOperator::GreaterThanOrEqual => ComparisonOperatorDocument::GreaterThanOrEqual,
+        CopilotFormOperator::LessThan => ComparisonOperatorDocument::LessThan,
+        CopilotFormOperator::LessThanOrEqual => ComparisonOperatorDocument::LessThanOrEqual,
+    };
+    Ok(ConditionDocument::Comparison {
+        expression: ValueExpressionDocument::Indicator { indicator },
+        operator,
+        threshold: threshold.normalize().to_string(),
+    })
+}
+
 /// Build the closed, provider-visible evidence list for one draft request.
-fn copilot_evidence_references(
-    objective: &str,
-) -> Result<Vec<AiCopilotEvidenceReference>, ApiError> {
+fn copilot_evidence_references() -> Result<Vec<AiCopilotEvidenceReference>, ApiError> {
     [
         (
             "operator_objective",
-            format!("Operator objective: {objective}"),
+            "User-supplied objective in the current request.".to_owned(),
         ),
         (
             "dsl_allowlist_v1",
@@ -351,4 +514,68 @@ async fn strategy_admission(
 ) -> Result<Json<strategy_evaluation::StrategyAdmissionReport>, ApiError> {
     let policy = policy_from_path(path)?;
     Ok(Json(state.strategy_admission_report(&policy).await?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copilot_form_compiles_display_percentages_into_canonical_dsl() {
+        let form = CopilotFormDraft {
+            name: "下跌时增加机会额度".to_owned(),
+            rules: vec![CopilotFormRule {
+                match_mode: CopilotFormMatch::All,
+                conditions: vec![CopilotFormCondition {
+                    indicator: CopilotFormIndicator::PriceReturn,
+                    lookback_days: Some(63),
+                    operator: CopilotFormOperator::LessThan,
+                    threshold: -10.0,
+                }],
+                multiplier: 1.2,
+            }],
+        };
+        let strategy = compile_copilot_form(
+            form,
+            &PolicyId::new("dsl_copilot_form").unwrap(),
+            PolicyVersion::new(1).unwrap(),
+        )
+        .unwrap();
+        let document = StrategySpecDocument::from_strategy_spec(&strategy);
+
+        assert_eq!(document.policy_id, "dsl_copilot_form");
+        assert!(matches!(
+            &document.rules[0].condition,
+            ConditionDocument::Comparison { threshold, .. } if threshold == "-0.1"
+        ));
+        assert!(matches!(
+            document.rules[0].action,
+            PolicyActionDocument::SetOpportunityMultiplier { multiplier }
+                if (multiplier - 1.2).abs() < f64::EPSILON
+        ));
+    }
+
+    #[test]
+    fn copilot_form_rejects_values_outside_the_workshop_contract() {
+        let form = CopilotFormDraft {
+            name: "越界额度".to_owned(),
+            rules: vec![CopilotFormRule {
+                match_mode: CopilotFormMatch::All,
+                conditions: vec![CopilotFormCondition {
+                    indicator: CopilotFormIndicator::Drawdown,
+                    lookback_days: Some(366),
+                    operator: CopilotFormOperator::LessThan,
+                    threshold: -10.0,
+                }],
+                multiplier: 0.8,
+            }],
+        };
+
+        assert!(compile_copilot_form(
+            form,
+            &PolicyId::new("dsl_copilot_invalid").unwrap(),
+            PolicyVersion::new(1).unwrap(),
+        )
+        .is_err());
+    }
 }

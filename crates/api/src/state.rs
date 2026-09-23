@@ -5,13 +5,13 @@ use std::{
 
 use ai_client::{
     fetch_market_sentiment_report, AiClientError, AiCopilotDraft, AiCopilotDraftRequest,
-    AiEvidence, AiProvider, AiProviderProfile, AiProviderProfileError, AiProviderProfileId,
-    AiProviderRegistry, NewsSource, PipelineError,
+    AiEvidence, AiExplanationRequest, AiProvider, AiProviderProfile, AiProviderProfileError,
+    AiProviderProfileId, AiProviderRegistry, AiReadOnlyExplanation, NewsSource, PipelineError,
+    RssNewsSource,
 };
 use async_trait::async_trait;
 use broker::{BrokerClient, BrokerOrderAck, BrokerOrderRequest, PaperPortfolioSnapshot};
 use builtin_policies::BuiltinPolicyResolver;
-use chrono::Datelike;
 use decision_records::{
     DecisionRecord, DecisionRecordListQuery, DecisionRecordRepository,
     DecisionRecordRepositoryError, DecisionRecordService, ManualExecutionEvent,
@@ -30,10 +30,7 @@ use market_data::{
     HistoricalPriceProvider, MarketDataError, MarketPricePoint, MarketSignalInput,
     MarketSignalProvider,
 };
-use rust_decimal::{
-    prelude::{FromPrimitive, ToPrimitive},
-    Decimal,
-};
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use strategy_dsl::StrategySpec;
@@ -281,28 +278,6 @@ pub(crate) struct HoldingPriceHistory {
     pub trades: Vec<PaperTradeMarker>,
 }
 
-/// One monthly point from the transparent historical price-only DCA replay.
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct HistoricalBacktestPoint {
-    /// Last available trading date in the replay month.
-    pub date: String,
-    /// Value of equal scheduled contributions without adaptation.
-    pub plain_dca_value: f64,
-    /// Value of the same schedule after the documented price-distance adjustment.
-    pub adaptive_value: f64,
-}
-
-/// One-year historical comparison of plain and adaptive contribution schedules.
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct HistoricalBacktest {
-    /// Shared display currency. MVP only aggregates one currency at a time.
-    pub currency: String,
-    /// Explains the exact first-version replay boundary without presenting it as realised return.
-    pub methodology: &'static str,
-    /// Monthly points, oldest first.
-    pub points: Vec<HistoricalBacktestPoint>,
-}
-
 impl fmt::Debug for MarketSentimentDependencies {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("MarketSentimentDependencies")
@@ -327,8 +302,12 @@ pub struct ApiState {
     manual_executions: ManualExecutionService,
     broker: Option<Arc<dyn BrokerClient>>,
     market_sentiment: Option<Arc<MarketSentimentDependencies>>,
+    session_ai_provider: Arc<Mutex<Option<Arc<dyn AiProvider>>>>,
+    session_news_source: Arc<dyn NewsSource>,
     market_data: Option<Arc<dyn MarketSignalProvider>>,
     historical_prices: Option<Arc<dyn HistoricalPriceProvider>>,
+    session_market_data: Arc<Mutex<Option<Arc<dyn MarketSignalProvider>>>>,
+    session_historical_prices: Arc<Mutex<Option<Arc<dyn HistoricalPriceProvider>>>>,
     paper_performance: Option<SqlitePaperPerformanceRepository>,
     scheduled_decisions: Option<SqliteScheduledDecisionRepository>,
     opportunity_cash: Option<SqliteOpportunityCashRepository>,
@@ -384,8 +363,12 @@ impl ApiState {
             manual_executions,
             broker: None,
             market_sentiment: None,
+            session_ai_provider: Arc::new(Mutex::new(None)),
+            session_news_source: Arc::new(RssNewsSource::new()),
             market_data: None,
             historical_prices: None,
+            session_market_data: Arc::new(Mutex::new(None)),
+            session_historical_prices: Arc::new(Mutex::new(None)),
             paper_performance: Some(SqlitePaperPerformanceRepository::new(pool)),
             scheduled_decisions: Some(scheduled_decisions),
             opportunity_cash: Some(opportunity_cash),
@@ -481,8 +464,12 @@ impl ApiState {
             manual_executions: ManualExecutionService::new(Arc::new(UnavailableManualExecutions)),
             broker,
             market_sentiment: None,
+            session_ai_provider: Arc::new(Mutex::new(None)),
+            session_news_source: Arc::new(RssNewsSource::new()),
             market_data: None,
             historical_prices: None,
+            session_market_data: Arc::new(Mutex::new(None)),
+            session_historical_prices: Arc::new(Mutex::new(None)),
             paper_performance: None,
             scheduled_decisions: None,
             opportunity_cash: None,
@@ -577,13 +564,63 @@ impl ApiState {
         self
     }
 
-    /// Return the configured historical daily-price port.
+    /// Return the current session or startup-configured historical daily-price port.
     pub(crate) fn historical_price_provider(
         &self,
-    ) -> Result<&dyn HistoricalPriceProvider, ApiError> {
+    ) -> Result<Arc<dyn HistoricalPriceProvider>, ApiError> {
+        if let Some(provider) = self
+            .session_historical_prices
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)?
+            .clone()
+        {
+            return Ok(provider);
+        }
         self.historical_prices
-            .as_deref()
+            .clone()
             .ok_or(ApiError::ServiceUnavailable)
+    }
+
+    /// Replace the process-memory read-only OpenD adapters entered from the local Lab UI.
+    pub(crate) fn set_session_market_data(
+        &self,
+        market_data: Arc<dyn MarketSignalProvider>,
+        historical_prices: Arc<dyn HistoricalPriceProvider>,
+    ) -> Result<(), ApiError> {
+        *self
+            .session_market_data
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)? = Some(market_data);
+        *self
+            .session_historical_prices
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)? = Some(historical_prices);
+        Ok(())
+    }
+
+    /// Clear only the process-memory OpenD adapters; startup configuration remains available.
+    pub(crate) fn clear_session_market_data(&self) -> Result<(), ApiError> {
+        *self
+            .session_market_data
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)? = None;
+        *self
+            .session_historical_prices
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)? = None;
+        Ok(())
+    }
+
+    fn market_data_provider(&self) -> Result<Arc<dyn MarketSignalProvider>, ApiError> {
+        if let Some(provider) = self
+            .session_market_data
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)?
+            .clone()
+        {
+            return Ok(provider);
+        }
+        self.market_data.clone().ok_or(ApiError::ServiceUnavailable)
     }
 
     /// Mark an explicitly configured market-data adapter as unavailable without blocking startup.
@@ -630,9 +667,25 @@ impl ApiState {
     /// Return a display-safe runtime capability snapshot without probing paid or trading APIs.
     #[must_use]
     pub(crate) fn runtime_capabilities(&self) -> RuntimeCapabilities {
+        let session_market_data = self
+            .session_market_data
+            .lock()
+            .is_ok_and(|provider| provider.is_some());
+        let session_historical_prices = self
+            .session_historical_prices
+            .lock()
+            .is_ok_and(|provider| provider.is_some());
         RuntimeCapabilities {
-            market_data: self.market_data_status,
-            historical_prices: self.historical_price_status,
+            market_data: if session_market_data {
+                CapabilityStatus::Configured
+            } else {
+                self.market_data_status
+            },
+            historical_prices: if session_historical_prices {
+                CapabilityStatus::Configured
+            } else {
+                self.historical_price_status
+            },
             qwen_configured: self.market_sentiment.is_some(),
             ai_provider_profiles: self.ai_provider_profiles(),
             paper_broker: self.paper_broker_status,
@@ -955,10 +1008,7 @@ impl ApiState {
         &self,
         lookback_days: i64,
     ) -> Result<Vec<HoldingPriceHistory>, ApiError> {
-        let provider = self
-            .market_data
-            .as_ref()
-            .ok_or(ApiError::ServiceUnavailable)?;
+        let provider = self.market_data_provider()?;
         let repository = self
             .paper_performance
             .as_ref()
@@ -996,92 +1046,6 @@ impl ApiState {
             });
         }
         Ok(output)
-    }
-
-    /// Simulate one historical year for all active holdings using actual OpenD prices.
-    ///
-    /// This first MVP replay deliberately does not invent unavailable historical AI output or
-    /// macro snapshots.  It applies a bounded contribution adjustment from each symbol's
-    /// real 200-day moving-average distance and compares it with the same-date plain schedule.
-    pub(crate) async fn historical_backtest(&self) -> Result<HistoricalBacktest, ApiError> {
-        let provider = self
-            .market_data
-            .as_ref()
-            .ok_or(ApiError::ServiceUnavailable)?;
-        let plans: Vec<_> = self
-            .plans()
-            .list()
-            .await?
-            .into_iter()
-            .filter(|plan| plan.is_active)
-            .collect();
-        let currency = plans
-            .first()
-            .map(|plan| plan.currency.clone())
-            .unwrap_or_else(|| "USD".to_owned());
-        if plans.iter().any(|plan| plan.currency != currency) {
-            return Err(ApiError::BadRequest);
-        }
-        let cutoff = chrono::Utc::now().date_naive() - chrono::Duration::days(366);
-        let mut totals = BTreeMap::<String, (f64, f64)>::new();
-        for plan in plans {
-            let prices = provider
-                .fetch_price_history(&plan.symbol, 365 * 3 + 1)
-                .await
-                .inspect_err(|error| tracing::error!(%error, symbol = %plan.symbol, "historical replay data refresh failed"))
-                .map_err(|_| ApiError::ServiceUnavailable)?;
-            let parsed: Vec<_> = prices
-                .iter()
-                .filter_map(|point| {
-                    chrono::NaiveDate::parse_from_str(&point.date, "%Y-%m-%d")
-                        .ok()
-                        .map(|date| (date, point.close))
-                })
-                .collect();
-            if parsed.len() < 201 {
-                return Err(ApiError::ServiceUnavailable);
-            }
-            let mut monthly = BTreeMap::<(i32, u32), (usize, chrono::NaiveDate, f64)>::new();
-            for (index, (date, close)) in parsed.iter().enumerate() {
-                if *date >= cutoff && index >= 199 {
-                    monthly.insert((date.year(), date.month()), (index, *date, *close));
-                }
-            }
-            let mut plain_units = 0.0;
-            let mut adaptive_units = 0.0;
-            let base = plan
-                .base_contribution
-                .to_f64()
-                .ok_or(ApiError::BadRequest)?;
-            for (_, (index, date, close)) in monthly {
-                let average = parsed[index + 1 - 200..=index]
-                    .iter()
-                    .map(|(_, value)| *value)
-                    .sum::<f64>()
-                    / 200.0;
-                let distance = close / average - 1.0;
-                let multiplier = (1.0 - distance * 2.5).clamp(0.5, 1.5);
-                plain_units += base / close;
-                adaptive_units += base * multiplier / close;
-                let entry = totals
-                    .entry(date.format("%Y-%m-%d").to_string())
-                    .or_insert((0.0, 0.0));
-                entry.0 += plain_units * close;
-                entry.1 += adaptive_units * close;
-            }
-        }
-        Ok(HistoricalBacktest {
-            currency,
-            methodology: "一年前开始的真实 OpenD 日线月度回放；普通定投每月固定投入，自适应定投仅按当月相对 MA200 距离在 0.5x–1.5x 调整。历史 AI 情绪与宏观快照未被伪造，因此这不是已实现收益，也不是完整 70/20/10 审计回放。",
-            points: totals
-                .into_iter()
-                .map(|(date, (plain_dca_value, adaptive_value))| HistoricalBacktestPoint {
-                    date,
-                    plain_dca_value,
-                    adaptive_value,
-                })
-                .collect(),
-        })
     }
 
     /// 记录已被 broker 接受的订单意图，供后续只读对账生成本地成交账本。
@@ -1128,12 +1092,105 @@ impl ApiState {
             .next())
     }
 
-    /// List only credential-free AI profiles deployed by this server.
+    /// List credential-free environment and process-memory AI profiles.
     #[must_use]
     pub(crate) fn ai_provider_profiles(&self) -> Vec<AiProviderProfile> {
-        self.market_sentiment
+        let mut profiles = self
+            .market_sentiment
             .as_ref()
-            .map_or_else(Vec::new, |dependencies| dependencies.registry.profiles())
+            .map_or_else(Vec::new, |dependencies| dependencies.registry.profiles());
+        if let Ok(guard) = self.session_ai_provider.lock() {
+            if let Some(provider) = guard.as_ref() {
+                let session = provider.profile();
+                profiles.retain(|profile| profile.id() != session.id());
+                profiles.push(session);
+            }
+        }
+        profiles
+    }
+
+    /// Replace the single process-memory AI provider entered from the local Lab UI.
+    ///
+    /// The provider, including its credential, is never persisted. Replacing or clearing it does
+    /// not invoke the provider and grants no plan, strategy-save, scheduler, or broker authority.
+    pub(crate) fn set_session_ai_provider(
+        &self,
+        provider: Arc<dyn AiProvider>,
+    ) -> Result<AiProviderProfile, ApiError> {
+        let profile = provider.profile();
+        let mut slot = self
+            .session_ai_provider
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)?;
+        *slot = Some(provider);
+        Ok(profile)
+    }
+
+    /// Forget the process-memory AI provider without touching environment-deployed profiles.
+    pub(crate) fn clear_session_ai_provider(&self) -> Result<(), ApiError> {
+        let mut slot = self
+            .session_ai_provider
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)?;
+        *slot = None;
+        Ok(())
+    }
+
+    /// Run one explicit, minimal provider probe against the frontend-entered session profile.
+    ///
+    /// The provider is cloned while holding the mutex and the network call happens only after the
+    /// lock is released. No prompt, response, credential, strategy, or plan data is persisted.
+    pub(crate) async fn probe_session_ai_provider(
+        &self,
+    ) -> Result<(AiProviderProfile, Result<(), AiClientError>), ApiError> {
+        let provider = self
+            .session_ai_provider
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)?
+            .clone()
+            .ok_or(ApiError::BadRequest)?;
+        let profile = provider.profile();
+        let result = provider.probe().await;
+        Ok((profile, result))
+    }
+
+    fn resolve_ai_provider(
+        &self,
+        requested_profile: Option<&str>,
+    ) -> Result<(AiProviderProfile, Arc<dyn AiProvider>), ApiError> {
+        let requested = requested_profile
+            .map(|value| AiProviderProfileId::new(value.to_owned()))
+            .transpose()
+            .map_err(|_| ApiError::BadRequest)?;
+        let session = self
+            .session_ai_provider
+            .lock()
+            .map_err(|_| ApiError::ServiceUnavailable)?
+            .clone();
+        if let Some(provider) = session {
+            let profile = provider.profile();
+            if requested.as_ref().is_some_and(|id| id == profile.id())
+                || (requested.is_none() && self.market_sentiment.is_none())
+            {
+                return Ok((profile, provider));
+            }
+        }
+        let dependencies = self
+            .market_sentiment
+            .as_ref()
+            .ok_or(ApiError::ServiceUnavailable)?;
+        let profile_id = requested.unwrap_or_else(|| dependencies.default_profile_id.clone());
+        let profile = dependencies
+            .registry
+            .get(&profile_id)
+            .cloned()
+            .ok_or(ApiError::BadRequest)?;
+        let provider = dependencies
+            .providers
+            .get(&profile_id)
+            .cloned()
+            .ok_or(ApiError::BadRequest)?;
+        Ok((profile, provider))
     }
 
     /// Attempt legacy-compatible AI evidence without losing its safe fallback reason.
@@ -1184,33 +1241,22 @@ impl ApiState {
         &self,
         requested_profile: Option<&str>,
     ) -> Result<AiEvidence, ApiError> {
-        let dependencies = self
-            .market_sentiment
-            .as_ref()
-            .ok_or(ApiError::ServiceUnavailable)?;
-        let profile_id = match requested_profile {
-            Some(value) => {
-                AiProviderProfileId::new(value.to_owned()).map_err(|_| ApiError::BadRequest)?
-            }
-            None => dependencies.default_profile_id.clone(),
-        };
-        let profile = dependencies
-            .registry
-            .get(&profile_id)
-            .ok_or(ApiError::BadRequest)?;
+        let (profile, provider) = self.resolve_ai_provider(requested_profile)?;
         if !profile.capabilities().market_evidence {
             return Err(ApiError::BadRequest);
         }
-        let provider = dependencies
-            .providers
-            .get(&profile_id)
-            .ok_or(ApiError::BadRequest)?;
+        let news_source = self
+            .market_sentiment
+            .as_ref()
+            .map_or(self.session_news_source.as_ref(), |dependencies| {
+                dependencies.news_source.as_ref()
+            });
         fetch_market_sentiment_report(
-            dependencies.news_source.as_ref(),
+            news_source,
             provider.as_ref(),
         )
         .await
-        .inspect_err(|error| tracing::error!(%error, profile_id = %profile_id, "AI evidence pipeline failed"))
+        .inspect_err(|error| tracing::error!(%error, profile_id = %profile.id(), "AI evidence pipeline failed"))
         .map_err(Into::into)
     }
 
@@ -1224,36 +1270,48 @@ impl ApiState {
         requested_profile: Option<&str>,
         request: &AiCopilotDraftRequest,
     ) -> Result<(AiProviderProfile, AiCopilotDraft), ApiError> {
-        let dependencies = self
-            .market_sentiment
-            .as_ref()
-            .ok_or(ApiError::ServiceUnavailable)?;
-        let profile_id = match requested_profile {
-            Some(value) => {
-                AiProviderProfileId::new(value.to_owned()).map_err(|_| ApiError::BadRequest)?
-            }
-            None => dependencies.default_profile_id.clone(),
-        };
-        let profile = dependencies
-            .registry
-            .get(&profile_id)
-            .cloned()
-            .ok_or(ApiError::BadRequest)?;
+        let (profile, provider) = self.resolve_ai_provider(requested_profile)?;
         if !profile.capabilities().restricted_policy_drafts {
             return Err(ApiError::BadRequest);
         }
-        let provider = dependencies
-            .providers
-            .get(&profile_id)
-            .ok_or(ApiError::BadRequest)?;
         let draft = provider
             .generate_policy_draft(request)
             .await
             .inspect_err(|error| {
-                tracing::error!(%error, profile_id = %profile_id, "AI Copilot draft generation failed")
+                tracing::error!(%error, profile_id = %profile.id(), "AI Copilot draft generation failed")
             })
-            .map_err(|_| ApiError::ServiceUnavailable)?;
+            .map_err(|error| match error {
+                AiClientError::InvalidJson(_)
+                | AiClientError::UnexpectedStructure
+                | AiClientError::ParseFailure
+                | AiClientError::EmptyResponse => ApiError::AiResponseInvalid,
+                AiClientError::Timeout { .. }
+                | AiClientError::HttpStatus { .. }
+                | AiClientError::Transport(_)
+                | AiClientError::UnsupportedCapability => ApiError::ServiceUnavailable,
+            })?;
         Ok((profile, draft))
+    }
+
+    /// Explain server-built facts through one explicitly selected local profile.
+    ///
+    /// This call is read-only and has no persistence, scheduler, plan, decision, or broker side
+    /// effect. Callers must construct the facts from trusted server state rather than accepting an
+    /// arbitrary model prompt from the browser.
+    pub(crate) async fn ai_read_only_explanation(
+        &self,
+        requested_profile: Option<&str>,
+        request: &AiExplanationRequest,
+    ) -> Result<(AiProviderProfile, AiReadOnlyExplanation), ApiError> {
+        let (profile, provider) = self.resolve_ai_provider(requested_profile)?;
+        if !profile.capabilities().read_only_explanations {
+            return Err(ApiError::BadRequest);
+        }
+        let explanation = provider.explain(request).await.inspect_err(|error| {
+            tracing::error!(%error, profile_id = %profile.id(), "read-only AI explanation failed")
+        })
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+        Ok((profile, explanation))
     }
 
     /// 拉取一份自动市场信号输入，并在边界保留内部失败日志。
@@ -1261,10 +1319,7 @@ impl ApiState {
         &self,
         symbol: &str,
     ) -> Result<MarketSignalInput, ApiError> {
-        let provider = self
-            .market_data
-            .as_ref()
-            .ok_or(ApiError::ServiceUnavailable)?;
+        let provider = self.market_data_provider()?;
         provider
             .fetch(symbol)
             .await
@@ -1278,10 +1333,7 @@ impl ApiState {
         symbol: &str,
         lookback_days: i64,
     ) -> Result<Vec<MarketPricePoint>, ApiError> {
-        let provider = self
-            .market_data
-            .as_ref()
-            .ok_or(ApiError::ServiceUnavailable)?;
+        let provider = self.market_data_provider()?;
         provider
             .fetch_price_history(symbol, lookback_days)
             .await
@@ -1293,10 +1345,7 @@ impl ApiState {
 
     /// Return the newest trusted local close for safe budget-to-quantity conversion.
     pub(crate) async fn latest_market_price(&self, symbol: &str) -> Result<Decimal, ApiError> {
-        let provider = self
-            .market_data
-            .as_ref()
-            .ok_or(ApiError::ServiceUnavailable)?;
+        let provider = self.market_data_provider()?;
         let point = provider
             .fetch_price_history(symbol, 7)
             .await
@@ -1948,9 +1997,9 @@ mod tests {
         ));
     }
 
-    /// Verify local price history and the transparent replay use the injected read-only source.
+    /// Verify local price history uses the injected read-only source.
     #[tokio::test]
-    async fn migrated_state_builds_holding_chart_and_historical_replay() {
+    async fn migrated_state_builds_holding_chart() {
         let prices = (0..460)
             .map(|offset| {
                 let date = chrono::Utc::now().date_naive() - chrono::Duration::days(459 - offset);
@@ -1971,13 +2020,5 @@ mod tests {
         assert_eq!(holding[0].symbol, "VOO");
         assert!(holding[0].prices.len() >= 365);
         assert!(holding[0].trades.is_empty());
-
-        let replay = state.historical_backtest().await.unwrap();
-        assert_eq!(replay.currency, "USD");
-        assert!(!replay.points.is_empty());
-        assert!(replay
-            .points
-            .iter()
-            .all(|point| point.plain_dca_value > 0.0 && point.adaptive_value > 0.0));
     }
 }

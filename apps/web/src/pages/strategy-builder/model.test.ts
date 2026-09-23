@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildPersonalStrategyDocument,
   createPersonalStrategyDraft,
+  personalDraftFromDocument,
   personalPolicyId,
 } from './model'
 
@@ -50,9 +51,49 @@ describe('personal strategy builder model', () => {
     draft.rules[0].conditions[0].lookbackDays = 0
 
     expect(() => buildPersonalStrategyDocument(draft, 'dsl_personal_invalid')).toThrow('观察窗口')
+
+    draft.rules[0].conditions[0].lookbackDays = 366
+    expect(() => buildPersonalStrategyDocument(draft, 'dsl_personal_invalid')).toThrow('2–365')
   })
 
   it('creates a transport-safe opaque personal policy id', () => {
     expect(personalPolicyId('37A8-9B_C')).toBe('dsl_personal_37a89bc')
+  })
+
+  it('maps a bounded AI document back into the consumer editor', () => {
+    expect(personalDraftFromDocument({
+      policy_id: 'dsl_personal_ai',
+      policy_version: 1,
+      name: 'AI 草案',
+      rules: [{
+        condition: {
+          kind: 'comparison',
+          expression: { kind: 'indicator', indicator: { kind: 'drawdown', lookback_days: 63 } },
+          operator: 'less_than_or_equal',
+          threshold: '-0.1',
+        },
+        action: { kind: 'set_opportunity_multiplier', multiplier: 1.2 },
+      }],
+    })).toMatchObject({
+      name: 'AI 草案',
+      rules: [{ conditions: [{ indicator: 'drawdown', lookbackDays: 63, threshold: '-10' }], multiplier: 1.2 }],
+    })
+  })
+
+  it('rejects an AI action outside the consumer editor boundary', () => {
+    expect(() => personalDraftFromDocument({
+      policy_id: 'dsl_personal_ai',
+      policy_version: 1,
+      name: '越界草案',
+      rules: [{
+        condition: {
+          kind: 'comparison',
+          expression: { kind: 'indicator', indicator: { kind: 'close_price' } },
+          operator: 'less_than',
+          threshold: '10',
+        },
+        action: { kind: 'set_opportunity_fixed_amount', amount: '100' },
+      }],
+    })).toThrow('不支持的额度动作')
   })
 })

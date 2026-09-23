@@ -19,7 +19,7 @@ Plan → readable Decision → user-reported execution → Audit
 ## 产品与架构硬约束
 
 - 保持 modular monolith 与 hexagonal boundary；领域 crate 不包含 IO。
-- SQLite 是默认持久化层。PostgreSQL 只能作为显式 opt-in feature，不得进入默认构建依赖图或正式启动路径。
+- SQLite 是 V2.1 唯一公开支持的持久化层；不得把未接线的 PostgreSQL/MySQL 草稿重新放回构建依赖图或正式启动路径。
 - 行情、broker 与 AI 必须通过显式 port 独立配置、独立初始化、独立报告 capability；任一可选能力失败不得阻止 Plan、Decision 与 Audit。
 - 配置过但初始化失败的 broker 必须显示为 unavailable，不得静默退回成看似真实连接的 Mock。
 - 不引入任意用户代码执行，不执行 Python 或 JavaScript 策略；DSL 只是受限内部实现，不是普通用户概念。

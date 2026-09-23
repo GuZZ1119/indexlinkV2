@@ -2,6 +2,96 @@
 
 ## Unreleased
 
+### 2026-09-23 11:01 AEST — V2.1 本地安全收口、公开仓库瘦身与发布文档重建
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：本地部署安全、依赖升级、输入边界、日志隐私、移动端导航、公开仓库清理、README/安全/第三方声明与发布验证。
+- 涉及文件：`.env.example`、`.gitignore`、`AGENTS.md`、`Cargo.toml`、`Cargo.lock`、`apps/server/src/config.rs`、`deployment/docker-compose.yml`、`crates/ai-client/src/{client.rs,news.rs,provider.rs}` 及测试、`crates/storage/{Cargo.toml,src/lib.rs}`、`apps/web/{package.json,pnpm-lock.yaml,vite.config.ts,vitest.config.ts}`、`apps/web/src/{App.tsx,index.css,components/layout/{app-header.tsx,app-sidebar.tsx},i18n/locales/{zh.ts,en.ts},pages/v2_1-shell.test.tsx}`、`readme.md`、`readme.en.md`、`SECURITY.md`、`THIRD_PARTY_NOTICES.md`、`docs/{README.md,reviews/v2_1_code_audit_2026-09-23.md,plans/{v2_1_closeout_hardness.md,v2_1_productization_plan.md},reference/api-management.md}`、`CHANGE_LOG.md`；并从 Git 跟踪移除 `.gitignore` 中逐项列明的旧 dashboard/Studio/UI 组件、模板资源、原始网页抓取、阿里云部署脚本、PostgreSQL 草稿迁移和过期执行计划，原文件仍保留在维护者本机。
+- 变更内容：服务端默认监听与 Docker 宿主端口统一收紧到 `127.0.0.1`，明确无认证版本不得暴露到 LAN/公网；RSS 改为流式读取并限制 1 MiB，AI JSON 提取支持字符串与转义边界，解析失败日志不再写入完整模型正文；升级 `quick-xml`、`rustls`、Vite、Tailwind 与 React Router，移除生产依赖中的 shadcn CLI；公开构建只保留已接线的 SQLite 存储，未完成的 PostgreSQL adapter 不再制造支持错觉；顶栏补齐真实移动端 Sheet 导航并删除无效账户菜单，Vite 8 路径写法与 coverage 旧文件引用一并清理。中英文 README 按当前 V2.1 功能、启动方式、真实数据/AI 边界重写，新增安全政策、第三方代码/策略/架构引用和最终审查记录。测试中的仿真密钥改用不会被 secret scanner 误判的占位文本；全仓扫描未发现真实密钥、个人绝对路径或微信临时路径。
+- 风险结论：`pnpm audit --prod` 为 0；`cargo audit` 仅剩 `rsa 0.9.10 / RUSTSEC-2023-0071`（无可用修复），`cargo tree -i rsa --workspace` 显示支持的 SQLite workspace 没有活动依赖路径，因此作为 lock-only 中风险在 `SECURITY.md` 中公开记录，未使用 allowlist 隐藏。ECharts 两个生产 chunk 超过 500 kB 仍是已知性能债务；无认证 API 仍只支持本机回环。
+- 验证：`cargo test --workspace` 全部通过（真实网络/OpenD 写单 smoke 按设计 ignored）；`cargo test -p core-domain` 13 项包含于全仓测试；`cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 和 `git diff --check` 通过；`pnpm --dir apps/web test:coverage` 78 项通过，Statements 94.41%、Branches 90.10%、Functions 94.94%、Lines 97.10%；`pnpm --dir apps/web audit --prod` 为 0。生产构建仅保留已记录的两个大 chunk warning。
+
+### 2026-09-23 00:34 AEST — 顶栏品牌标识与 V2.1 全仓上线审查
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端品牌、聚焦测试、全仓代码/依赖/安全审查与收口建议。
+- 涉及文件：`apps/web/src/components/layout/app-header.tsx`、`apps/web/src/pages/v2_1-shell.test.tsx`、`docs/reviews/v2_1_code_audit_2026-09-23.md`、`CHANGE_LOG.md`。
+- 变更内容：将全局顶栏左上角的临时字母图标与重复文字替换为项目现有 `apps/web/public/logo.png` 蓝绿色横版 Logo，并保留返回个人中心的可访问链接；新增壳层测试，锁定 Logo 路径、首页链接和无重复 wordmark。对 Rust workspace、React/Vite 前端、API 暴露面、AI/行情会话配置、依赖锁文件和未引用代码完成一次 V2.1 上线审查，记录默认 `0.0.0.0` + 无认证 API、Rust/npm 已知依赖公告、移动端无可用导航、AI JSON 提取与日志隐私问题、无效交互、bundle 体积及可裁撤旧页面/资源，并给出五步修复顺序；本次不擅自改写上述产品/部署边界。
+- 技能影响：`frontend-design` 用于选择项目既有横版品牌资产、控制其在 72px 顶栏中的视觉尺寸并避免重复品牌文字；`vercel-react-best-practices` 用于确认路由级懒加载现状、识别仍需拆分的 ECharts 大 chunk，并保持本次品牌改动不引入额外组件状态或运行依赖。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/v2_1-shell.test.tsx`（29 项）、`pnpm --dir apps/web test:coverage`（77 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`cargo test -p core-domain`（13 项）与 `git diff --check` 通过；生产构建保留两个超过 500 kB 的 chunk 警告。`cargo-audit` 报告 4 个漏洞与 2 个 warning，`pnpm audit --prod` 报告 36 条公告，均已按实际运行链路在审查文档中分级。
+
+### 2026-09-23 00:08 AEST — AI 草案改为表单配置后由服务端确定性编译
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI 策略草案契约、服务端安全编译、错误分层、策略工坊校验、公开 API 文档与聚焦测试。
+- 涉及文件：`crates/ai-client/src/{client.rs,copilot.rs,mock.rs}`、`crates/ai-client/tests/openai_compatible_client.rs`、`crates/api/src/{error.rs,state.rs,routes/strategies.rs}`、`crates/api/tests/strategies.rs`、`apps/web/src/{api/queries.ts,pages/strategy-builder/{index.tsx,model.ts,model.test.ts,page.test.tsx}}`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：修复“回测解释可用、自然语言策略草案却失败”的契约不对称。策略草案不再要求模型直接生成完整 `StrategySpecDocument`、内部 policy identity 或 evidence ID，而是把与页面完全一致的 Strategy Workshop V1 表单模板和用户目标发送给模型；模型只填写最多三条规则、每条三个条件以及固定四档机会额度。服务端掌控 policy ID/version 和可信证据，把用户可读百分数转换为领域小数，确定性编译为 DSL 并重新执行全部领域校验。前后端观察窗口统一为 DSL 实际支持的 2–365 个交易日；用户描述限制为 500 字。供应商不可用继续返回 `503 service_unavailable`，模型外层响应错误改为 `502 ai_response_invalid`，可解析但越过表单边界改为 `502 ai_draft_invalid`，策略工坊分别给出可行动提示且不暴露模型原文或凭据。
+- 技能影响：`frontend-design` 用于保持失败反馈在原 AI 卡片内、使用既有低饱和琥珀提示而不新增干扰性弹窗；`vercel-react-best-practices` 用于继续以 React Query mutation 承载显式 AI 请求，只把未保存描述与候选保留为组件局部状态，不复制或持久化服务端策略数据。
+- 验证：`cargo test -p ai-client -p indexlink-api -p core-domain -p indexlink-server`（AI 客户端 104 项单元测试、14 项本地兼容协议集成测试及文档测试通过，2 项真实网络测试按设计忽略；API 全部单元/集成测试通过；core-domain 13 项；server 38 项通过、1 项真实 OpenD smoke 按设计忽略）、`cargo clippy -p ai-client -p indexlink-api -p indexlink-server --all-targets -- -D warnings`、`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/model.test.ts src/pages/strategy-builder/page.test.tsx src/pages/v2_1-shell.test.tsx vite.config.test.ts`（41 项）、`pnpm --dir apps/web test:coverage`（76 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint` 与 `pnpm --dir apps/web build` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 23:55 AEST — AI 页面统一优先本次运行连接
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI profile 选择修复、前端行为、聚焦测试。
+- 涉及文件：`apps/web/src/{api/queries.ts,pages/strategy-builder/page.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：修复服务器同时暴露环境变量 Qwen profile 与高级实验室 QwenCloud 会话 profile 时，策略工坊默认选择列表第一项 `Qwen · qwen-plus`，导致已验证的 QwenCloud 连接未被使用的问题。所有复用 `useAiProviders` 的 AI 页面现在都会把 `session-*` 本次运行连接排在首位并作为默认选择；用户仍可在下拉框手动切换到其他已部署 profile。聚焦测试覆盖“旧 Qwen 在前、QwenCloud 会话在后”的真实返回顺序，并断言草案请求发送 `session-qwen-cloud`。
+- 技能影响：`frontend-design` 用于保持模型选择器不增加额外控件，只通过符合用户最新显式配置意图的默认顺序修复交互歧义。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/page.test.tsx src/pages/v2_1-shell.test.tsx`（31 项）、`pnpm --dir apps/web test:coverage`（75 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`cargo test -p core-domain`（13 项）与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 23:35 AEST — AI 真实连通性验证与 QwenCloud 超时修正
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI provider 诊断、请求超时、公开 API、前端交互、文档与聚焦测试。
+- 涉及文件：`crates/ai-client/src/{provider.rs,client.rs}`、`crates/api/src/{state.rs,routes/ai_session_provider.rs}`、`crates/api/tests/ai_session_provider.rs`、`apps/web/src/{api/{types.ts,queries.ts},pages/{lab/index.tsx,v2_1-shell.test.tsx}}`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：QwenCloud 控制台显示调用成功且平均首轮耗时约 29.2 秒，而会话客户端原超时为 30 秒，表明供应商可能已成功但本地在响应返回前先行超时；因此只把 QwenCloud 会话调用上限放宽至 90 秒，其余 provider 仍为 30 秒。新增 `POST /ai/session-provider/test` 与高级实验室“验证 AI 可用性”按钮，仅由用户手动发起最小文本请求，并将认证、权限/计费、模型、限流、网络和响应格式问题映射为安全可操作提示，不保存提示词、响应或密钥。没有引入 Agent 编排层，因为当前故障发生在 provider 传输/等待边界，编排层不会修复底层超时。
+- 技能影响：`frontend-design` 用于把验证状态设计成低饱和、紧凑且不扩宽侧栏的行内反馈，并明确区分“凭据已保存”“连接已验证”和“验证未通过”。
+- 验证：`cargo test -p ai-client`（104 项单元测试、14 项兼容适配集成测试及文档测试通过；2 项真实网络测试按设计忽略）、`cargo test -p indexlink-api`（全部单元、集成与文档测试通过）、`cargo test -p indexlink-server`（38 项通过、1 项真实 OpenD smoke 按设计忽略）、`cargo test -p core-domain`（13 项）、`cargo clippy -p ai-client -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all`、`pnpm --dir apps/web exec vitest run src/pages/v2_1-shell.test.tsx`（28 项）、`pnpm --dir apps/web test:coverage`（75 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 23:05 AEST — QwenCloud 与阿里云百炼会话适配分离
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI provider 适配、前端配置、公开 API 文档、聚焦测试。
+- 涉及文件：`crates/api/src/routes/ai_session_provider.rs`、`crates/api/tests/ai_session_provider.rs`、`apps/web/src/{api/types.ts,pages/{lab/index.tsx,v2_1-shell.test.tsx}}`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：为高级实验室新增独立的 `qwen_cloud` 会话服务商，固定使用 QwenCloud Pay-As-You-Go OpenAI-compatible endpoint `https://maas.qwencloudapi.com/compatible-mode/v1`，页面默认模型为 `qwen3.8-max`；原 `qwen` 明确重命名为“阿里云百炼 / DashScope”并继续使用 `qwen-plus`。两种 Qwen 服务仍由服务端固定 endpoint，浏览器不能提交任意 URL，Key 只停留在当前 Rust 进程内存。
+- 技能影响：`frontend-design` 用于把两个同名但凭据不互通的 Qwen 服务拆成清楚的用户选项，并用 `sk-ws-` 提示降低再次选错服务商的概率。
+- 验证：`cargo test -p core-domain`（13 项）、`cargo test -p indexlink-api`（全部单元、集成与文档测试）、`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web test:coverage`（74 项；Statements 94.21%、Branches 90.17%、Functions 94.22%、Lines 96.79%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 22:35 AEST — AI 凭据状态、失败指引与策略工坊宽度收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端布局修复、AI 状态语义、错误提示、聚焦测试。
+- 涉及文件：`apps/web/src/{api/queries.ts,pages/{lab/index.tsx,personal/index.tsx,strategy-analysis/index.tsx,strategy-builder/{index.tsx,page.test.tsx},v2_1-shell.test.tsx}}`、`CHANGE_LOG.md`。
+- 变更内容：为策略工坊 AI 区域和高级实验室展开卡补齐 `min-width: 0`、受限网格列及溢出保护，避免本次运行的长 provider/model 名称撑宽页面并覆盖左侧导航；把会话配置状态从容易误解的“已配置”改为“凭据已保存、尚未验证”，明确第一次手动 AI 动作才访问供应商；统一将 AI 503 转成可操作的 Key、模型、额度与网络检查提示，不再向普通用户显示 `service is unavailable`，并覆盖草案、回测解释和个人摘要三处入口。
+- 诊断结果：使用本地 `DASHSCOPE_API_KEY` 发起不落库的最小 DashScope 请求，供应商返回 HTTP 401 `invalid_api_key`；未输出或记录完整凭据。
+- 技能影响：`frontend-design` 用于收紧高风险凭据状态文案和失败后的下一步指引，并维持既有低饱和布局，不增加额外装饰。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/page.test.tsx src/pages/v2_1-shell.test.tsx`（30 项）、`pnpm --dir apps/web test:coverage`（74 项；Statements 94.21%、Branches 90.17%、Functions 94.22%、Lines 96.79%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 22:10 AEST — 修复本地 AI 配置请求未进入 Rust API
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：本地开发代理修复、聚焦测试。
+- 涉及文件：`apps/web/vite.config.ts`、`apps/web/vite.config.test.ts`、`CHANGE_LOG.md`。
+- 变更内容：补齐 Vite 对 `/ai` 与 `/personal` 的本地 API 代理。此前高级实验室提交 `/ai/session-provider` 时请求停留在前端开发服务器，因而无论 Key 是否正确都会显示“连接配置未保存”；现在会转发至 `127.0.0.1:8080`，个人中心手动 AI 摘要也复用同一正确边界。
+- 验证：`pnpm --dir apps/web exec vitest run vite.config.test.ts`（2 项）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 21:20 AEST — 高级实验室会话 AI 配置与策略工坊导航修复
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：旧能力退役、会话级 AI 配置、前端信息架构、公开 API、安全边界、文档与聚焦测试。
+- 涉及文件：`crates/api/src/{state.rs,routes/{mod.rs,ai_session_provider.rs,session_market_data.rs,paper_performance.rs}}`、`crates/api/tests/{ai_session_provider.rs,session_market_data.rs,paper_performance.rs}`、`apps/web/src/{api/{queries.ts,types.ts},components/v2_1/{strategy-center-nav.tsx,legacy-replay-panel.tsx},pages/{lab/index.tsx,strategy-center/index.tsx,strategy-builder/{index.tsx,page.test.tsx},v2_1-shell.test.tsx},i18n/locales/{zh.ts,en.ts}}`、`apps/web/PLAN.md`、`docs/{reference/api-management.md,plans/{v2_1_closeout_hardness.md,v2_1_productization_plan.md}}`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：彻底删除高级实验室的旧 MA200 回放组件、前端 query/type、后端 `GET /paper-performance/historical-backtest` 兼容端点及专用计算代码，产品回测只保留统一真实策略回测；新增 `POST/DELETE /ai/session-provider`，允许用户在高级实验室输入 Qwen、GPT、Claude 或 DeepSeek 的模型名和 API Key，服务端固定四家 HTTPS endpoint/协议，只在当前 Rust 进程内存持有凭据且响应永不回传 Key，重启或手动清除即失效；新增 `POST/DELETE /market-data/session-opend`，允许页面输入 loopback OpenD host/port，并立即装配本次进程的只读行情与真实回测来源，不接受账户 ID、不创建 broker 或订单权限。保存两类配置均不主动调用外部服务，草案、解释、摘要、高级新闻情绪和行情读取仍需分别手动触发。策略中心胶囊导航在 `/strategy-builder` 常驻，原“我的策略”统一改为“策略工坊”，避免与已保存个人策略列表混淆。
+- 技能影响：`frontend-design` 用于把高风险凭据配置收拢为单一、低噪声且先说明生命周期的表单，并保持现有低饱和墨绿视觉；其余基础设施卡只陈述真实启动边界，不伪装成可热切换连接。
+- 验证：`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo test -p core-domain`（13 项）、`cargo test -p indexlink-api`（全部单元/集成/文档测试，含会话凭据不回传、OpenD loopback/read-only 边界、清除与旧端点 404）、`cargo test -p indexlink-server`（38 项通过、1 项真实 OpenD smoke 按设计忽略）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（71 项；Statements 94.20%、Branches 90.05%、Functions 94.22%、Lines 96.79%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 19:50 AEST — V2.1 手动 AI 助手与四供应商适配
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI provider 边界、受限策略草案、真实回测解释、个人中心摘要、前端交互、公开 API、配置文档与聚焦测试。
+- 涉及文件：`crates/ai-client/src/{client.rs,guidance.rs,lib.rs,mock.rs,provider.rs}`、`apps/server/src/{config.rs,main.rs}`、`crates/api/src/{state.rs,routes/{mod.rs,ai_assistance.rs,strategy_backtests.rs}}`、`crates/api/tests/{ai_assistance.rs,strategy_backtests.rs}`、`apps/web/src/{api/{queries.ts,types.ts},pages/{strategy-builder/{index.tsx,model.ts,model.test.ts,page.test.tsx},strategy-analysis/index.tsx,personal/index.tsx,lab/index.tsx,v2_1-shell.test.tsx},i18n/locales/{zh.ts,en.ts}}`、`.env.example`、`readme.md`、`apps/web/PLAN.md`、`docs/{reference/api-management.md,plans/v2_1_productization_plan.md}`、`CHANGE_LOG.md`。
+- 变更内容：新增统一的有界只读解释契约与 `read_only_explanations` capability；`AI_PROVIDER_PROFILES` 可按协议选择 Qwen/DeepSeek 的 OpenAI-compatible Chat Completions、GPT 的 OpenAI Responses 或 Claude Messages，密钥仍只由本地服务端环境变量读取。个人策略工坊新增“自然语言 → 受限草案”，模型结果必须重新映射到最多三条规则、每条三个条件及固定机会额度动作，用户显式放入表单后才可继续验证与保存。新增 `POST /strategy-backtests/explain`，服务端重算同一真实回测后只发送紧凑指标、假设、来源和 checksum，并返回不落库的普通语言解释；新增 `POST /personal/ai-summary`，只读取本机计划与最近 20 条决策/手工确认状态并返回一次性小摘要。三项能力均只能由页面按钮手动调用，不进入 scheduler、自动建议、计划变更或下单；新闻情绪继续留在高级实验室。同步把运行状态文案从 Qwen 收口为 provider-neutral AI。
+- 技能影响：`openai-docs` 用于确认 GPT 使用当前 Responses API 且不为新模型发送已不适用的 temperature；`frontend-design` 用于把三处 AI 能力设计为低强调、可选、先披露数据边界再操作的卡片；`vercel-react-best-practices` 用于继续以 React Query 管理 provider 列表与手工 mutation，不把 AI 响应放入 Valtio 或持久状态。
+- 验证：`cargo test -p ai-client -p indexlink-server`（ai-client 102 项单元测试、14 项兼容适配集成测试及文档测试通过；2 项真实网络测试按设计忽略；server 38 项通过、1 项真实 OpenD smoke 按设计忽略）、`cargo test -p indexlink-api`（全部单元/集成/文档测试通过，含新增个人摘要与回测解释测试）、`cargo test -p core-domain`（13 项）、`cargo clippy -p ai-client -p indexlink-api -p indexlink-server --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（71 项；Statements 94.61%、Branches 90.06%、Functions 95.09%、Lines 96.95%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过。生产构建仅保留既有策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
 ### 2026-09-22 07:53 AEST — 个人策略前端发现、精确版本分析与五 Push 收口（Push 5）
 
 - 执行模型：GPT-5 Codex（多 Agent；主线程完成前端集成、页面验收与五个 Push 总体验证）。

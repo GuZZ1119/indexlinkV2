@@ -3,6 +3,9 @@
 use std::{collections::BTreeSet, str::FromStr};
 
 use crate::{official_strategies, ApiError, ApiState};
+use ai_client::{
+    AiExplanationKind, AiExplanationRequest, AiProviderProfile, AiReadOnlyExplanation,
+};
 use axum::{
     extract::{rejection::JsonRejection, State},
     routing::post,
@@ -69,7 +72,7 @@ impl BacktestRange {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct StrategyBacktestRequest {
     symbol: String,
     #[serde(default)]
@@ -81,7 +84,7 @@ struct StrategyBacktestRequest {
     contribution: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 struct StrategyBacktestReference {
     policy_id: String,
     policy_version: u32,
@@ -109,8 +112,24 @@ struct BacktestDataProvenance {
     checksum: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExplainStrategyBacktestRequest {
+    profile_id: String,
+    backtest: StrategyBacktestRequest,
+}
+
+#[derive(Debug, Serialize)]
+struct ExplainStrategyBacktestResponse {
+    provider: AiProviderProfile,
+    source_checksum: String,
+    explanation: AiReadOnlyExplanation,
+}
+
 pub(crate) fn router() -> Router<ApiState> {
-    Router::new().route("/strategy-backtests", post(run_backtest))
+    Router::new()
+        .route("/strategy-backtests", post(run_backtest))
+        .route("/strategy-backtests/explain", post(explain_backtest))
 }
 
 async fn run_backtest(
@@ -118,13 +137,63 @@ async fn run_backtest(
     input: Result<Json<StrategyBacktestRequest>, JsonRejection>,
 ) -> Result<Json<StrategyBacktestResponse>, ApiError> {
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
-    validate_selection(&input)?;
+    Ok(Json(compute_backtest(&state, &input).await?))
+}
+
+async fn explain_backtest(
+    State(state): State<ApiState>,
+    input: Result<Json<ExplainStrategyBacktestRequest>, JsonRejection>,
+) -> Result<Json<ExplainStrategyBacktestResponse>, ApiError> {
+    let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
+    let response = compute_backtest(&state, &input.backtest).await?;
+    let source_checksum = response.data.checksum.clone();
+    let series = response
+        .result
+        .series
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "strategy_id": item.strategy_id,
+                "strategy_version": item.strategy_version,
+                "strategy_name": item.strategy_name,
+                "metrics": item.metrics,
+                "calculation_details": item.calculation_details,
+            })
+        })
+        .collect::<Vec<_>>();
+    let facts = serde_json::json!({
+        "requested_range": response.requested_range,
+        "symbol": response.result.symbol,
+        "effective_start": response.result.effective_start,
+        "effective_end": response.result.effective_end,
+        "contribution_count": response.result.contribution_count,
+        "data": response.data,
+        "strategies": series,
+        "interpretation_boundary": "All metrics are historical simulation outputs. Daily curves and raw prices are deliberately omitted from the AI request; the deterministic backtest remains authoritative.",
+    });
+    let request = AiExplanationRequest::new(AiExplanationKind::Backtest, facts)
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+    let (provider, explanation) = state
+        .ai_read_only_explanation(Some(&input.profile_id), &request)
+        .await?;
+    Ok(Json(ExplainStrategyBacktestResponse {
+        provider,
+        source_checksum,
+        explanation,
+    }))
+}
+
+async fn compute_backtest(
+    state: &ApiState,
+    input: &StrategyBacktestRequest,
+) -> Result<StrategyBacktestResponse, ApiError> {
+    validate_selection(input)?;
     let instrument = Instrument::parse(&input.symbol).map_err(map_market_request_error)?;
     let contribution = Decimal::from_str(&input.contribution).map_err(|_| ApiError::BadRequest)?;
     if contribution <= Decimal::ZERO || !(1..=28).contains(&input.monthly_day) {
         return Err(ApiError::BadRequest);
     }
-    let strategies = resolve_strategies(&state, &input).await?;
+    let strategies = resolve_strategies(state, input).await?;
 
     let end = Utc::now().date_naive();
     let display_start = input.range.display_start(end)?;
@@ -175,7 +244,7 @@ async fn run_backtest(
 
     let instrument = dataset.instrument();
     let source = dataset.source();
-    Ok(Json(StrategyBacktestResponse {
+    Ok(StrategyBacktestResponse {
         requested_range: input.range,
         data: BacktestDataProvenance {
             provider: source.provider().to_owned(),
@@ -191,7 +260,7 @@ async fn run_backtest(
             checksum: dataset.checksum().to_owned(),
         },
         result,
-    }))
+    })
 }
 
 fn validate_selection(input: &StrategyBacktestRequest) -> Result<(), ApiError> {

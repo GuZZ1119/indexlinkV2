@@ -1,5 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
+use ai_client::{MockAiProvider, NewsItem, NewsSource, NewsSourceError};
 use async_trait::async_trait;
 use axum::{
     body::Body,
@@ -25,6 +26,15 @@ use tower::ServiceExt;
 #[derive(Debug)]
 struct StaticHistory {
     fails: bool,
+}
+
+struct NoopNews;
+
+#[async_trait]
+impl NewsSource for NoopNews {
+    async fn fetch(&self) -> Result<Vec<NewsItem>, NewsSourceError> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -75,6 +85,18 @@ async fn app(provider: Option<Arc<dyn HistoricalPriceProvider>>) -> axum::Router
     })
 }
 
+async fn app_with_ai(provider: Arc<dyn HistoricalPriceProvider>) -> axum::Router {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    build_router(
+        ApiState::new(storage, "0.1.0")
+            .with_historical_price_provider(provider)
+            .with_market_sentiment(Arc::new(NoopNews), Arc::new(MockAiProvider::new())),
+    )
+}
+
 async fn app_with_personal_strategy(
     provider: Arc<dyn HistoricalPriceProvider>,
     strategy: &StrategySpec,
@@ -116,6 +138,19 @@ async fn post(app: axum::Router, body: Value) -> axum::response::Response {
         Request::builder()
             .method("POST")
             .uri("/strategy-backtests")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+async fn post_to(app: axum::Router, uri: &str, body: Value) -> axum::response::Response {
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri(uri)
             .header("content-type", "application/json")
             .body(Body::from(body.to_string()))
             .unwrap(),
@@ -396,4 +431,24 @@ async fn missing_or_failed_optional_history_provider_is_explicitly_unavailable()
             "service_unavailable"
         );
     }
+}
+
+#[tokio::test]
+async fn manual_explanation_recomputes_real_backtest_and_returns_its_checksum() {
+    let backtest = request("1y");
+    let response = post_to(
+        app_with_ai(Arc::new(StaticHistory { fails: false })).await,
+        "/strategy-backtests/explain",
+        json!({"profile_id": "mock-default", "backtest": backtest}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = json_body(response).await;
+    assert_eq!(body["provider"]["id"], "mock-default");
+    assert_eq!(body["source_checksum"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        body["explanation"]["headline"],
+        "Mock read-only explanation"
+    );
 }

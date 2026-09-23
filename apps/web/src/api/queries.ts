@@ -13,7 +13,6 @@ import type {
   PaperPortfolioSnapshot,
   PaperPerformance,
   ActualPerformance,
-  HistoricalBacktest,
   HoldingPriceHistory,
   MarketSentimentEvidence,
   TrendPreviewRequest,
@@ -34,6 +33,14 @@ import type {
   RuntimeStatus,
   StrategyBacktestRequest,
   StrategyBacktestResponse,
+  ExplainStrategyBacktestRequest,
+  ExplainStrategyBacktestResponse,
+  PersonalAiSummaryResponse,
+  ConfigureSessionAiProviderRequest,
+  ConfigureSessionAiProviderResponse,
+  SessionAiProbeResponse,
+  ConfigureSessionOpenDRequest,
+  ConfigureSessionOpenDResponse,
 } from './types'
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
@@ -53,6 +60,25 @@ export class ApiRequestError extends Error {
     this.status = options.status
     this.code = options.code
   }
+}
+
+/** Turn a safe AI API failure into actionable consumer copy without exposing provider internals. */
+export function describeAiActionError(error: unknown, fallback: string): string {
+  if (error instanceof ApiRequestError) {
+    if (error.code === 'ai_response_invalid') {
+      return 'AI 已经回复，但没有按策略工坊模板返回完整配置。请缩短描述、明确一个判断条件后重试。'
+    }
+    if (error.code === 'ai_draft_invalid') {
+      return 'AI 返回了配置，但其中的指标、周期、阈值或额度超出策略工坊支持范围。请换一种更简单的描述后重试。'
+    }
+    if (error.status === 503 || error.code === 'service_unavailable') {
+      return 'AI 服务没有完成请求。请到高级实验室重新输入有效的 API Key，并检查模型名称、账户额度和网络连接。'
+    }
+    if (error.status === 400 || error.code === 'bad_request') {
+      return '这次 AI 请求未通过本机校验。请检查所选模型和输入内容后重试。'
+    }
+  }
+  return fallback
 }
 
 interface ErrorEnvelope {
@@ -112,7 +138,7 @@ export function updatePlan(planId: string, input: UpdateInvestmentPlanRequest): 
   return request(`/investment-plans/${encodeURIComponent(planId)}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
 
-/** List immutable restricted strategy versions for the Strategy Studio. */
+/** List immutable restricted strategy versions for the Strategy Workshop. */
 export function fetchStrategies(): Promise<StoredStrategySpec[]> {
   return request('/strategies')
 }
@@ -142,9 +168,44 @@ export function fetchAiProviders(): Promise<AiProviderListResponse> {
   return request('/ai/providers')
 }
 
+/** Register an AI connection in backend process memory; the secret is never returned. */
+export function configureSessionAiProvider(input: ConfigureSessionAiProviderRequest): Promise<ConfigureSessionAiProviderResponse> {
+  return request('/ai/session-provider', { method: 'POST', body: JSON.stringify(input) })
+}
+
+/** Make one explicit minimal provider request and return only a safe status category. */
+export function testSessionAiProvider(): Promise<SessionAiProbeResponse> {
+  return request('/ai/session-provider/test', { method: 'POST' })
+}
+
+/** Forget the frontend-entered AI credential from backend process memory. */
+export function clearSessionAiProvider(): Promise<void> {
+  return request('/ai/session-provider', { method: 'DELETE' })
+}
+
+/** Register loopback OpenD as this process's read-only market-data source. */
+export function configureSessionOpenD(input: ConfigureSessionOpenDRequest): Promise<ConfigureSessionOpenDResponse> {
+  return request('/market-data/session-opend', { method: 'POST', body: JSON.stringify(input) })
+}
+
+/** Forget only the process-memory OpenD override. */
+export function clearSessionOpenD(): Promise<void> {
+  return request('/market-data/session-opend', { method: 'DELETE' })
+}
+
 /** Ask a deployed AI profile for an unpersisted, restricted DSL candidate. */
 export function generateCopilotDraft(input: CopilotDraftRequest): Promise<CopilotDraftResponse> {
   return request('/strategies/copilot-draft', { method: 'POST', body: JSON.stringify(input) })
+}
+
+/** Recompute and explain one real backtest only after an explicit user action. */
+export function explainStrategyBacktest(input: ExplainStrategyBacktestRequest): Promise<ExplainStrategyBacktestResponse> {
+  return request('/strategy-backtests/explain', { method: 'POST', body: JSON.stringify(input) })
+}
+
+/** Summarise local plans and recent records only after an explicit user action. */
+export function generatePersonalAiSummary(profileId: string): Promise<PersonalAiSummaryResponse> {
+  return request('/personal/ai-summary', { method: 'POST', body: JSON.stringify({ profile_id: profileId }) })
 }
 
 /** Run the committed fixed-fixture safety and Fixed-DCA comparison for one stored version. */
@@ -208,11 +269,6 @@ export function fetchPaperPerformance(planId: string): Promise<PaperPerformance>
 /** Refresh and read every active holding's real local-paper trajectory. */
 export function fetchActualPerformance(): Promise<ActualPerformance> {
   return request('/paper-performance/actual')
-}
-
-/** Read one transparent year of price-only historical plain-versus-adaptive replay. */
-export function fetchHistoricalBacktest(): Promise<HistoricalBacktest> {
-  return request('/paper-performance/historical-backtest')
 }
 
 /** Read actual OpenD price lines plus local paper buy/sell markers for every active holding. */
@@ -345,11 +401,6 @@ export function useActualPerformance() {
   return useQuery({ queryKey: ['actual-performance'], queryFn: fetchActualPerformance, enabled: false })
 }
 
-/** Cache the explicit one-year historical replay. */
-export function useHistoricalBacktest() {
-  return useQuery({ queryKey: ['historical-backtest'], queryFn: fetchHistoricalBacktest, enabled: false })
-}
-
 /** Cache price histories separately by requested visible range. */
 export function useHoldingPriceHistory(period: '3m' | '6m' | '1y' | '3y') {
   return useQuery({
@@ -359,12 +410,12 @@ export function useHoldingPriceHistory(period: '3m' | '6m' | '1y' | '3y') {
   })
 }
 
-/** React Query hook for Strategy Studio discovery data. */
+/** React Query hook for Strategy Workshop discovery data. */
 export function useStrategies() {
   return useQuery({ queryKey: ['strategies'], queryFn: fetchStrategies })
 }
 
-/** Cache the official catalog separately from user-authored Studio strategies. */
+/** Cache the official catalog separately from user-authored Workshop strategies. */
 export function useStrategyCatalog() {
   return useQuery({ queryKey: ['strategy-catalog'], queryFn: fetchStrategyCatalog })
 }
@@ -381,12 +432,71 @@ export function useStrategyBacktest(input: StrategyBacktestRequest | null) {
 
 /** Cache the safe server-side provider registry for the Copilot selector. */
 export function useAiProviders() {
-  return useQuery({ queryKey: ['ai-providers'], queryFn: fetchAiProviders })
+  return useQuery({
+    queryKey: ['ai-providers'],
+    queryFn: fetchAiProviders,
+    select: (data) => ({
+      ...data,
+      providers: [...data.providers].sort((left, right) =>
+        Number(right.id.startsWith('session-')) - Number(left.id.startsWith('session-'))),
+    }),
+  })
+}
+
+/** Configure a process-memory AI connection and refresh every model selector. */
+export function useConfigureSessionAiProvider() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: configureSessionAiProvider,
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ai-providers'] }) },
+  })
+}
+
+/** Manually verify the current process-memory AI provider without persisting its response. */
+export function useTestSessionAiProvider() {
+  return useMutation({ mutationFn: testSessionAiProvider })
+}
+
+/** Clear the process-memory connection and refresh every model selector. */
+export function useClearSessionAiProvider() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: clearSessionAiProvider,
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['ai-providers'] }) },
+  })
+}
+
+/** Configure read-only OpenD adapters and refresh runtime capability indicators. */
+export function useConfigureSessionOpenD() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: configureSessionOpenD,
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['runtime-status'] }) },
+  })
+}
+
+/** Clear the read-only OpenD override and refresh runtime capability indicators. */
+export function useClearSessionOpenD() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: clearSessionOpenD,
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['runtime-status'] }) },
+  })
 }
 
 /** Generate a candidate only; this mutation deliberately does not invalidate persisted strategies. */
 export function useCopilotDraft() {
   return useMutation({ mutationFn: generateCopilotDraft })
+}
+
+/** Explain a deterministic real-data result without changing or storing it. */
+export function useExplainStrategyBacktest() {
+  return useMutation({ mutationFn: explainStrategyBacktest })
+}
+
+/** Produce a compact personal summary without scheduling background AI work. */
+export function usePersonalAiSummary() {
+  return useMutation({ mutationFn: generatePersonalAiSummary })
 }
 
 /** Validate without mutation so form failures remain readable and local. */

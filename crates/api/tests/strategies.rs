@@ -65,26 +65,103 @@ impl AiProvider for UntrustedCopilotAi {
     /// Return a valid-looking document with an untrusted evidence-reference ID.
     async fn generate_policy_draft(
         &self,
-        request: &AiCopilotDraftRequest,
+        _request: &AiCopilotDraftRequest,
     ) -> Result<AiCopilotDraft, AiClientError> {
         AiCopilotDraft::new(
             serde_json::json!({
-                "policy_id": request.policy_id(),
-                "policy_version": request.policy_version(),
                 "name": "Untrusted candidate",
                 "rules": [{
-                    "condition": {
-                        "kind": "comparison",
-                        "expression": {"kind": "indicator", "indicator": {"kind": "vix"}},
+                    "match": "all",
+                    "conditions": [{
+                        "indicator": "relative_strength_index",
+                        "lookback_days": 14,
                         "operator": "less_than",
-                        "threshold": "30"
-                    },
-                    "action": {"kind": "set_opportunity_multiplier", "multiplier": 1.0}
+                        "threshold": 30
+                    }],
+                    "multiplier": 1.0
                 }]
             }),
             "This model attempted to cite an unknown source.".to_owned(),
             Vec::new(),
             vec!["invented_source".to_owned()],
+        )
+        .map_err(|_| AiClientError::ParseFailure)
+    }
+}
+
+/// Provider transport succeeded, but the model response could not satisfy the outer JSON contract.
+struct InvalidResponseCopilotAi;
+
+#[async_trait]
+impl AiProvider for InvalidResponseCopilotAi {
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::new(
+            AiProviderProfileId::new("invalid-response-copilot").unwrap(),
+            AiProviderId::new("test").unwrap(),
+            "Invalid response Copilot".to_owned(),
+            "fixture".to_owned(),
+            AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
+        )
+        .unwrap()
+    }
+
+    async fn analyze(&self, _prompt: &str) -> Result<Sentiment, AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
+    }
+
+    async fn generate_policy_draft(
+        &self,
+        _request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        Err(AiClientError::ParseFailure)
+    }
+}
+
+/// Provider returns valid JSON whose form values exceed the Strategy Workshop allowlist.
+struct InvalidFormCopilotAi;
+
+#[async_trait]
+impl AiProvider for InvalidFormCopilotAi {
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::new(
+            AiProviderProfileId::new("invalid-form-copilot").unwrap(),
+            AiProviderId::new("test").unwrap(),
+            "Invalid form Copilot".to_owned(),
+            "fixture".to_owned(),
+            AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
+        )
+        .unwrap()
+    }
+
+    async fn analyze(&self, _prompt: &str) -> Result<Sentiment, AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
+    }
+
+    async fn generate_policy_draft(
+        &self,
+        request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        AiCopilotDraft::new(
+            serde_json::json!({
+                "name": "Unsupported multiplier",
+                "rules": [{
+                    "match": "all",
+                    "conditions": [{
+                        "indicator": "price_return",
+                        "lookback_days": 63,
+                        "operator": "less_than",
+                        "threshold": -10
+                    }],
+                    "multiplier": 0.8
+                }]
+            }),
+            "The provider returned a form-shaped response.".to_owned(),
+            Vec::new(),
+            request
+                .evidence()
+                .iter()
+                .map(|reference| reference.id().to_owned())
+                .collect(),
         )
         .map_err(|_| AiClientError::ParseFailure)
     }
@@ -274,6 +351,53 @@ async fn copilot_draft_is_validated_but_never_persisted_or_activated() {
         .unwrap();
     assert_eq!(stored.status(), StatusCode::OK);
     assert_eq!(response_json(stored).await, serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn copilot_draft_distinguishes_provider_structure_from_form_contract_failures() {
+    async fn call(provider: Arc<dyn AiProvider>) -> axum::response::Response {
+        let storage =
+            SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+                .await
+                .unwrap();
+        storage.migrate().await.unwrap();
+        let profile_id = provider.profile().id().as_str().to_owned();
+        build_router(
+            ApiState::new(storage, "0.1.0").with_market_sentiment(Arc::new(NoopNews), provider),
+        )
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/strategies/copilot-draft")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "profile_id": profile_id,
+                        "policy_id": "dsl_failure_stage",
+                        "policy_version": 1,
+                        "objective": "Use a simple bounded rule"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    let response_invalid = call(Arc::new(InvalidResponseCopilotAi)).await;
+    assert_eq!(response_invalid.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response_json(response_invalid).await["error"]["code"],
+        "ai_response_invalid"
+    );
+
+    let form_invalid = call(Arc::new(InvalidFormCopilotAi)).await;
+    assert_eq!(form_invalid.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response_json(form_invalid).await["error"]["code"],
+        "ai_draft_invalid"
+    );
 }
 
 /// Verify neither invalid custom policy references nor invented evidence can cross the draft boundary.

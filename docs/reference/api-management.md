@@ -181,7 +181,7 @@ Formula 条目通过 `family`、`preset`、`tags` 与 `source` 提供分组、�
 
 #### `POST /strategy-backtests`
 
-在一个用户选择的标的上，以相同日线快照、显示区间、月度投入日、外部现金流、5 bps 买入成本和成交时点比较 1–3 个官方或本机已保存的个人策略。该接口读取配置到 `ApiState` 的通用 `HistoricalPriceProvider`，再调用无 IO 的生产 Formula V1 回测 runtime；它不读取旧 `historical-backtest`，也不调用 broker 或自动下单。
+在一个用户选择的标的上，以相同日线快照、显示区间、月度投入日、外部现金流、5 bps 买入成本和成交时点比较 1–3 个官方或本机已保存的个人策略。该接口读取配置到 `ApiState` 的通用 `HistoricalPriceProvider`，再调用无 IO 的生产 Formula V1 回测 runtime；旧 MA200 专用回放端点已经删除，本接口也不调用 broker 或自动下单。
 
 请求中的 `symbol` 接受 `US.SPY`、`HK.00700`、`SH.600519`、`SZ.000001`；无前缀符号兼容解释为美股。`range` 只接受 `1m`、`3m`、`6m`、`1y`、`3y`、`5y`、`all`。`monthly_day` 限制为 1–28，避免不同月份没有该日。新调用方使用 `strategy_refs` 提交 1–3 个精确的 `policy_id` / `policy_version`，从而让个人策略和官方策略采用同一不可变身份；引用不存在、版本错误或本地文档损坏时明确失败，不会改用最新版本、Fixed DCA 或演示策略。兼容字段 `strategy_ids` 只接受当前官方目录 ID，并由服务端解析到其目录版本；`strategy_refs` 与 `strategy_ids` 不能同时出现。金额使用十进制字符串，禁止 0 或负数，并以响应 `data.currency` 所示的标的交易币种解释。
 
@@ -231,11 +231,11 @@ Fixed DCA 与 Formula 使用同一份数据和现金流。Formula 在模拟成�
 
 #### `POST /strategies/validate` 与 `POST /strategies`
 
-Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应会返回 `valid`、可读校验错误或规范化文档。校验通过后才可 `POST /strategies` 保存为不可变版本。线上 Runtime 支持收盘价、周期收益率、年化历史波动率、价格分位、均线距离、SMA、EMA、RSI、回撤与 VIX；它按策略最长窗口请求行情并与固定样本研究复用同一因果证据构造器。每次运行保存 `as_of`、本机 OpenD 日线/Cboe VIX 来源及所用窗口。没有自由代码、任意脚本或核心桶否决。官方目录占用的 policy ID/version 不允许由本机自定义策略覆盖，冲突返回 `409 conflict`。
+策略工坊先将表单文档发送到 `POST /strategies/validate`；响应会返回 `valid`、可读校验错误或规范化文档。校验通过后才可 `POST /strategies` 保存为不可变版本。线上 Runtime 支持收盘价、周期收益率、年化历史波动率、价格分位、均线距离、SMA、EMA、RSI、回撤与 VIX；它按策略最长窗口请求行情并与固定样本研究复用同一因果证据构造器。每次运行保存 `as_of`、本机 OpenD 日线/Cboe VIX 来源及所用窗口。没有自由代码、任意脚本或核心桶否决。官方目录占用的 policy ID/version 不允许由本机自定义策略覆盖，冲突返回 `409 conflict`。
 
 #### `POST /strategies/copilot-draft`
 
-读取一个用户目标并生成**候选**受限 DSL 文档；它不是策略保存、策略激活、回测、审计或下单入口。请求只接受已部署且在 `GET /ai/providers` 中声明 `restricted_policy_drafts: true` 的 profile。`qwen-default` 是示例 profile；任何 OpenAI-compatible provider 都必须由服务端通过无密钥 `AI_PROVIDER_PROFILES` 清单显式部署后才可被选择。
+读取一个用户目标并生成**候选**受限策略文档；它不是策略保存、策略激活、回测、审计或下单入口。请求只接受已部署且在 `GET /ai/providers` 中声明 `restricted_policy_drafts: true` 的 profile。`qwen-default` 是示例 profile；任何 OpenAI-compatible provider 都必须由服务端通过无密钥 `AI_PROVIDER_PROFILES` 清单显式部署后才可被选择。
 
 ```json
 {
@@ -246,9 +246,23 @@ Strategy Studio 先将表单文档发送到 `POST /strategies/validate`；响应
 }
 ```
 
-服务端将模型原始 JSON 重新解析为 `StrategySpecDocument` 并通过既有领域构造器校验；模型输出的 policy ID/version 必须与请求完全一致，且只能使用 Close、SMA、EMA、RSI、Drawdown、VIX 与白名单机会桶动作。响应仅包含规范化 `document`、简短 `explanation`、最多五条 `warnings`、无密钥 `provider` 和从服务端封闭列表中选出的 `evidence` 引用。未知 profile、非 `dsl_` ID、无能力 profile 返回安全 `400`；模型返回非法 DSL、版本不一致或伪造证据引用时返回安全 `503`。
+服务端把“策略工坊 V1”表单契约和用户目标一同发送给模型。模型只返回 `form_config`、简短 `explanation` 与最多五条 `warnings`，不能编写 policy ID/version、证据 ID 或 DSL 表达式树。`form_config` 最多三条规则、每条最多三个条件，只允许价格涨跌幅、年化波动率、价格分位、均线距离、RSI、回撤和收盘价，以及跳过、50%、100%、120% 四档机会额度。服务端随后插入请求中的 policy ID/version，把用户可读的百分数转换为领域小数，确定性编译为 `StrategySpecDocument`，并通过既有领域构造器重新校验。响应仍只公开规范化 `document`、解释、警告、无密钥 `provider` 和服务端可信 `evidence`。
+
+未知 profile、非 `dsl_` ID 或无能力 profile 返回安全 `400`；供应商超时、网络或 HTTP 故障返回 `503 service_unavailable`；模型已回复但外层 JSON 不符合约定返回 `502 ai_response_invalid`；JSON 可读但表单中的指标、窗口、阈值或额度不符合策略工坊 V1 返回 `502 ai_draft_invalid`。错误响应不包含模型原文、凭据、endpoint 或供应商内部细节。
 
 该接口绝不会写 SQLite、创建 decision record、执行固定样本准入、绑定计划、激活策略或提交 paper order。用户仍必须将返回文档提交给 `POST /strategies/validate`，通过 admission，并显式保存/激活。
+
+#### `POST /strategy-backtests/explain`
+
+仅在用户点击“解释这次结果”后调用。请求包含一个已部署 `profile_id` 和完整 `backtest` 请求；服务端会重新运行 `POST /strategy-backtests` 的同一真实行情、策略版本与成本计算，再把服务端生成的结果事实交给所选 AI。浏览器不能提交自定义事实或自由 prompt。
+
+响应包含无密钥 `provider`、真实行情 `source_checksum` 与有界 `explanation`（标题、普通语言摘要、最多五条观察和最多五条限制）。该接口不缓存或保存解释，不改动策略/计划，不创建建议，也不提交订单。回测或 AI 任一失败均故障关闭，绝不以演示数据或模型自行计算的收益替代。
+
+#### `POST /personal/ai-summary`
+
+仅在个人中心点击“手动生成摘要”后调用，请求只接受 `profile_id`。服务端从本机读取计划和最近最多 20 条决策记录，并附带是否已有用户手工确认；不会发送密钥、账户凭据、新闻正文或券商数据。响应为一次性普通语言摘要，不落库、不创建待办、不改变执行状态，也不会由 scheduler 调用。
+
+以上两个解释接口只接受声明 `read_only_explanations: true` 的 profile。`AI_PROVIDER_PROFILES` 支持 `openai_chat_completions`（Qwen、DeepSeek 和兼容服务）、`openai_responses`（GPT）及 `anthropic_messages`（Claude）。密钥可由各 profile 的 `api_key_env` 指向本地服务端环境变量，也可经高级实验室注册为仅存当前 Rust 进程的会话 profile；任何 API 响应都不包含密钥或 endpoint。
 
 #### `POST /strategies/:policy_id/:policy_version/simulate`
 
@@ -512,9 +526,55 @@ GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
 
 #### `GET /ai/providers`
 
-返回服务器实际部署、可由用户选择的 AI profile 列表。每项只包含 `id`、`provider`、显示名、模型名与无授权能力声明；不会返回 Key、base URL、账户、secret manager 引用或内部错误。生产 composition root 支持遗留 `DASHSCOPE_*` 单 Qwen 配置，也支持 `AI_PROVIDER_PROFILES` 多 Profile 清单；后者必须引用服务端已有的 Key 环境变量并恰有一个默认 profile。
+返回环境部署及当前进程内存中可由用户选择的 AI profile 列表。每项只包含 `id`、`provider`、显示名、模型名与无授权能力声明；不会返回 Key、base URL、账户、secret manager 引用或内部错误。生产 composition root 支持遗留 `DASHSCOPE_*` 单 Qwen 配置，也支持 `AI_PROVIDER_PROFILES` 多 Profile 清单；高级实验室还可注册一个 `session-*` 会话 profile。
 
 `restricted_policy_drafts: true` 只表示该 profile 可以生成**只读**、受限的 DSL 候选；它不授予保存、激活、准入或下单权限。候选仍须由用户显式执行校验、固定样本准入、保存与激活流程。
+
+#### `POST /ai/session-provider`
+
+从本机高级实验室注册一个进程内存 AI profile。请求只接受 `qwen_cloud`、`qwen`、`gpt`、`claude`、`deepseek`，以及非空 `model` 和 `api_key`；每个服务商的 HTTPS endpoint 与协议由服务端固定映射，浏览器不能提交任意 URL。保存配置本身不会探测或调用模型。
+
+- `qwen_cloud`：QwenCloud Pay-As-You-Go，固定 `https://maas.qwencloudapi.com/compatible-mode/v1`，页面默认模型 `qwen3.8-max`，用于 `sk-ws-` Key。
+- `qwen`：阿里云百炼 / DashScope，固定 `https://dashscope.aliyuncs.com/compatible-mode`，页面默认模型 `qwen-plus`。两类 Qwen Key 不互换。
+
+```json
+{
+  "provider": "qwen_cloud",
+  "model": "qwen3.8-max",
+  "api_key": "<user-provided-key>"
+}
+```
+
+响应只返回无凭据 `provider` 元数据和 `storage: "process_memory"`。API Key 仅保存在当前 Rust 进程的客户端实例中，不写浏览器存储、SQLite、`.env`、日志或响应；重新配置会覆盖前一条会话 profile，后端重启会自动清除。QwenCloud 会话使用 90 秒请求超时，其余会话 provider 使用 30 秒；这是为了覆盖 QwenCloud 首次响应可能接近 30 秒的情况，不改变模型权限或重试策略。真正的草案、解释、摘要或新闻情绪调用仍须用户在对应页面明确点击。
+
+#### `POST /ai/session-provider/test`
+
+对当前进程内存中的会话 profile 发起一次由用户明确点击的最小文本请求，用于同时验证 API Key、模型访问权和网络连通性。请求不接受 body，不保存探测提示词或模型响应，也不会创建策略、计划、行情记录或订单；供应商可能按其计费规则计算极少量 token。未配置会话 profile 时返回 `400 bad_request`。
+
+成功到达供应商后，接口始终只返回无凭据 provider 元数据与一个安全分类，不回传上游正文或错误详情：
+
+```json
+{
+  "provider": {
+    "id": "session-qwen-cloud",
+    "provider": "qwen-cloud",
+    "display_name": "QwenCloud（本次运行）",
+    "model": "qwen3.8-max",
+    "capabilities": {
+      "market_evidence": true,
+      "restricted_policy_drafts": true,
+      "read_only_explanations": true
+    }
+  },
+  "status": "available"
+}
+```
+
+`status` 为 `available`、`authentication_failed`、`access_denied`、`model_unavailable`、`rate_limited`、`request_rejected`、`network_unavailable`、`provider_unavailable` 或 `response_invalid`。前端据此给出 Key、计费、模型、限流或网络的下一步检查，不向浏览器泄露供应商原始错误正文。
+
+#### `DELETE /ai/session-provider`
+
+立即清除当前进程内存中的前端会话 profile，成功返回 `204 No Content`。环境变量部署的 profile 不受影响。
 
 ### 阿里云 Qwen Evidence Profile
 
@@ -639,9 +699,19 @@ OpenD 模拟账户不支持独立成交列表与现金流记录；IndexLink 因�
 
 读取所有启用定投标的的 OpenD 日线收盘价，以及在所选窗口内本机账本已确认的 `trades`。多标的图应在前端按区间首日归一化，才可在同一坐标系比较；绿色/红色买卖标记只可使用本地确认 fill，不能用 accepted order 代替。
 
-#### `GET /paper-performance/historical-backtest`
+#### `POST /market-data/session-opend`
 
-返回最近一年的历史价格回放，两条曲线为固定月度普通定投与基于当月真实 MA200 距离、限制在 `0.5x–1.5x` 的自适应投入。它不会虚构不可审计的历史 Qwen 情绪或历史宏观快照，因此响应 `methodology` 会明确说明：该图是价格规则回放，不是已实现账户收益，也不是完整 70/20/10 决策重放。
+从高级实验室注册当前 Rust 进程使用的只读 OpenD 行情与历史日线适配器。请求只接受字面 loopback IP 和有效端口，例如：
+
+```json
+{"host":"127.0.0.1","port":11111}
+```
+
+保存配置不会立即探测 OpenD；第一次行情、策略预检或真实回测请求才会连接。响应标明 `storage: "process_memory"` 与 `access: "read_only_market_data"`。该端点不接受 account ID，不创建 paper broker，也不授予模拟或真实下单权限；后端重启即清除。
+
+#### `DELETE /market-data/session-opend`
+
+清除进程内存中的 OpenD 行情覆盖，成功返回 `204 No Content`。若启动环境已配置 OpenD，清除后仍回到该启动配置，不影响 paper broker。
 
 本地启用配置：
 
@@ -701,14 +771,18 @@ OPEND_SMOKE_CONFIRM=submit-paper-order \
 14. `POST /decisions/:id/approve-paper-order`
 15. `GET /paper-performance/actual`
 16. `GET /market-data/holdings?period=1y`
-17. `GET /paper-performance/historical-backtest`
-18. `GET /strategies`
-19. `GET /strategies/:policy_id/:policy_version`
-20. `GET /strategies/:policy_id/:policy_version/admission`
+17. `GET /ai/providers`
+18. `POST/DELETE /ai/session-provider`
+19. `POST /ai/session-provider/test`
+20. `POST/DELETE /market-data/session-opend`
+21. `GET /strategies`
+22. `GET /strategies/:policy_id/:policy_version`
+23. `GET /strategies/:policy_id/:policy_version/admission`
 
-## 当前 MVP 缺口优先级
+## 当前 V2.1 边界与后续优先级
 
-1. 使用真实 DashScope Key 完成一次本机 Qwen network smoke。
-2. 使用 Futu/Moomoo 虚拟账户完成一次真实 OpenD paper-order smoke。
-3. 将按月归档的 CAPE、ERP、MA200 distance、RSI、VIX 与 Qwen 情绪输入纳入本地决策快照，才能把当前价格规则回放提升为可完整复现的历史 70/20/10 回测；当前不会伪造这些历史输入。
-4. 扩展 DSL 的版本化历史夹具、跨版本比较和人工审核体验；首版受控创建、验证、固定样本准入、激活与 Strategy Studio 已完成。
+1. API 默认只服务本机 loopback，当前没有账户认证；不得直接暴露到局域网或公网。
+2. 使用真实 Futu/Moomoo 虚拟账户完成一次人工确认的 OpenD paper-order smoke；这不会改变 scheduler 禁止自动下单的边界。
+3. 将资金周期与 Formula 观察频率拆分，并引入交易所日历、时区、节假日规则和周期级幂等。
+4. 继续扩展 Formula 的跨版本研究与人工审核体验，但不引入任意用户代码。
+5. 历史 70/20/10 需要完整版本化 CAPE、ERP、趋势、VIX 与新闻证据才能重新研究；当前不会伪造缺失输入，也不会把它放回普通策略目录。

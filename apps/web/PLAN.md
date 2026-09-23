@@ -1,21 +1,21 @@
 # IndexLink Web Plan / 前端计划
 
-> 2026-09-22 状态：M1 的 `Plan → readable Decision → user-reported execution → Audit` 已形成真实前端闭环；统一目录包含 Fixed DCA、20 个官方家族的 100 个不可变 Formula 预设，以及本机个人 Formula 版本。受限“我的策略工坊”、精确版本真实回测、动态标的建计划与 Formula 历史数据预检均已接入。工程下一步是发布验证，不扩张调度模型或自动交易范围。
+> 2026-09-22 状态：M1 的 `Plan → readable Decision → user-reported execution → Audit` 已形成真实前端闭环；统一目录包含 Fixed DCA、20 个官方家族的 100 个不可变 Formula 预设，以及本机个人 Formula 版本。受限“策略工坊”、精确版本真实回测、动态标的建计划与 Formula 历史数据预检均已接入。工程下一步是发布验证，不扩张调度模型或自动交易范围。
 
 ## V2.1 当前主路径 / Current V2.1 path
 
-Web 的默认入口是本地优先的消费级外壳：个人中心、我的计划、策略中心、策略分析与高级实验室。普通用户面对“策略、计划、建议和执行记录”；DSL、70/20/10 历史实验、AI、OpenD 状态和 paper broker 留在高级区域。
+Web 的默认入口是本地优先的消费级外壳：个人中心、我的计划、策略中心、策略分析与高级实验室。普通用户面对“策略、计划、建议和执行记录”，并可手动请求受限策略草案、真实回测解释和近期计划摘要；DSL、70/20/10 历史实验、AI 新闻情绪、OpenD 状态和 paper broker 留在高级区域。
 
 ### 信息架构 / Information architecture
 
 | 页面 / Page | V2.1 用户任务 / V2.1 user task | 当前数据边界 / Data boundary |
 | --- | --- | --- |
-| 个人中心 / Personal | 从真实计划读取本期建议，理解策略方法、基础预算和下一评估日，手工确认已执行或跳过 | React Query 读取 `/investment-plans`、plan decisions 与 `GET/POST /decisions/:id/manual-executions`；一条 `due` 建议只能确认一次，不自动下单、不覆盖原建议 |
+| 个人中心 / Personal | 从真实计划读取本期建议，理解策略方法、基础预算和下一评估日，手工确认已执行或跳过；可手动生成一次性近期摘要 | React Query 读取 `/investment-plans`、plan decisions 与 `GET/POST /decisions/:id/manual-executions`；`POST /personal/ai-summary` 只读且不落库；一条 `due` 建议只能确认一次，不自动下单、不覆盖原建议 |
 | 我的计划 / My Plans | 查看、选择、暂停、继续或删除已建立计划；常驻“建立新计划”入口统一跳转策略中心，只有带精确 `policy_id` / `policy_version` 返回时才显示所选策略的配置表 | `/plans` 读取 `/strategy-catalog` 与真实 plan API；不再重复平铺策略目录。策略版本和用户参数冻结到计划，并接受 US/HK/SH/SZ 中可解析且满足数据要求的股票/ETF |
 | 策略中心 / Strategy Center | 以 Fixed DCA 为基准，按家族理解官方参数，并在独立区域管理本机个人不可变版本 | `/strategy-center` 读取统一 `GET /strategy-catalog`；个人卡明确标记来源、版本、准入状态，并携带 exact policy ref 进入回测或计划 |
-| 我的策略工坊 / Strategy Builder | 用指标、观察窗口、比较和机会额度建立个人规则，不接触 DSL、脚本或内部 ID | `/strategy-builder` 只生成 Formula V1 白名单文档，先调用 `/strategies/validate`，通过后才保存不可变版本；最多三条规则、每条三个条件，核心桶不可取消 |
-| 策略分析 / Strategy Analysis | 在同一自选标的、同一时间范围和同一现金流口径下比较官方与个人策略 | `POST /strategy-backtests` 以 `strategy_refs` 读取精确版本，返回真实行情、归一化轨迹、专业指标、完整模拟执行记录、Formula 规则命中标记和来源元数据；支持 US/HK/SH/SZ 以及 1m/3m/6m/1y/3y/5y/all，无行情时明确失败，不生成演示曲线 |
-| 高级实验室 / Advanced Lab | 查看本地能力状态，按需配置 OpenD/Qwen 或运行兼容实验 | 可选能力失败不得影响 Plan、Decision 与 Audit；旧 MA200 回放只可手动触发；不保存密钥、不自动下单 |
+| 策略工坊 / Strategy Builder | 用指标、观察窗口、比较和机会额度建立个人规则，也可手动把自然语言变成待审阅草案 | `/strategies/copilot-draft` 要求 AI 只填写与页面一致的 Formula V1 表单配置；服务端再确定性编译、校验并返回规范化文档。人工放入表单后仍须 `/strategies/validate` 并显式保存；最多三条规则、每条三个条件，核心桶不可取消 |
+| 策略分析 / Strategy Analysis | 在同一自选标的、同一时间范围和同一现金流口径下比较官方与个人策略，可手动请求普通语言解释 | `POST /strategy-backtests` 返回真实行情与指标；`POST /strategy-backtests/explain` 会重算同一请求后只解释服务端事实，不保存解释；支持 US/HK/SH/SZ 以及 1m/3m/6m/1y/3y/5y/all，无行情时明确失败 |
+| 高级实验室 / Advanced Lab | 查看基础设施边界，并在页面输入 QwenCloud、阿里云百炼、GPT、Claude、DeepSeek 或只读 OpenD 行情的本次运行连接 | `POST/DELETE /ai/session-provider` 只在 Rust 进程内存保存或清除密钥；`POST /ai/session-provider/test` 仅在用户点击时发起最小验证并返回安全分类；QwenCloud `sk-ws-` 与百炼 Key 使用独立固定 endpoint，不允许混用；`POST/DELETE /market-data/session-opend` 只接受 loopback host 并只装配行情/历史日线，不授予 broker 权限；二者重启即失效。新闻情绪保留为手动高级能力，旧 MA200 回放及其 API 已删除 |
 
 ## 页面与契约 / Pages and contracts
 
@@ -59,7 +59,9 @@ V2.1 不再用 `SPY / VOO / QQQ` 静态数组决定策略能否创建。统一�
 - [x] 个人策略工坊、统一目录个人标签、精确版本真实回测与计划/建议运行时闭环。
 - [x] US/HK/SH/SZ 自选标的真实回测与七档时间范围。
 - [x] 专业研究直接展示 API 返回的公式代入值、资金账本、逐日回撤路径、峰值/低点/恢复日期与每期核心/机会/未投入资金拆分。
-- [x] 个人中心展示策略方法、基础预算和下一评估日。
+- [x] 个人中心展示策略方法、基础预算和下一评估日，并可手动生成不落库的小范围摘要。
+- [x] 个人策略工坊支持“自然语言 → 受限草案”，真实回测支持“结果 → 普通语言解释”；两者均须用户主动点击且不获得保存/执行权限。
+- [x] AI profile 支持 QwenCloud、阿里云百炼、GPT、Claude 与 DeepSeek 协议适配；QwenCloud Pay-As-You-Go 固定使用官方 OpenAI-compatible endpoint，除环境变量 profile 外，可从高级实验室输入仅存当前 Rust 进程内存的会话 profile，并手动执行不落库的最小可用性验证；新闻情绪继续留在高级实验室。
 - [x] 删除策略目录、计划创建和前端中的静态 symbol 白名单。
 - [x] 由服务端规范化标的并确定市场/币种；前端不再固定显示 USD。
 - [x] Formula 计划创建前完成策略所需历史数据预检，并把失败原因返回给用户。

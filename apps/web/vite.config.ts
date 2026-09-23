@@ -14,6 +14,8 @@ export const apiProxy = {
   '/strategies': 'http://127.0.0.1:8080',
   '/strategy-catalog': 'http://127.0.0.1:8080',
   '/strategy-backtests': 'http://127.0.0.1:8080',
+  '/ai': 'http://127.0.0.1:8080',
+  '/personal': 'http://127.0.0.1:8080',
   '/health': 'http://127.0.0.1:8080',
   '/ready': 'http://127.0.0.1:8080',
   '/runtime-status': 'http://127.0.0.1:8080',
@@ -27,7 +29,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
 })

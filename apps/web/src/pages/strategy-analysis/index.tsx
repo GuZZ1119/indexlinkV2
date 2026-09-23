@@ -1,10 +1,11 @@
-import { BarChart3, Check, CircleAlert, Database, RefreshCw } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { BarChart3, Bot, Check, CircleAlert, Database, Loader2, RefreshCw, Sparkles } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSnapshot } from 'valtio'
 import { Link, useSearchParams } from 'react-router'
 
-import { ApiRequestError, useStrategyBacktest, useStrategyCatalog } from '@/api/queries'
-import type { BacktestMarketPoint, DynamicBacktestSeries, PolicyReference, StrategyBacktestRequest, StrategyCatalogEntry } from '@/api/types'
+import { ApiRequestError, describeAiActionError, useAiProviders, useExplainStrategyBacktest, useStrategyBacktest, useStrategyCatalog } from '@/api/queries'
+import type { AiProviderProfile, AiReadOnlyExplanation, BacktestMarketPoint, DynamicBacktestSeries, PolicyReference, StrategyBacktestRequest, StrategyCatalogEntry } from '@/api/types'
+import { Button } from '@/components/ui/button'
 import { PageHeading } from '@/components/v2_1/page-heading'
 import { StrategyCenterNav } from '@/components/v2_1/strategy-center-nav'
 import { strategyAnalysisColor, strategyAnalysisRanges, type StrategyId } from '@/features/v2_1/model'
@@ -48,13 +49,30 @@ export default function StrategyAnalysisPage() {
   }, [request, requestedCatalogStrategy, requestedStrategy, state.appliedRouteStrategyId])
   const backtest = useStrategyBacktest(effectiveRequest)
   const result = backtest.data
+  const providers = useAiProviders()
+  const explain = useExplainStrategyBacktest()
+  const [profileId, setProfileId] = useState('')
+  const [explanation, setExplanation] = useState<{ value: AiReadOnlyExplanation; checksum: string; provider: string } | null>(null)
+  const explanationProviders = (providers.data?.providers ?? []).filter((provider) => provider.capabilities.read_only_explanations)
+  const effectiveProfileId = profileId || explanationProviders[0]?.id || ''
+
+  const requestExplanation = async () => {
+    if (!effectiveRequest || !effectiveProfileId) return
+    setExplanation(null)
+    try {
+      const response = await explain.mutateAsync({ profile_id: effectiveProfileId, backtest: effectiveRequest })
+      setExplanation({ value: response.explanation, checksum: response.source_checksum, provider: response.provider.display_name })
+    } catch {
+      // React Query retains the safe error for the actionable inline message below.
+    }
+  }
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-8 px-5 py-8 md:px-8 lg:px-10 lg:py-10">
       <PageHeading eyebrow="策略中心 / 策略分析" title="同一只标的，同一段时间，再比较策略" description="输入任意支持的美股、A 股或港股代码。所有策略使用同一份真实日线、同样的投入节奏和共同起点，结果不会混入账户余额或演示数据。" />
       <StrategyCenterNav />
 
-      <form className="rounded-[1.45rem] border border-[#cddfd6] bg-[#f7fbf9] p-5 shadow-[0_18px_50px_rgb(15_32_40_/_0.06)] sm:p-6" onSubmit={(event) => { event.preventDefault(); submitStrategyAnalysis() }}>
+      <form className="rounded-[1.45rem] border border-[#cddfd6] bg-[#f7fbf9] p-5 shadow-[0_18px_50px_rgb(15_32_40_/_0.06)] sm:p-6" onSubmit={(event) => { event.preventDefault(); setExplanation(null); explain.reset(); submitStrategyAnalysis() }}>
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(12rem,.55fr)_auto] lg:items-end">
           <label className="block"><span className="text-sm font-semibold text-[#102028]">回测哪只标的</span><span className="mt-1 block text-xs leading-5 text-slate-500">美股如 US.SPY，港股如 HK.00700，A 股如 SH.510300 / SZ.159915</span><input aria-label="回测标的" value={state.symbol} onChange={(event) => { strategyAnalysisStore.symbol = event.target.value }} className="mt-2 h-12 w-full rounded-xl border border-[#bfd3c9] bg-white px-4 text-base font-semibold uppercase text-[#102028] outline-none transition focus:border-[#2d6a57] focus:ring-4 focus:ring-[#2d6a57]/10" /></label>
           <label className="block"><span className="text-sm font-semibold text-[#102028]">每月投入</span><span className="mt-1 block text-xs leading-5 text-slate-500">按标的交易币种计算</span><input aria-label="每月投入金额" inputMode="decimal" value={state.contribution} onChange={(event) => { strategyAnalysisStore.contribution = event.target.value }} className="mt-2 h-12 w-full rounded-xl border border-[#bfd3c9] bg-white px-4 font-semibold text-[#102028] outline-none transition focus:border-[#2d6a57] focus:ring-4 focus:ring-[#2d6a57]/10" /></label>
@@ -67,12 +85,21 @@ export default function StrategyAnalysisPage() {
 
       {invalidRequestedStrategy ? <UnknownStrategyState policyId={requestedStrategy!.id} /> : catalog.isLoading && requestedStrategy ? <LoadingState label="正在确认策略目录…" /> : catalog.isError && requestedStrategy ? <CatalogErrorState /> : backtest.isLoading ? <LoadingState /> : backtest.isError ? <ErrorState error={backtest.error} /> : result ? <>
         <ProvenanceStrip response={result} />
+        <AiBacktestExplanationPanel providers={explanationProviders} profileId={effectiveProfileId} onProfileChange={setProfileId} pending={explain.isPending} error={explain.error} explanation={explanation} onExplain={() => void requestExplanation()} />
         {state.view === 'plain'
           ? <PlainView series={result.result.series} marketPoints={result.result.market_points} currency={result.data.currency} symbol={result.result.symbol} selected={state.strategyRefs as readonly PolicyReference[]} catalog={catalogEntries} />
           : <ResearchView series={result.result.series} currency={result.data.currency} effectiveStart={result.result.effective_start} effectiveEnd={result.result.effective_end} contributionCount={result.result.contribution_count} catalogById={catalogById} />}
       </> : null}
     </div>
   )
+}
+
+function AiBacktestExplanationPanel({ providers, profileId, onProfileChange, pending, error, explanation, onExplain }: { providers: AiProviderProfile[]; profileId: string; onProfileChange: (value: string) => void; pending: boolean; error: Error | null; explanation: { value: AiReadOnlyExplanation; checksum: string; provider: string } | null; onExplain: () => void }) {
+  return <section className="rounded-[1.35rem] border border-[#d8e5df] bg-white p-5 sm:p-6" aria-labelledby="ai-backtest-title"><div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between"><div className="max-w-2xl"><p className="inline-flex items-center gap-2 text-sm font-medium text-[#2d6a57]"><Bot className="size-4" />可选 AI 解读</p><h2 id="ai-backtest-title" className="mt-2 text-xl font-semibold tracking-[-0.03em] text-[#102028]">把真实回测结果讲成人话</h2><p className="mt-2 text-sm leading-6 text-slate-600">只有点击后，服务端才会重新计算同一份回测，并把指标与数据来源发送给你选择的 API。AI 不参与回测计算，也不会修改策略或计划。</p></div>{providers.length > 0 ? <div className="flex flex-col gap-2 sm:flex-row sm:items-end"><label className="grid gap-1 text-xs font-medium text-slate-500">解释模型<select aria-label="回测解释模型" value={profileId} onChange={(event) => onProfileChange(event.target.value)} className="h-10 min-w-52 rounded-xl border border-slate-200 bg-[#f7f9f8] px-3 text-sm text-[#102028]">{providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.display_name} · {provider.model}</option>)}</select></label><Button type="button" disabled={pending} onClick={onExplain} className="h-10 rounded-full bg-[#102830] px-4">{pending ? <><Loader2 className="animate-spin" />正在解释…</> : <><Sparkles />解释这次结果</>}</Button></div> : null}</div>{providers.length === 0 ? <p className="mt-4 rounded-xl bg-[#f6f8f7] px-4 py-3 text-sm text-slate-600">本机尚未配置可解释结果的 AI profile；回测与专业指标仍可正常使用。</p> : null}{error ? <p role="alert" className="mt-4 rounded-xl border border-[#dec9a6] bg-[#fff8eb] px-4 py-3 text-sm text-[#73572f]">{describeAiActionError(error, 'AI 暂时无法解释这次结果。原始回测不受影响，请稍后重试。')}</p> : null}{explanation ? <ExplanationCard explanation={explanation.value} footer={`${explanation.provider} · 数据校验 ${explanation.checksum.slice(0, 10)}…`} /> : null}</section>
+}
+
+function ExplanationCard({ explanation, footer }: { explanation: AiReadOnlyExplanation; footer: string }) {
+  return <article className="mt-5 rounded-2xl bg-[#f1f7f4] p-4 sm:p-5"><h3 className="font-semibold text-[#102028]">{explanation.headline}</h3><p className="mt-2 text-sm leading-7 text-slate-700">{explanation.summary}</p>{explanation.observations.length > 0 ? <div className="mt-4"><p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#2d6a57]">从数据里能看到</p><ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-600">{explanation.observations.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}{explanation.risks.length > 0 ? <div className="mt-4"><p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#8a5f26]">别忽略这些限制</p><ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm leading-6 text-slate-600">{explanation.risks.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}<p className="mt-4 border-t border-[#d8e5df] pt-3 text-xs text-slate-500">{footer} · 解释未保存，也不是投资建议</p></article>
 }
 
 function PlainView({ series, marketPoints, currency, symbol, selected, catalog }: { series: DynamicBacktestSeries[]; marketPoints: BacktestMarketPoint[]; currency: string; symbol: string; selected: readonly PolicyReference[]; catalog: StrategyCatalogEntry[] }) {

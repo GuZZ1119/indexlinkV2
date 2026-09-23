@@ -4,6 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { MemoryRouter } from 'react-router'
 
 import { StrategyCard } from '@/components/v2_1/strategy-card'
+import { AppHeader } from '@/components/layout/app-header'
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import i18n from '@/i18n'
 import LabPage from '@/pages/lab'
@@ -30,10 +31,11 @@ describe('V2.1 consumer shell', () => {
     renderPage(<PersonalPage />)
     expect(await screen.findByRole('heading', { name: '先建立第一个长期计划' })).toBeTruthy()
     expect(screen.queryByText('MA200 一年历史回放')).toBeNull()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining([
       expect.stringContaining('/investment-plans'),
       expect.stringContaining('/strategy-catalog'),
+      expect.stringContaining('/ai/providers'),
     ]))
   })
 
@@ -44,6 +46,26 @@ describe('V2.1 consumer shell', () => {
 
     expect(plans.getAttribute('href')).toBe('/plans')
     expect(personal.compareDocumentPosition(plans) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('uses the project logo as the persistent home brand without duplicate wordmarks', () => {
+    renderPage(<AppHeader />)
+
+    const home = screen.getByRole('link', { name: 'IndexLink' })
+    expect(home.getAttribute('href')).toBe('/personal')
+    expect(home.querySelector('img')?.getAttribute('src')).toBe('/logo.png')
+    expect(home.textContent).toBe('')
+    expect(screen.queryByText('个人资料')).toBeNull()
+    expect(screen.queryByText('退出登录')).toBeNull()
+  })
+
+  it('opens a real mobile navigation drawer from the header menu button', async () => {
+    renderPage(<AppHeader />)
+
+    fireEvent.click(screen.getByRole('button', { name: '收放侧栏' }))
+
+    expect(await screen.findByRole('navigation', { name: '主要导航' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: '策略工坊' }).getAttribute('href')).toBe('/strategy-builder')
   })
 
   it('shows real active plans and keeps strategy-card exploration separate from adoption', async () => {
@@ -182,12 +204,65 @@ describe('V2.1 consumer shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '近 6 个月' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '近 6 个月' }).getAttribute('aria-pressed')).toBe('true'))
     fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/strategy-backtests')).length).toBe(2))
     fireEvent.click(screen.getByRole('button', { name: '全部样本' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '全部样本' }).getAttribute('aria-pressed')).toBe('true'))
-    const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
+    const submitted = JSON.parse(String(fetchMock.mock.calls.filter(([url]) => String(url).includes('/strategy-backtests')).at(-1)?.[1]?.body))
     expect(submitted.strategy_refs).toEqual([{ policy_id: 'fixed_dca', policy_version: 1 }, { policy_id: 'dsl_ma200_trend_guard', policy_version: 1 }])
     expect(submitted.range).toBe('6m')
+  })
+
+  it('explains a real backtest only after the user requests it', async () => {
+    const profile = { id: 'gpt-local', provider: 'openai', display_name: 'GPT', model: 'gpt-local', capabilities: { market_evidence: false, restricted_policy_drafts: true, read_only_explanations: true } }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/ai/providers')) return Promise.resolve(response({ providers: [profile] }))
+      if (url.includes('/strategy-backtests/explain')) return Promise.resolve(response({ provider: profile, source_checksum: 'abcdef123456', explanation: { headline: '这次回测怎么读', summary: '收益为正，但只代表历史区间。', observations: ['现金使用率较高。'], risks: ['未来结果可能不同。'] } }))
+      if (url.includes('/strategy-catalog')) return Promise.resolve(response(strategyCatalog()))
+      return Promise.resolve(response(strategyBacktest(['fixed_dca'])))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<StrategyAnalysisPage />)
+
+    expect(await screen.findByRole('button', { name: '解释这次结果' })).toBeTruthy()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/strategy-backtests/explain'))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '解释这次结果' }))
+    expect(await screen.findByRole('heading', { name: '这次回测怎么读' })).toBeTruthy()
+    expect(screen.getByText('收益为正，但只代表历史区间。')).toBeTruthy()
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/strategy-backtests/explain'))).toHaveLength(1)
+  })
+
+  it('turns an unavailable AI explanation into an actionable credential message', async () => {
+    const profile = { id: 'session-qwen', provider: 'qwen', display_name: 'Qwen（本次运行）', model: 'qwen-plus', capabilities: { market_evidence: true, restricted_policy_drafts: true, read_only_explanations: true } }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/ai/providers')) return Promise.resolve(response({ providers: [profile] }))
+      if (url.includes('/strategy-backtests/explain')) return Promise.resolve(response({ error: { code: 'service_unavailable', message: 'service is unavailable' } }, false))
+      if (url.includes('/strategy-catalog')) return Promise.resolve(response(strategyCatalog()))
+      return Promise.resolve(response(strategyBacktest(['fixed_dca'])))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<StrategyAnalysisPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '解释这次结果' }))
+    expect(await screen.findByText(/重新输入有效的 API Key/)).toBeTruthy()
+    expect(screen.queryByText('service is unavailable')).toBeNull()
+  })
+
+  it('generates the personal summary only after a manual click', async () => {
+    const profile = { id: 'deepseek-local', provider: 'deepseek', display_name: 'DeepSeek', model: 'deepseek-chat', capabilities: { market_evidence: false, restricted_policy_drafts: true, read_only_explanations: true } }
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/ai/providers')) return Promise.resolve(response({ providers: [profile] }))
+      if (url.includes('/personal/ai-summary')) return Promise.resolve(response({ provider: profile, plan_count: 0, decision_count: 0, explanation: { headline: '近期没有计划', summary: '目前没有本机计划可整理。', observations: ['没有计划记录。'], risks: ['摘要不代表券商账户状态。'] } }))
+      if (url.includes('/strategy-catalog')) return Promise.resolve(response([]))
+      return Promise.resolve(response([]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<PersonalPage />)
+
+    expect(await screen.findByRole('button', { name: '手动生成摘要' })).toBeTruthy()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/personal/ai-summary'))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '手动生成摘要' }))
+    expect(await screen.findByRole('heading', { name: '近期没有计划' })).toBeTruthy()
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/personal/ai-summary'))).toHaveLength(1)
   })
 
   it('does not report distinct normalized paths as overlapping', async () => {
@@ -219,6 +294,8 @@ describe('V2.1 consumer shell', () => {
     renderPage(<StrategyAnalysisPage />, '/strategy-analysis?strategy=dsl_ma200_trend_guard&view=plain')
 
     expect(await screen.findByRole('button', { name: '价格与简单均线（200日）（至少保留一个）' })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('回测标的'), { target: { value: 'HK.00700' } })
+    fireEvent.change(screen.getByLabelText('每月投入金额'), { target: { value: '2500' } })
     fireEvent.change(screen.getByRole('combobox', { name: '添加对比策略' }), { target: { value: 'fixed_dca@1' } })
     fireEvent.click(await screen.findByRole('button', { name: '移除价格与简单均线（200日）' }))
     fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
@@ -226,6 +303,8 @@ describe('V2.1 consumer shell', () => {
     await waitFor(() => {
       const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
       expect(submitted.strategy_refs).toEqual([{ policy_id: 'fixed_dca', policy_version: 1 }])
+      expect(submitted.symbol).toBe('HK.00700')
+      expect(submitted.contribution).toBe('2500')
     })
   })
 
@@ -267,15 +346,15 @@ describe('V2.1 consumer shell', () => {
     expect(await screen.findByRole('button', { name: '移除规则预设 99' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '运行真实回测' }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    const submitted = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/strategy-backtests')).length).toBe(2))
+    const submitted = JSON.parse(String(fetchMock.mock.calls.filter(([url]) => String(url).includes('/strategy-backtests')).at(-1)?.[1]?.body))
     expect(submitted.strategy_refs).toEqual([{ policy_id: 'fixed_dca', policy_version: 1 }, { policy_id: 'dsl_generated_099', policy_version: 1 }])
   })
 
   it('uses the same real response for professional metrics', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : strategyBacktest(['fixed_dca']))))
     vi.stubGlobal('fetch', fetchMock)
-    renderPage(<StrategyAnalysisPage />)
+    renderPage(<StrategyAnalysisPage />, '/strategy-analysis?view=research')
     fireEvent.click(screen.getByRole('button', { name: '专业研究' }))
     expect(await screen.findByLabelText('真实专业回测指标')).toBeTruthy()
     expect(screen.getAllByText('+8.2%').length).toBeGreaterThan(0)
@@ -289,7 +368,7 @@ describe('V2.1 consumer shell', () => {
     expect(screen.getByLabelText('策略每日回撤曲线')).toBeTruthy()
     expect(screen.getByRole('heading', { name: '每期资金去了哪里' })).toBeTruthy()
     expect(screen.getByLabelText('每月稳步投入每期核心、机会和未投入资金')).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/strategy-backtests'))).toHaveLength(1)
   })
 
   it('never replaces an unavailable provider with a demo chart', async () => {
@@ -313,56 +392,143 @@ describe('V2.1 consumer shell', () => {
     expect(screen.queryByText('真实行情源未连接')).toBeNull()
   })
 
-  it('opens and closes a local configuration preview without claiming to connect anything', () => {
-    renderPage(<LabPage />)
-    fireEvent.click(screen.getAllByRole('button', { name: '打开配置预览' })[1])
-    expect(screen.getByText('配置预览')).toBeTruthy()
-    expect(screen.getByText(/不写入任何配置/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '收起预览' }))
-    expect(screen.queryByText('配置预览')).toBeNull()
-  })
-
-  it('runs the legacy MA200 replay only after an explicit Lab action', async () => {
-    let finishReplay: (() => void) | undefined
-    const fetchMock = vi.fn().mockImplementation(() => new Promise((resolve) => {
-      finishReplay = () => resolve(response({
-        currency: 'USD',
-        methodology: 'Legacy hard-coded MA200 replay for compatibility only.',
-        points: [{ date: '2026-01-02', plain_dca_value: 1000, adaptive_value: 1012 }],
-      }))
-    }))
+  it('configures AI from the Lab only after an explicit submit and never re-renders the key', async () => {
+    let configured = false
+    const profile = { id: 'session-claude', provider: 'claude', display_name: 'Claude（本次运行）', model: 'claude-test', capabilities: { market_evidence: true, restricted_policy_drafts: true, read_only_explanations: true } }
+    const fetchMock = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/ai/providers')) return response({ providers: configured ? [profile] : [] })
+      if (url.endsWith('/ai/session-provider') && options?.method === 'POST') {
+        configured = true
+        return response({ provider: profile, storage: 'process_memory' })
+      }
+      if (url.endsWith('/ai/session-provider/test') && options?.method === 'POST') {
+        return response({ provider: profile, status: 'available' })
+      }
+      if (url.endsWith('/ai/session-provider') && options?.method === 'DELETE') {
+        configured = false
+        return { ok: true, status: 204, json: async () => null }
+      }
+      throw new Error(`unexpected ${url}`)
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     renderPage(<LabPage />)
+    expect(screen.queryByText('MA200 一年历史回放')).toBeNull()
     expect(fetchMock).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: '运行旧实验' }))
-    expect(await screen.findByRole('button', { name: '正在运行…' })).toHaveProperty('disabled', true)
-    await act(async () => { finishReplay?.() })
+    fireEvent.click(screen.getByRole('button', { name: '输入 API 配置' }))
+    await screen.findByLabelText('AI 服务商')
+    expect((screen.getByLabelText('AI 服务商') as HTMLSelectElement).value).toBe('qwen_cloud')
+    expect((screen.getByLabelText('AI 模型名称') as HTMLInputElement).value).toBe('qwen3.8-max')
+    fireEvent.change(screen.getByLabelText('AI 服务商'), { target: { value: 'qwen' } })
+    expect((screen.getByLabelText('AI 模型名称') as HTMLInputElement).value).toBe('qwen-plus')
+    fireEvent.change(screen.getByLabelText('AI 服务商'), { target: { value: 'claude' } })
+    fireEvent.change(screen.getByLabelText('AI 模型名称'), { target: { value: 'claude-test' } })
+    fireEvent.change(screen.getByLabelText('AI API Key'), { target: { value: 'private-browser-key' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存本次连接' }))
 
-    expect(await screen.findByText('Legacy hard-coded MA200 replay for compatibility only.')).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(String(fetchMock.mock.calls[0][0])).toContain('/paper-performance/historical-backtest')
+    expect(await screen.findByText(/凭据已保存到当前后端进程，但尚未向供应商验证/)).toBeTruthy()
+    expect(screen.getByText('凭据已保存 · 尚未验证')).toBeTruthy()
+    expect((screen.getByLabelText('AI API Key') as HTMLInputElement).value).toBe('')
+    const request = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith('/ai/session-provider') && options?.method === 'POST')
+    expect(request).toBeTruthy()
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({ provider: 'claude', model: 'claude-test', api_key: 'private-browser-key' })
+    expect(document.body.textContent).not.toContain('private-browser-key')
+    fireEvent.click(screen.getByRole('button', { name: '验证 AI 可用性' }))
+    expect(await screen.findByText('AI 连接可用')).toBeTruthy()
+    expect(screen.getByText('连接已验证')).toBeTruthy()
+    expect(fetchMock.mock.calls.filter(([url, options]) => String(url).endsWith('/ai/session-provider/test') && options?.method === 'POST')).toHaveLength(1)
+    fireEvent.click(await screen.findByRole('button', { name: '清除连接' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '清除连接' })).toBeNull())
   })
 
-  it('contains a legacy replay failure inside the Lab panel', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({ error: { code: 'optional_unavailable', message: 'offline' } }, false))
+  it('turns a provider probe failure into actionable account guidance', async () => {
+    let configured = false
+    const profile = { id: 'session-qwen-cloud', provider: 'qwen-cloud', display_name: 'QwenCloud（本次运行）', model: 'qwen3.8-max', capabilities: { market_evidence: true, restricted_policy_drafts: true, read_only_explanations: true } }
+    const fetchMock = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/ai/providers')) return response({ providers: configured ? [profile] : [] })
+      if (url.endsWith('/ai/session-provider') && options?.method === 'POST') {
+        configured = true
+        return response({ provider: profile, storage: 'process_memory' })
+      }
+      if (url.endsWith('/ai/session-provider/test') && options?.method === 'POST') {
+        return response({ provider: profile, status: 'access_denied' })
+      }
+      throw new Error(`unexpected ${url}`)
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     renderPage(<LabPage />)
-    fireEvent.click(screen.getByRole('button', { name: '运行旧实验' }))
+    fireEvent.click(screen.getByRole('button', { name: '输入 API 配置' }))
+    fireEvent.change(await screen.findByLabelText('AI API Key'), { target: { value: 'unit-test-private-key' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存本次连接' }))
+    fireEvent.click(await screen.findByRole('button', { name: '验证 AI 可用性' }))
 
-    expect((await screen.findByRole('status')).textContent).toContain('旧回放暂时不可用')
-    expect(screen.getByRole('heading', { name: '把复杂配置，留给想深入的人' })).toBeTruthy()
+    expect(await screen.findByText('账户权限或计费未开通')).toBeTruthy()
+    expect(screen.getByText(/Pay-As-You-Go 计费状态/)).toBeTruthy()
+    expect(screen.getByText('验证未通过')).toBeTruthy()
   })
 
-  it('shows an explicit empty state when the legacy replay returns no points', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({ currency: 'USD', methodology: 'legacy', points: [] }))
+  it('configures a loopback read-only OpenD source without enabling broker access', async () => {
+    let configured = false
+    const fetchMock = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/runtime-status')) return response({ market_data: configured ? 'configured' : 'not_configured', historical_prices: configured ? 'configured' : 'not_configured' })
+      if (url.endsWith('/market-data/session-opend') && options?.method === 'POST') {
+        configured = true
+        return response({ provider: 'opend', host: '127.0.0.1', port: 11111, storage: 'process_memory', access: 'read_only_market_data' })
+      }
+      if (url.endsWith('/market-data/session-opend') && options?.method === 'DELETE') {
+        configured = false
+        return { ok: true, status: 204, json: async () => null }
+      }
+      throw new Error(`unexpected ${url}`)
+    })
     vi.stubGlobal('fetch', fetchMock)
-
     renderPage(<LabPage />)
-    fireEvent.click(screen.getByRole('button', { name: '运行旧实验' }))
+    fireEvent.click(screen.getByRole('button', { name: '输入 OpenD 配置' }))
+    expect((await screen.findByLabelText('OpenD 本机地址') as HTMLInputElement).value).toBe('127.0.0.1')
+    fireEvent.click(screen.getByRole('button', { name: '保存只读连接' }))
 
-    expect(await screen.findByText('没有足够的历史数据生成这份旧回放。')).toBeTruthy()
+    expect(await screen.findByText(/没有开启模拟券商或订单权限/)).toBeTruthy()
+    const request = fetchMock.mock.calls.find(([url, options]) => String(url).endsWith('/market-data/session-opend') && options?.method === 'POST')
+    expect(JSON.parse(String(request?.[1]?.body))).toEqual({ host: '127.0.0.1', port: 11111 })
+    fireEvent.click(await screen.findByRole('button', { name: '清除本次连接' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '清除本次连接' })).toBeNull())
+  })
+
+  it('keeps the entered key editable when the local backend rejects an AI configuration', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/ai/providers')) return response({ providers: [] })
+      if (url.endsWith('/ai/session-provider') && options?.method === 'POST') {
+        return { ok: false, status: 400, json: async () => ({ error: { code: 'bad_request', message: 'invalid request' } }) }
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<LabPage />)
+    fireEvent.click(screen.getByRole('button', { name: '输入 API 配置' }))
+    fireEvent.change(await screen.findByLabelText('AI API Key'), { target: { value: 'key-to-correct' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存本次连接' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('连接配置未保存')
+    expect((screen.getByLabelText('AI API Key') as HTMLInputElement).value).toBe('key-to-correct')
+  })
+
+  it('explains an invalid OpenD address without claiming a connection', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+      if (url.endsWith('/runtime-status')) return response({ market_data: 'not_configured', historical_prices: 'not_configured' })
+      if (url.endsWith('/market-data/session-opend') && options?.method === 'POST') {
+        return { ok: false, status: 400, json: async () => ({ error: { code: 'bad_request', message: 'invalid request' } }) }
+      }
+      throw new Error(`unexpected ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<LabPage />)
+    fireEvent.click(screen.getByRole('button', { name: '输入 OpenD 配置' }))
+    fireEvent.change(await screen.findByLabelText('OpenD 本机地址'), { target: { value: '192.0.2.10' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存只读连接' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('地址必须是本机回环 IP')
+    expect(screen.queryByText('只读行情已配置')).toBeNull()
   })
 
   it('renders a compact strategy card without the rule panel', () => {
@@ -380,7 +546,8 @@ describe('V2.1 consumer shell', () => {
     expect(screen.getByText('建立入口')).toBeTruthy()
     first.unmount()
 
-    render(<MemoryRouter><StrategyCard strategy={{ ...generated, adoptable: false, research_status: 'blocked' }} analysisHref="/strategy-analysis" /></MemoryRouter>)
+    render(<MemoryRouter><StrategyCard strategy={{ ...generated, risk: 'balanced', adoptable: false, research_status: 'blocked' }} analysisHref="/strategy-analysis" /></MemoryRouter>)
+    expect(screen.getByText('平衡')).toBeTruthy()
     expect(screen.getByText('暂不可采用')).toBeTruthy()
   })
 })

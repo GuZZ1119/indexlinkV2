@@ -1,6 +1,6 @@
 # IndexLink V2.1 本地优先发布过渡计划
 
-> 状态：**工程收口完成，进入发布验证**（2026-09-20 审计）。M0 工程收敛和 M1 的 `Plan → readable Decision → user-reported execution → Audit` 已完成；官方目录现包含一个 Fixed DCA 基准与 20 个规则家族的 100 个不可变 Formula 预设，真实多市场回测、动态标的建计划与 Formula 创建前数据预检均已落地。下一阶段回到 3–5 位目标用户验证，不把完整调度重构重新变成上线前置条件。
+> 状态：**工程与本地安全收口完成，进入发布验证**（2026-09-23 审计）。M0 工程收敛和 M1 的 `Plan → readable Decision → user-reported execution → Audit` 已完成；官方目录现包含一个 Fixed DCA 基准与 20 个规则家族的 100 个不可变 Formula 预设，真实多市场回测、动态标的建计划与 Formula 创建前数据预检均已落地。下一阶段回到 3–5 位目标用户验证，不把完整调度重构重新变成上线前置条件。
 
 > 执行硬约束、停止条件与 Gate 顺序以 [`v2_1_closeout_hardness.md`](./v2_1_closeout_hardness.md) 为准。本文件记录产品能力、当前事实和后续边界，不授权并行启动全部路线。
 
@@ -54,7 +54,7 @@ V2.1 的发布承诺是：
    - 每条 `due` 建议最多保存一个最终结果，planned、actual 和输入证据不能相互覆盖。
 
 5. **本地优先与故障隔离**
-   - SQLite 是默认持久化层；PostgreSQL 仅显式 opt-in。
+   - SQLite 是 V2.1 唯一公开支持的持久化层；未接线的 PostgreSQL 草稿适配器已从公开构建移除。
    - 无 AI、OpenD、broker、外部 Key 或 Docker 时，Fixed DCA 的 Plan、Decision 与 Audit 仍可用。
    - 行情与 paper broker 独立配置、独立初始化、独立报告 capability；真实连接失败不得伪装成 Mock。
 
@@ -77,7 +77,7 @@ V2.1 的发布承诺是：
 | 策略分析 | `POST /strategy-backtests` 返回 US/HK/SH/SZ 自选标的真实轨迹、指标、完整模拟执行记录、Formula 规则命中标记与来源，支持 1m/3m/6m/1y/3y/5y/all | 已完成；净值图、标的走势/规则触发点、逐日回撤、资金拆分和公式代入值共享同一响应，无数据时明确失败 |
 | 市场数据与 Formula 决策 | Formula 运行只读取价格历史；OpenD 日线 adapter、本地 canonical store 与创建前数据充足性校验已存在 | 已完成；provider 不可用、历史不足或过期时创建失败且不落半成品计划 |
 | 可选能力隔离 | OpenD 行情、OpenD paper broker、AI 独立报告；失败不阻塞 SQLite 核心 | 已完成 |
-| PostgreSQL | 默认 feature graph 已移除，显式 feature 仍可用 | 已完成 |
+| PostgreSQL | 从 V2.1 公开构建和上游跟踪移除；server 只接受 SQLite | 已完成收口，不作为隐藏能力 |
 | 自动实盘交易 | 不存在，也不属于 V2.1 | 保持不做 |
 | 用户任务验证 | 尚无 3–5 位目标用户的完整任务证据 | 本轮工程收口后的首要工作 |
 
@@ -180,7 +180,7 @@ Formula 的 `base_amount` 是每个资金周期的基础预算，不等于提前
 | --- | --- | --- | --- |
 | 必填 | 策略、标的、基础预算、评估节奏 | 同左 | 同左 |
 | 默认自动处理 | SQLite、策略版本、canonical symbol、市场和币种 | 同左 | 端口与日志可覆盖 |
-| 可选 | 无 | Qwen 解释、本机 OpenD 行情或模拟账户 | Docker、环境变量、备份路径 |
+| 可选 | 无 | 手动触发的 Qwen/GPT/Claude/DeepSeek 策略草案、回测解释和个人摘要；AI Key 与只读 OpenD host/port 可通过高级实验室仅存当前 Rust 进程；新闻情绪仍为高级能力；模拟账户继续独立配置 | Docker、环境变量、备份路径 |
 | 永不要求 | API Key、券商密码、数据库 URL、Docker 参数 | 浏览器保存券商凭据 | 向浏览器暴露密钥 |
 
 Docker 是分发/自托管方式，不是产品设置。基础路径必须在无 `.env`、Qwen 或 OpenD 时启动，并使用 SQLite、Fixed DCA 与安全默认值。

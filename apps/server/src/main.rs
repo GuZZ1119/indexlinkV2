@@ -175,8 +175,11 @@ where
         let providers = ai_providers
             .into_iter()
             .map(|provider| {
-                Arc::new(QwenClient::with_profile(provider.client, provider.profile))
-                    as Arc<dyn AiProvider>
+                Arc::new(QwenClient::with_protocol(
+                    provider.client,
+                    provider.profile,
+                    provider.protocol,
+                )) as Arc<dyn AiProvider>
             })
             .collect();
         state
@@ -356,6 +359,7 @@ mod tests {
                 model: "test-model".to_owned(),
                 ..Default::default()
             },
+            protocol: ai_client::AiApiProtocol::OpenAiChatCompletions,
             is_default,
         }
     }
