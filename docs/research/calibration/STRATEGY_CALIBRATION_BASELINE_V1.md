@@ -32,7 +32,7 @@ It performs no HTTP, broker, Qwen-key, or order IO.
 | Price proxies / 价格代理 | FRED S&P 500 (`SP500`, SPY proxy)；FRED NASDAQ Composite (`NASDAQCOM`, QQQ proxy) |
 | Factors / 因子 | Shiller CAPE、ERP proxy `100/CAPE - DGS10`、MA200 distance、RSI-14、VIX |
 | Missing values / 缺失值 | 任一必需因子缺失即丢弃当月；不前填、不插值 |
-| Integrity / 完整性 | 原始快照、生成器和 SHA-256 位于 `crates/strategy-evaluation/data/` 与 `calibration-v1.manifest.json` |
+| Integrity / 完整性 | 可公开复跑的 CSV 快照、生成器和 SHA-256 位于 `crates/strategy-evaluation/data/` 与 `calibration-v1.manifest.json`；网页原始 HTML 不进入仓库 |
 
 These are US-equity **index proxies**, not historical SPY/QQQ execution
 prices. FRED's S&P 500 public series begins in 2016, so its first scored month
@@ -159,6 +159,11 @@ statement about Qwen's historical accuracy or investment value.
 1/129/37/19/52 变为 0/121/51/14/52。这只是分布检查，不代表 Qwen 的历史准确性或投资价值。
 
 ## 6. Reproduce / 复跑
+
+The generator reads only committed CSV snapshots. It does not require the
+ignored Multpl HTML capture or network access.
+
+生成器只读取仓库已提交的 CSV 快照，不依赖被忽略的 Multpl HTML 抓取或网络访问。
 
 ```bash
 python3 tools/generate_calibration_fixture.py

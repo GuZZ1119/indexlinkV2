@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-23 11:43 AEST — README 首屏与公开研究复现链收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：项目首页信息架构、离线研究数据复现、前端测试发现边界与第三方来源说明。
+- 涉及文件：`readme.md`、`readme.en.md`、`tools/generate_calibration_fixture.py`、`crates/strategy-evaluation/data/raw/shiller_cape_monthly.csv`、`crates/strategy-evaluation/data/generated/calibration-v{1,2}.manifest.json`、`docs/research/calibration/{STRATEGY_CALIBRATION_BASELINE_V1.md,STRATEGY_CALIBRATION_RESEARCH_V2.md}`、`THIRD_PARTY_NOTICES.md`、`apps/web/vitest.config.ts`、`CHANGE_LOG.md`。
+- 变更内容：将 README 首屏 Logo 从 160px 放大到 360px，保留当前克制视觉并新增“技术制作 / How it is built”分层表，明确 Rust/Axum/Tokio、Formula 研究层、SQLite 审计存储、React/Vite、ECharts、OpenD、用户自带 AI 与质量门禁的真实职责。把本地被忽略的 Multpl HTML 依赖替换为已提交的 258 个月纯日期/数值 CAPE CSV；生成器现在在无网络、无原始网页条件下同时重建 V1/V2 夹具与 manifest，并严格拒绝坏行、非正值和重复月份。两份生成 JSON 的 SHA-256 均保持原值，研究结论没有变化。Vitest 显式排除本机保留的旧 `src/pages/strategies/**`，使本地与干净上游统一发现 11 个测试文件、75 项测试。
+- 技能影响：`frontend-design` 用于把 Logo 设为 README 唯一主视觉，并以紧邻首屏的技术职责表恢复旧版的技术透明度，而不重新堆叠大量徽章或装饰。
+- 验证：`python3 tools/generate_calibration_fixture.py` 可重复运行；从仅含 Git 跟踪及待提交文件、明确不含原始 HTML 和旧策略页的干净目录复跑后，V1/V2 SHA-256 分别仍为 `bc176157…` 与 `88e55c98…`；`cargo test -p core-domain -p strategy-evaluation`（13 + 22 项）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（75 项；Statements 94.41%、Branches 90.10%、Functions 94.94%、Lines 97.10%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过。生产构建仅保留既有两个大 chunk 警告。
+
 ### 2026-09-23 11:13 AEST — 修复 SQLite-only 收口后的依赖图 CI
 
 - 执行模型：GPT-5 Codex。

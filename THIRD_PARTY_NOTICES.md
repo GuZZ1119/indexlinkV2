@@ -45,7 +45,7 @@ IndexLink uses Axum, Tokio, SQLx, Reqwest, rustls, Serde, quick-xml, and other R
 | Futu / Moomoo OpenD | [Official OpenAPI introduction](https://openapi.futunn.com/futu-api-doc/en/intro/intro.html) | User-operated local gateway for read-only daily history and optional paper-account experiments; availability and entitlements belong to the user's account |
 | FRED | [API terms](https://fred.stlouisfed.org/docs/api/terms_of_use.html) and [general terms](https://fred.stlouisfed.org/legal/terms/) | Versioned research fixtures and source metadata. This product uses FRED data but is not endorsed or certified by the Federal Reserve Bank of St. Louis |
 | Cboe | [Data policies](https://datashop.cboe.com/data-policies) | VIX research fixture source; users are responsible for current data terms |
-| Multpl | [Website](https://www.multpl.com/shiller-pe/table/by-month) | Historical Shiller P/E research provenance. The raw fetched HTML is intentionally excluded from the public repository; only bounded generated research inputs and source metadata are retained |
+| Multpl | [Website](https://www.multpl.com/shiller-pe/table/by-month) | Historical Shiller P/E research provenance. The raw fetched HTML is intentionally excluded; the repository keeps only a bounded monthly date/value CSV used by the offline generator, plus generated fixtures and source metadata |
 
 Generated manifests under `crates/strategy-evaluation/data/generated/` record source URLs, date ranges, assumptions, and checksums. Inclusion of source metadata does not grant redistribution rights or imply endorsement. Before redistributing datasets or operating a public service, review the current provider terms yourself.
 

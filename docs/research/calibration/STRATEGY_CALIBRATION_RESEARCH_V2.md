@@ -38,7 +38,7 @@ variation remain out of scope.
 | Decision observation / 决策观察 | 每月最后一个可得交易观察值 |
 | Execution observation / 成交观察 | 严格晚于决策日的第一个 FRED 日度价格 |
 | Factors / 因子 | CAPE、ERP proxy、MA200 distance、RSI-14、VIX |
-| Integrity / 完整性 | 原始快照与 SHA-256 位于 `calibration-v2.manifest.json` |
+| Integrity / 完整性 | 可公开复跑的 CSV 快照与 SHA-256 位于 `calibration-v2.manifest.json`；网页原始 HTML 不进入仓库 |
 
 The fixture generator drops a month if a factor or a strictly later execution
 price is missing; it never forward-fills or interpolates. A focused test also
@@ -100,6 +100,11 @@ S&P 的 3/3 个滚动 24 个月窗口均落后，在 NASDAQ 的 14 个窗口中�
 把趋势从 veto 改为连续上限修正了执行语义，但该预登记上限对本数据集仍过于保守。
 
 ## Reproduce / 复跑
+
+The generator reads only committed CSV snapshots. It does not require the
+ignored Multpl HTML capture or network access.
+
+生成器只读取仓库已提交的 CSV 快照，不依赖被忽略的 Multpl HTML 抓取或网络访问。
 
 ```bash
 python3 tools/generate_calibration_fixture.py

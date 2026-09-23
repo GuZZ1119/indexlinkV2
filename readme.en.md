@@ -1,9 +1,13 @@
 <p align="center">
-  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="160">
+  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="360">
 </p>
 
 <p align="center">
   <strong>Turn a long-term investing method into an understandable, testable and auditable personal plan.</strong>
+</p>
+
+<p align="center">
+  Local Rust service · React interface · SQLite audit store · OpenD daily bars · Bring-your-own AI
 </p>
 
 <p align="center">
@@ -23,6 +27,22 @@ IndexLink is a **local strategy-planning and research tool for long-term investo
 V2.1 is single-user, local-first, and manually executed. It does not place live orders, promise returns, or grant an AI model trading authority.
 
 > **Risk notice:** This project is for education, strategy research, and paper-trading demonstrations only. It is not investment advice. Historical backtests do not predict future results.
+
+## How it is built
+
+IndexLink is not a collection of static screens or an AI chat wrapper that delegates strategy decisions to a model. It is a complete local application: deterministic Rust rules perform calculations, while React presents the evidence and user controls.
+
+| Layer | Technology and responsibility |
+| --- | --- |
+| Server | Rust 2021, Axum, and Tokio for domain invariants, scheduling, backtests, AI/OpenD adapters, and HTTP contracts |
+| Domain and research | A modular Rust workspace with a bounded Formula AST, causal indicators, shared cash ledger, immutable policy versions, and reproducible research fixtures |
+| Local data | SQLx + SQLite for plans, suggestion input snapshots, personal policies, and append-only manual execution records |
+| Web | React 19, TypeScript, Vite 8, Tailwind CSS v4, TanStack Query, and Valtio with server state separated from temporary UI state |
+| Charts | Apache ECharts for zoomable wealth, price, and execution tracks; Recharts for lighter result views |
+| External adapters | Local read-only daily bars through Futu/Moomoo OpenD; QwenCloud, DashScope, GPT, Claude, and DeepSeek only after a manual user action |
+| Quality gates | Rustfmt, Clippy, Cargo workspace tests, ESLint, TypeScript builds, and Vitest with a 90% frontend coverage floor |
+
+The architecture is **Hexagonal Architecture (Ports & Adapters) in a Rust modular monolith**. Core policy rules do not depend on the browser, database, market-data provider, or model vendor, and both inputs and conclusions retain auditable evidence.
 
 ## What works today
 
