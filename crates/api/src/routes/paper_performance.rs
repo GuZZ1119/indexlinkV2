@@ -16,10 +16,6 @@ pub(crate) fn router() -> Router<ApiState> {
     Router::new()
         .route("/paper-performance/actual", get(read_actual_performance))
         .route(
-            "/paper-performance/historical-backtest",
-            get(read_historical_backtest),
-        )
-        .route(
             "/investment-plans/:id/paper-performance",
             get(read_performance),
         )
@@ -34,13 +30,6 @@ async fn read_actual_performance(
     State(state): State<ApiState>,
 ) -> Result<Json<crate::state::ActualPerformance>, ApiError> {
     Ok(Json(state.actual_performance().await?))
-}
-
-/// Return the transparent one-year historical comparison without submitting any order.
-async fn read_historical_backtest(
-    State(state): State<ApiState>,
-) -> Result<Json<crate::state::HistoricalBacktest>, ApiError> {
-    Ok(Json(state.historical_backtest().await?))
 }
 
 /// User-confirmed opening balance used as the local return calculation baseline.

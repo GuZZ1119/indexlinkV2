@@ -23,7 +23,9 @@ services:
       timeout: 3s
       retries: 5
     ports:
-      - "${APP_PORT:-8080}:8080"
+      # Keep the published port local-only. APP_HOST is 0.0.0.0 only inside
+      # the isolated container so Docker can forward this loopback binding.
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
     volumes:
       - sqlite-data:/data
 

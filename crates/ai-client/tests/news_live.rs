@@ -9,7 +9,9 @@
 //! cargo test -p ai-client --test news real_cnbc_with_qwen -- --ignored --nocapture
 //! ```
 
-use ai_client::news::{fetch_market_sentiment, format_sentiment_prompt, NewsSource, RssNewsSource};
+use ai_client::news::{
+    fetch_market_sentiment, format_sentiment_prompt, NewsSource, NewsSourceError, RssNewsSource,
+};
 use ai_client::{AiConfig, MockAiProvider, QwenClient};
 use axum::{http::StatusCode, routing::get, Router};
 use chrono::{Duration, Utc};
@@ -51,6 +53,17 @@ async fn local_rss_adapter_maps_http_failure_without_network() {
     let url = local_rss_server(StatusCode::BAD_GATEWAY, "unavailable".to_owned()).await;
     let source = RssNewsSource::with_config(url, Duration::hours(1).num_hours(), 5);
     assert!(source.fetch().await.is_err());
+}
+
+#[tokio::test]
+async fn local_rss_adapter_rejects_oversized_response() {
+    let url = local_rss_server(StatusCode::OK, "x".repeat(1024 * 1024 + 1)).await;
+    let source = RssNewsSource::with_config(url, 24, 5);
+
+    assert!(matches!(
+        source.fetch().await,
+        Err(NewsSourceError::BodyTooLarge)
+    ));
 }
 
 /// 真实拉取 CNBC RSS，用 Mock AI 分析情绪。

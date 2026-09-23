@@ -11,6 +11,8 @@ mod ready;
 mod runtime_status;
 mod signals;
 mod strategies;
+mod strategy_backtests;
+mod strategy_catalog;
 
 use axum::{routing::get, Router};
 
@@ -21,6 +23,8 @@ pub(crate) fn router() -> Router<ApiState> {
         .route("/health", get(health::health))
         .route("/ready", get(ready::ready))
         .route("/runtime-status", get(runtime_status::runtime_status))
+        .merge(ai_assistance::router())
+        .merge(ai_session_provider::router())
         .merge(decision_preview::router())
         .merge(decision_records::router())
         .merge(investment_plans::router())
@@ -29,6 +33,12 @@ pub(crate) fn router() -> Router<ApiState> {
         .merge(market_data::router())
         .merge(paper_portfolio::router())
         .merge(paper_performance::router())
+        .merge(session_market_data::router())
         .merge(signals::router())
+        .merge(strategy_catalog::router())
+        .merge(strategy_backtests::router())
         .merge(strategies::router())
 }
+mod ai_assistance;
+mod ai_session_provider;
+mod session_market_data;

@@ -105,14 +105,14 @@ impl AiCopilotDraftRequest {
     }
 }
 
-/// Raw provider output that must still pass the `strategy-dsl` boundary.
+/// Raw provider output for the smaller consumer strategy-form contract.
 ///
-/// `document` is deliberately JSON rather than a runtime strategy. This crate cannot
-/// persist, activate, evaluate, or execute it; callers must reconstruct and validate a
-/// `StrategySpecDocument` before exposing the draft to users.
+/// `form_config` is deliberately JSON rather than a runtime strategy. This crate cannot
+/// persist, activate, evaluate, compile, or execute it; callers must reconstruct the bounded
+/// form and deterministically compile it into a validated domain strategy.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiCopilotDraft {
-    document: Value,
+    form_config: Value,
     explanation: String,
     warnings: Vec<String>,
     evidence_reference_ids: Vec<String>,
@@ -121,13 +121,13 @@ pub struct AiCopilotDraft {
 impl AiCopilotDraft {
     /// Construct bounded provider output without granting strategy authority.
     pub fn new(
-        document: Value,
+        form_config: Value,
         explanation: String,
         warnings: Vec<String>,
         evidence_reference_ids: Vec<String>,
     ) -> Result<Self, AiCopilotDraftError> {
-        if !document.is_object() {
-            return Err(AiCopilotDraftError::InvalidDocument);
+        if !form_config.is_object() {
+            return Err(AiCopilotDraftError::InvalidFormConfig);
         }
         if warnings.len() > MAX_WARNING_COUNT {
             return Err(AiCopilotDraftError::InvalidWarnings);
@@ -145,17 +145,17 @@ impl AiCopilotDraft {
             .map(normalize_identifier)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            document,
+            form_config,
             explanation,
             warnings,
             evidence_reference_ids,
         })
     }
 
-    /// Return the untrusted JSON document for immediate domain reconstruction.
+    /// Return the untrusted strategy-form JSON for deterministic server-side compilation.
     #[must_use]
-    pub fn document(&self) -> &Value {
-        &self.document
+    pub fn form_config(&self) -> &Value {
+        &self.form_config
     }
 
     /// Return the bounded explanation accompanying this candidate.
@@ -213,9 +213,9 @@ pub enum AiCopilotDraftError {
     /// Objective, explanation, warning, or evidence label is blank or unsafe.
     #[error("AI Copilot text is invalid")]
     InvalidText,
-    /// The raw document is not a JSON object.
-    #[error("AI Copilot strategy document is invalid")]
-    InvalidDocument,
+    /// The raw form configuration is not a JSON object.
+    #[error("AI Copilot form configuration is invalid")]
+    InvalidFormConfig,
     /// Warnings exceed the bounded response contract.
     #[error("AI Copilot warnings are invalid")]
     InvalidWarnings,
@@ -237,7 +237,7 @@ mod tests {
                 Vec::new(),
                 vec!["dsl_allowlist_v1".to_owned()],
             ),
-            Err(AiCopilotDraftError::InvalidDocument)
+            Err(AiCopilotDraftError::InvalidFormConfig)
         );
     }
 
@@ -283,7 +283,7 @@ mod tests {
     #[test]
     fn draft_dto_normalizes_safe_output() {
         let draft = AiCopilotDraft::new(
-            serde_json::json!({"policy_id": "candidate"}),
+            serde_json::json!({"name": "candidate", "rules": []}),
             "  bounded rationale  ".to_owned(),
             vec!["  risk  ".to_owned()],
             vec![" Evidence_1 ".to_owned()],

@@ -4,6 +4,7 @@
 //! IndexLink HTTP API 基础设施。
 
 mod error;
+mod official_strategies;
 mod routes;
 mod state;
 

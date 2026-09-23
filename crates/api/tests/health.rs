@@ -186,6 +186,7 @@ async fn runtime_status_distinguishes_ready_database_from_optional_unconfigured_
             "service": "running",
             "database": "ready",
             "market_data": "not_configured",
+            "historical_prices": "not_configured",
             "qwen": "not_configured",
             "ai_provider_profiles": [],
             "paper_broker": "not_configured",
@@ -204,6 +205,7 @@ async fn runtime_status_distinguishes_ready_database_from_optional_unconfigured_
 async fn runtime_status_reports_configured_but_unavailable_optional_dependencies() {
     let state = ApiState::with_readiness(Arc::new(FakeReadiness { available: true }), "0.1.0")
         .with_market_data_unavailable()
+        .with_historical_price_provider_unavailable()
         .with_paper_broker_unavailable();
     let response = build_router(state)
         .oneshot(
@@ -218,6 +220,7 @@ async fn runtime_status_reports_configured_but_unavailable_optional_dependencies
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_json(response).await;
     assert_eq!(body["market_data"], "unavailable");
+    assert_eq!(body["historical_prices"], "unavailable");
     assert_eq!(body["paper_broker"], "unavailable");
     assert_eq!(body["database"], "ready");
 }

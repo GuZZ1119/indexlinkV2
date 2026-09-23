@@ -83,22 +83,22 @@ async fn mock_provider_propagates_error_to_caller() {
 #[test]
 fn config_debug_hides_api_key() {
     let config = AiConfig {
-        api_key: "sk-very-secret-key-do-not-leak".to_owned(),
+        api_key: "unit-test-secret-do-not-leak".to_owned(),
         ..Default::default()
     };
     let debug = format!("{config:?}");
     assert!(debug.contains("<redacted>"));
-    assert!(!debug.contains("sk-very-secret-key-do-not-leak"));
+    assert!(!debug.contains("unit-test-secret-do-not-leak"));
 }
 
 #[test]
 fn config_display_hides_api_key() {
     let config = AiConfig {
-        api_key: "sk-very-secret-key-do-not-leak".to_owned(),
+        api_key: "unit-test-secret-do-not-leak".to_owned(),
         ..Default::default()
     };
     let display = format!("{config}");
-    assert!(!display.contains("sk-very-secret-key-do-not-leak"));
+    assert!(!display.contains("unit-test-secret-do-not-leak"));
     assert!(display.contains("qwen-plus"));
 }
 

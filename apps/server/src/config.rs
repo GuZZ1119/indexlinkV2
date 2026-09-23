@@ -7,13 +7,14 @@ use std::{
 };
 
 use ai_client::{
-    AiConfig, AiProviderCapabilities, AiProviderId, AiProviderProfile, AiProviderProfileId,
+    AiApiProtocol, AiConfig, AiProviderCapabilities, AiProviderId, AiProviderProfile,
+    AiProviderProfileId,
 };
 use axum::http::HeaderValue;
 use broker::{BrokerProvider, OpenDConnectionConfig};
 use serde::Deserialize;
 
-const DEFAULT_HOST: &str = "0.0.0.0";
+const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: &str = "8080";
 const DEFAULT_DATABASE_URL: &str = "sqlite://indexlink.db?mode=rwc";
 const DEFAULT_MAX_CONNECTIONS: &str = "10";
@@ -51,11 +52,12 @@ pub(crate) struct Config {
     pub(crate) scheduler: SchedulerConfig,
 }
 
-/// One OpenAI-compatible AI provider composed by the server from local configuration only.
+/// One AI provider composed by the server from local configuration only.
 #[derive(Debug)]
 pub(crate) struct AiProviderConfiguration {
     pub(crate) profile: AiProviderProfile,
     pub(crate) client: AiConfig,
+    pub(crate) protocol: AiApiProtocol,
     pub(crate) is_default: bool,
 }
 
@@ -68,6 +70,7 @@ struct AiProviderProfileEnvironment {
     base_url: String,
     api_key_env: String,
     model: String,
+    protocol: Option<String>,
     #[serde(default)]
     default: bool,
     #[serde(default)]
@@ -84,6 +87,8 @@ struct AiProviderCapabilitiesEnvironment {
     market_evidence: bool,
     #[serde(default)]
     restricted_policy_drafts: bool,
+    #[serde(default = "true_value")]
+    read_only_explanations: bool,
 }
 
 fn true_value() -> bool {
@@ -282,6 +287,7 @@ fn ai_provider_configurations(
         }
         let provider = AiProviderId::new(profile.provider)
             .map_err(|_| ConfigError::InvalidAiProviderProfiles)?;
+        let protocol = ai_protocol(profile.protocol.as_deref(), provider.as_str())?;
         let base_url = normalize_ai_base_url(profile.base_url)?;
         let api_key_env = normalize_environment_name(profile.api_key_env)?;
         let api_key = lookup(&api_key_env).ok_or(ConfigError::MissingAiProviderKey)?;
@@ -309,6 +315,7 @@ fn ai_provider_configurations(
             AiProviderCapabilities {
                 market_evidence: profile.capabilities.market_evidence,
                 restricted_policy_drafts: profile.capabilities.restricted_policy_drafts,
+                read_only_explanations: profile.capabilities.read_only_explanations,
             },
         )
         .map_err(|_| ConfigError::InvalidAiProviderProfiles)?;
@@ -325,6 +332,7 @@ fn ai_provider_configurations(
                 max_tokens,
                 temperature,
             },
+            protocol,
             is_default: profile.default,
         });
     }
@@ -386,8 +394,26 @@ fn legacy_qwen_configuration(
             max_tokens,
             temperature,
         },
+        protocol: AiApiProtocol::OpenAiChatCompletions,
         is_default: true,
     }))
+}
+
+fn ai_protocol(value: Option<&str>, provider: &str) -> Result<AiApiProtocol, ConfigError> {
+    let protocol = value.map(str::trim).filter(|value| !value.is_empty());
+    match protocol {
+        Some("openai_chat_completions") => Ok(AiApiProtocol::OpenAiChatCompletions),
+        Some("openai_responses") => Ok(AiApiProtocol::OpenAiResponses),
+        Some("anthropic_messages") => Ok(AiApiProtocol::AnthropicMessages),
+        Some(_) => Err(ConfigError::InvalidAiProviderProfiles),
+        None => match provider {
+            "openai" | "gpt" => Ok(AiApiProtocol::OpenAiResponses),
+            "anthropic" | "claude" => Ok(AiApiProtocol::AnthropicMessages),
+            "qwen" | "deepseek" | "openai-compatible" => Ok(AiApiProtocol::OpenAiChatCompletions),
+            // Preserve existing self-hosted OpenAI-compatible profile slugs.
+            _ => Ok(AiApiProtocol::OpenAiChatCompletions),
+        },
+    }
 }
 
 fn normalize_environment_name(value: String) -> Result<String, ConfigError> {
@@ -544,7 +570,7 @@ mod tests {
     fn minimal_configuration_uses_documented_defaults() {
         let config = parse(&[]).unwrap();
 
-        assert_eq!(config.address, "0.0.0.0:8080".parse().unwrap());
+        assert_eq!(config.address, "127.0.0.1:8080".parse().unwrap());
         assert_eq!(config.database_url, DEFAULT_DATABASE_URL);
         assert_eq!(config.database_max_connections, 10);
         assert_eq!(config.database_connect_timeout, Duration::from_secs(5));
@@ -883,10 +909,41 @@ mod tests {
                 .restricted_policy_drafts
         );
         assert!(config.ai_providers[0].is_default);
+        assert_eq!(
+            config.ai_providers[0].protocol,
+            AiApiProtocol::OpenAiChatCompletions
+        );
+        assert!(
+            config.ai_providers[0]
+                .profile
+                .capabilities()
+                .read_only_explanations
+        );
         assert_eq!(config.ai_providers[1].client.max_tokens, 512);
         let debug = format!("{config:?}");
         assert!(!debug.contains("first-secret"));
         assert!(!debug.contains("second-secret"));
+    }
+
+    #[test]
+    fn known_provider_slugs_select_their_native_protocols() {
+        assert_eq!(
+            ai_protocol(None, "qwen").unwrap(),
+            AiApiProtocol::OpenAiChatCompletions
+        );
+        assert_eq!(
+            ai_protocol(None, "deepseek").unwrap(),
+            AiApiProtocol::OpenAiChatCompletions
+        );
+        assert_eq!(
+            ai_protocol(None, "openai").unwrap(),
+            AiApiProtocol::OpenAiResponses
+        );
+        assert_eq!(
+            ai_protocol(None, "claude").unwrap(),
+            AiApiProtocol::AnthropicMessages
+        );
+        assert!(ai_protocol(Some("unknown"), "qwen").is_err());
     }
 
     #[test]

@@ -27,7 +27,7 @@ use investment_plans::{
     BucketAllocationRatio, ExecutionPreviewStatus, InvestmentPlan, InvestmentPlanExecutionPreview,
     PreviewInvestmentPlanExecution, ScheduleKind, TwoBucketAllocationConfig,
 };
-use market_data::MarketSignalInput;
+use market_data::{HistoricalPriceRequest, Instrument, MarketDataError, MarketSignalInput};
 use quant_engine::{
     evaluate_fundamental, evaluate_trend, FundamentalConfig, FundamentalSignal,
     FundamentalSnapshot, TrendConfig, TrendRegime, TrendSignal, TrendSnapshot,
@@ -36,8 +36,8 @@ use rust_decimal::{prelude::ToPrimitive, Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use strategy_dsl::{
-    DslEvidence, DslRuntimeAction, StrategySpec, TechnicalClose, TechnicalMarketSnapshot,
-    TechnicalVix,
+    DslEvidence, DslRuntimeAction, IndicatorSpec, StrategySpec, TechnicalClose,
+    TechnicalMarketSnapshot, TechnicalVix,
 };
 use strategy_policy::DecisionContext;
 use time::{Date, Month};
@@ -489,13 +489,13 @@ async fn automatic_decision_input(
     day_of_month: i16,
     options: AutomaticDecisionPreviewRequest,
 ) -> Result<DecisionPreviewRequest, ApiError> {
-    if state.policy_resolver().supports(&plan.policy)
-        && state
-            .policy_resolver()
-            .evidence_kind(&plan.policy)
-            .map_err(map_policy_error)?
-            == BuiltinPolicyEvidenceKind::FixedDca
-    {
+    let builtin_evidence_kind = state
+        .policy_resolver()
+        .supports(&plan.policy)
+        .then(|| state.policy_resolver().evidence_kind(&plan.policy))
+        .transpose()
+        .map_err(map_policy_error)?;
+    if builtin_evidence_kind == Some(BuiltinPolicyEvidenceKind::FixedDca) {
         return Ok(DecisionPreviewRequest {
             day_of_month,
             bucket_allocation: options.bucket_allocation,
@@ -510,6 +510,27 @@ async fn automatic_decision_input(
         });
     }
 
+    if builtin_evidence_kind.is_none() {
+        let strategy = state
+            .executable_plan_formula(&plan.policy)
+            .await?
+            .ok_or(ApiError::ServiceUnavailable)?;
+        let (dsl_evidence, input_source) =
+            dsl_evidence_for_live_runtime(state, &strategy, &plan.symbol, Utc::now().date_naive())
+                .await?;
+        return Ok(DecisionPreviewRequest {
+            day_of_month,
+            bucket_allocation: options.bucket_allocation,
+            fundamental: None,
+            trend: None,
+            paper_order: options.paper_order,
+            input_source: Some(input_source),
+            dsl_evidence: Some(dsl_evidence),
+        });
+    }
+
+    // Only the legacy Core/Opportunity compatibility policy consumes this combined macro,
+    // technical and VIX signal package. Formula policies use the canonical price-only path above.
     let input = state.market_signal_input(&plan.symbol).await?;
     let fundamental = evaluate_fundamental(
         &FundamentalSnapshot {
@@ -534,70 +555,140 @@ async fn automatic_decision_input(
     )
     .map_err(|_| ApiError::ServiceUnavailable)?;
 
-    let (dsl_evidence, input_source) = if state.policy_resolver().supports(&plan.policy) {
-        (None, automatic_source_snapshot(&input))
-    } else {
-        let strategy = state
-            .get_strategy_spec(&plan.policy)
-            .await?
-            .document
-            .into_strategy_spec()
-            .map_err(|_| ApiError::ServiceUnavailable)?;
-        let mut source = automatic_source_snapshot(&input);
-        source["dsl_runtime"] = json!({
-            "as_of": input.as_of,
-            "price_source": "local OpenD daily closes through the decision as_of date",
-            "volatility_source": "Cboe VIX latest validated observation",
-            "indicators": strategy.required_indicators().into_iter().map(|indicator| format!("{indicator:?}")).collect::<Vec<_>>(),
-        });
-        (
-            Some(dsl_evidence_for_live_runtime(state, &strategy, &plan.symbol, &input).await?),
-            source,
-        )
-    };
-
     Ok(DecisionPreviewRequest {
         day_of_month,
         bucket_allocation: options.bucket_allocation,
         fundamental: Some(FundamentalSignalRequest::from(fundamental)),
         trend: Some(TrendSignalRequest::from(trend)),
         paper_order: options.paper_order,
-        input_source: Some(input_source),
-        dsl_evidence,
+        input_source: Some(automatic_source_snapshot(&input)),
+        dsl_evidence: None,
     })
 }
 
 /// Build the current online Runtime evidence profile from one trusted market snapshot.
 ///
-/// The Studio intentionally exposes only RSI(14) and VIX because those are the two raw values
-/// supplied together by the existing automatic market-data adapter.  Other DSL indicators remain
-/// valid for offline research but cannot be activated until a dedicated data adapter is added.
+/// The strategy declares its longest required close window. The adapter requests a conservative
+/// calendar-day envelope for that window, then the same causal `DslEvidence` builder used by fixed
+/// fixture admission computes every indicator. Missing warmup fails closed.
 async fn dsl_evidence_for_live_runtime(
     state: &ApiState,
     strategy: &StrategySpec,
     symbol: &str,
-    input: &MarketSignalInput,
-) -> Result<DslEvidence, ApiError> {
-    let as_of = evidence_as_of(&input.as_of)?;
-    let vix = Decimal::from_f64_retain(input.vix_current).ok_or(ApiError::ServiceUnavailable)?;
-    let prices = state.market_price_history(symbol, 366).await?;
-    let closes = prices
+    decision_date: NaiveDate,
+) -> Result<(DslEvidence, Value), ApiError> {
+    let required_indicators = strategy.required_indicators();
+    if required_indicators.contains(&IndicatorSpec::Vix) {
+        tracing::warn!(policy = %strategy.policy(), "Formula requires VIX but no independent canonical VIX provider is configured");
+        return Err(ApiError::ServiceUnavailable);
+    }
+    let required_closes = strategy.required_close_observations();
+    if required_closes == 0 {
+        let evidence = DslEvidence::new([]).map_err(|_| ApiError::ServiceUnavailable)?;
+        return Ok((
+            evidence,
+            json!({
+                "kind": "formula_static_evidence",
+                "as_of": decision_date,
+                "indicators": [],
+            }),
+        ));
+    }
+    let lookback_days = i64::try_from(required_closes.saturating_mul(2).max(30))
+        .map_err(|_| ApiError::ServiceUnavailable)?;
+    let request_start = decision_date
+        .checked_sub_signed(chrono::Duration::days(lookback_days))
+        .ok_or(ApiError::ServiceUnavailable)?;
+    let instrument = Instrument::parse(symbol).map_err(map_formula_market_error)?;
+    let history_provider = state.historical_price_provider()?;
+    let adjustment = history_provider
+        .preferred_adjustment(instrument.market())
+        .map_err(map_formula_market_error)?;
+    let request =
+        HistoricalPriceRequest::new(instrument.clone(), request_start, decision_date, adjustment)
+            .map_err(map_formula_market_error)?;
+    let dataset = history_provider
+        .fetch_history(&request)
+        .await
+        .inspect_err(|error| {
+            tracing::warn!(%error, policy = %strategy.policy(), symbol, "Formula price evidence is unavailable")
+        })
+        .map_err(map_formula_market_error)?;
+    if dataset.instrument() != &instrument
+        || dataset.adjustment() != adjustment
+        || dataset.requested_start() != request_start
+        || dataset.requested_end() != decision_date
+    {
+        tracing::warn!(policy = %strategy.policy(), symbol, "Formula price provider returned a mismatched dataset");
+        return Err(ApiError::ServiceUnavailable);
+    }
+    if dataset.bars().len() < required_closes {
+        tracing::warn!(policy = %strategy.policy(), symbol, required_closes, actual_closes = dataset.bars().len(), "Formula price history is insufficient");
+        return Err(ApiError::ServiceUnavailable);
+    }
+    let evidence_cutoff = dataset
+        .bars()
+        .last()
+        .map(|bar| bar.date())
+        .ok_or(ApiError::ServiceUnavailable)?;
+    let as_of = evidence_as_of(&evidence_cutoff.to_string())?;
+    let closes = dataset
+        .bars()
         .iter()
-        .map(|point| {
+        .map(|bar| {
             let close =
-                Decimal::from_f64_retain(point.close).ok_or(ApiError::ServiceUnavailable)?;
-            TechnicalClose::new(evidence_as_of(&point.date)?, close)
+                Decimal::from_f64_retain(bar.close()).ok_or(ApiError::ServiceUnavailable)?;
+            TechnicalClose::new(evidence_as_of(&bar.date().to_string())?, close)
                 .map_err(|_| ApiError::ServiceUnavailable)
         })
         .collect::<Result<Vec<_>, _>>()?;
     let snapshot = TechnicalMarketSnapshot::new(
         as_of,
         closes,
-        TechnicalVix::new(evidence_as_of(&input.vix_as_of)?, vix)
-            .map_err(|_| ApiError::ServiceUnavailable)?,
+        // `TechnicalMarketSnapshot` retains a VIX slot for Formula strategies that declare it.
+        // VIX formulas are rejected above until an independent canonical VIX port exists, so this
+        // neutral value is structurally present but never enters the computed evidence.
+        TechnicalVix::new(as_of, Decimal::ZERO).map_err(|_| ApiError::ServiceUnavailable)?,
     )
     .map_err(|_| ApiError::ServiceUnavailable)?;
-    DslEvidence::from_as_of_market_snapshot(strategy, &snapshot).map_err(|_| ApiError::BadRequest)
+    let evidence = DslEvidence::from_as_of_market_snapshot(strategy, &snapshot).map_err(|error| {
+        tracing::warn!(%error, policy = %strategy.policy(), "Formula price evidence could not satisfy its declared indicators");
+        ApiError::ServiceUnavailable
+    })?;
+    let source = dataset.source();
+    Ok((
+        evidence,
+        json!({
+            "kind": "formula_price_history",
+            "symbol": dataset.instrument().qualified_symbol(),
+            "as_of": evidence_cutoff,
+            "provider": source.provider(),
+            "dataset_version": source.dataset_version(),
+            "checksum": dataset.checksum(),
+            "adjustment": dataset.adjustment().as_str(),
+            "requested_start": dataset.requested_start(),
+            "requested_end": dataset.requested_end(),
+            "observations": dataset.bars().len(),
+            "indicators": required_indicators.into_iter().map(|indicator| format!("{indicator:?}")).collect::<Vec<_>>(),
+        }),
+    ))
+}
+
+/// Map Formula price input failures without exposing provider details or treating them as waiting.
+fn map_formula_market_error(error: MarketDataError) -> ApiError {
+    match error {
+        MarketDataError::InvalidSymbol
+        | MarketDataError::InvalidRange
+        | MarketDataError::UnsupportedRequest => ApiError::BadRequest,
+        MarketDataError::OpenDUnavailable
+        | MarketDataError::MacroUnavailable
+        | MarketDataError::InsufficientHistory
+        | MarketDataError::AuthenticationFailed
+        | MarketDataError::RateLimited
+        | MarketDataError::ProviderUnavailable
+        | MarketDataError::InvalidDataset
+        | MarketDataError::StoreUnavailable => ApiError::ServiceUnavailable,
+    }
 }
 
 /// Parse a provider ISO date into the single DSL evidence cutoff type.
@@ -831,11 +922,9 @@ async fn resolve_policy_decision(
     .map_err(|_| ApiError::BadRequest)?;
     if !state.policy_resolver().supports(&plan.policy) {
         let strategy = state
-            .get_strategy_spec(&plan.policy)
+            .executable_plan_formula(&plan.policy)
             .await?
-            .document
-            .into_strategy_spec()
-            .map_err(|_| ApiError::ServiceUnavailable)?;
+            .ok_or(ApiError::ServiceUnavailable)?;
         let evidence = input.dsl_evidence.clone().ok_or(ApiError::BadRequest)?;
         let context = DecisionContext::new(date, plan.base_contribution, evidence)
             .map_err(|_| ApiError::BadRequest)?;
@@ -1254,7 +1343,8 @@ fn recommendation_snapshot(decision: &BuiltinPolicyDecision) -> Value {
         "action": action_label(recommendation.action()),
         "multiplier": recommendation.multiplier().value(),
         "scheduled_contribution": recommendation.scheduled_contribution().to_string(),
-        "market_signals_used": decision.legacy_signal().is_some(),
+        "market_signals_used": decision.legacy_signal().is_some()
+            || recommendation.policy().id().as_str().starts_with("dsl_"),
     })
 }
 
@@ -1267,12 +1357,18 @@ fn policy_signal_snapshot(
 ) -> Result<Value, ApiError> {
     match signal {
         Some(signal) => signal_snapshot(layer, signal, automatic_source),
-        None => Ok(json!({
-            "layer": layer,
-            "used": false,
-            "policy": policy.to_string(),
-            "reason": "the selected policy does not expose legacy 70/20 signals",
-        })),
+        None => {
+            let mut snapshot = json!({
+                "layer": layer,
+                "used": false,
+                "policy": policy.to_string(),
+                "reason": "the selected policy does not expose legacy 70/20 signals",
+            });
+            if let Some(source) = automatic_source {
+                snapshot["source"] = source.clone();
+            }
+            Ok(snapshot)
+        }
     }
 }
 

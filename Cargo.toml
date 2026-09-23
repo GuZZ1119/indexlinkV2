@@ -55,6 +55,6 @@ regex = "1"
 tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
 tracing = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-quick-xml = "0.37"
+quick-xml = "0.42"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", default-features = false, features = ["serde", "v4"] }

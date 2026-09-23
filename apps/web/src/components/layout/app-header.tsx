@@ -2,16 +2,17 @@ import { Languages, Menu } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
+
+import { AppNavigation } from './app-sidebar'
 
 export function AppHeader() {
   const { t, i18n } = useTranslation()
@@ -22,10 +23,28 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-20 flex h-[4.5rem] shrink-0 items-center gap-3 border-b border-slate-200/80 bg-[#f6f8f6]/90 px-5 backdrop-blur md:px-8">
-      <Menu className="size-5 text-slate-500 lg:hidden" aria-hidden="true" />
-      <Link to="/personal" className="flex items-center gap-2.5">
-        <span className="grid size-8 place-items-center rounded-[0.7rem] bg-[#102028] text-sm font-semibold text-white">I</span>
-        <span className="text-[1rem] font-semibold tracking-[-0.04em] text-[#102028]">IndexLink</span>
+      <Sheet>
+        <SheetTrigger asChild>
+          <Button variant="ghost" size="icon" className="lg:hidden" aria-label={t('header.toggleSidebar')}>
+            <Menu className="size-5" />
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="left" className="w-[18rem] bg-[#f6f8f6] p-0">
+          <SheetHeader className="border-b border-slate-200 px-6 py-5 text-left">
+            <SheetTitle>{t('common.appName')}</SheetTitle>
+            <SheetDescription>{t('live.localOnly')}</SheetDescription>
+          </SheetHeader>
+          <nav aria-label={t('nav.primary')} className="px-4 py-5">
+            <AppNavigation mobile />
+          </nav>
+        </SheetContent>
+      </Sheet>
+      <Link to="/personal" className="flex min-w-0 items-center" aria-label={t('common.appName')}>
+        <img
+          src="/logo.png"
+          alt=""
+          className="h-auto w-[7.75rem] shrink-0 object-contain sm:w-[8.75rem]"
+        />
       </Link>
 
       <div className="ml-auto flex items-center gap-1.5">
@@ -39,32 +58,6 @@ export function AppHeader() {
             {i18n.language.startsWith('zh') ? '中' : 'EN'}
           </span>
         </Button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="gap-2 px-2">
-              <Avatar className="size-7">
-                <AvatarFallback className="text-xs">IL</AvatarFallback>
-              </Avatar>
-              <span className="hidden text-sm sm:inline">{t('live.localDemo')}</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel>
-              <div className="flex flex-col">
-                <span>{t('live.localDemo')}</span>
-              <span className="text-xs font-normal text-muted-foreground">{t('live.localOnly')}</span>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>{t('header.profile')}</DropdownMenuItem>
-            <DropdownMenuItem>{t('header.settings')}</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive">
-              {t('header.signOut')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </header>
   )

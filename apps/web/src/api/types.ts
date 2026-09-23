@@ -24,12 +24,17 @@ export interface StrategySpecDocument {
 export interface StrategyRuleDocument {
   condition: StrategyConditionDocument
   action:
+    | { kind: 'set_opportunity_fixed_amount'; amount: string }
     | { kind: 'set_opportunity_multiplier'; multiplier: number }
     | { kind: 'skip_opportunity' }
 }
 
 export type StrategyIndicatorDocument =
   | { kind: 'close_price' }
+  | { kind: 'price_return'; lookback_days: number }
+  | { kind: 'annualized_volatility'; lookback_days: number }
+  | { kind: 'price_percentile'; lookback_days: number }
+  | { kind: 'moving_average_distance'; lookback_days: number }
   | { kind: 'simple_moving_average'; lookback_days: number }
   | { kind: 'exponential_moving_average'; lookback_days: number }
   | { kind: 'relative_strength_index'; lookback_days: number }
@@ -67,6 +72,7 @@ export interface StrategyValidationResponse {
 export interface AiProviderCapabilities {
   market_evidence: boolean
   restricted_policy_drafts: boolean
+  read_only_explanations: boolean
 }
 
 /** One AI profile that the server explicitly permits the user to select. */
@@ -81,6 +87,52 @@ export interface AiProviderProfile {
 /** Response envelope for the server-side, credential-free provider registry. */
 export interface AiProviderListResponse {
   providers: AiProviderProfile[]
+}
+
+/** Frontend-entered AI connection retained only in the current backend process. */
+export interface ConfigureSessionAiProviderRequest {
+  provider: 'qwen_cloud' | 'qwen' | 'gpt' | 'claude' | 'deepseek'
+  model: string
+  api_key: string
+}
+
+/** Credential-free acknowledgement for one process-memory AI connection. */
+export interface ConfigureSessionAiProviderResponse {
+  provider: AiProviderProfile
+  storage: 'process_memory'
+}
+
+/** Safe result of one explicit, minimal call to the process-memory AI provider. */
+export type SessionAiProbeStatus =
+  | 'available'
+  | 'authentication_failed'
+  | 'access_denied'
+  | 'model_unavailable'
+  | 'rate_limited'
+  | 'request_rejected'
+  | 'network_unavailable'
+  | 'provider_unavailable'
+  | 'response_invalid'
+
+/** Credential-free provider probe response; no prompt or API key is returned. */
+export interface SessionAiProbeResponse {
+  provider: AiProviderProfile
+  status: SessionAiProbeStatus
+}
+
+/** Loopback-only OpenD connection entered from the local Advanced Lab. */
+export interface ConfigureSessionOpenDRequest {
+  host: string
+  port: number
+}
+
+/** Safe acknowledgement for process-memory read-only market-data adapters. */
+export interface ConfigureSessionOpenDResponse {
+  provider: 'opend'
+  host: string
+  port: number
+  storage: 'process_memory'
+  access: 'read_only_market_data'
 }
 
 /** Input accepted by the read-only restricted DSL Copilot endpoint. */
@@ -104,6 +156,34 @@ export interface CopilotDraftResponse {
   explanation: string
   warnings: string[]
   evidence: CopilotEvidenceReference[]
+}
+
+/** Bounded explanation returned only after a user explicitly requests it. */
+export interface AiReadOnlyExplanation {
+  headline: string
+  summary: string
+  observations: string[]
+  risks: string[]
+}
+
+/** Manual request to explain a newly recomputed real backtest. */
+export interface ExplainStrategyBacktestRequest {
+  profile_id: string
+  backtest: StrategyBacktestRequest
+}
+
+export interface ExplainStrategyBacktestResponse {
+  provider: AiProviderProfile
+  source_checksum: string
+  explanation: AiReadOnlyExplanation
+}
+
+/** Manually triggered summary of local plans and recent decision records. */
+export interface PersonalAiSummaryResponse {
+  provider: AiProviderProfile
+  plan_count: number
+  decision_count: number
+  explanation: AiReadOnlyExplanation
 }
 
 /** Fixed-fixture safety and comparison report required before activating a DSL strategy. */
@@ -143,6 +223,181 @@ export interface StrategyAdmissionRollingWindow {
   observations: number
   strategy: StrategyAdmissionMetrics
   fixed_dca: StrategyAdmissionMetrics
+}
+
+/** One server-owned strategy that ordinary users may inspect and turn into a plan. */
+export interface StrategyCatalogEntry {
+  /** Whether this immutable version ships with IndexLink or belongs to the local user. */
+  origin: 'official' | 'personal'
+  lifecycle: 'published' | 'saved'
+  /** `validated` is structurally safe but not yet eligible for a plan. */
+  status: 'usable' | 'validated'
+  policy: PolicyReference
+  name: string
+  summary: string
+  rule: string
+  limitation: string
+  risk: 'stable' | 'balanced'
+  /** Deprecated compatibility field. Plan eligibility must not be inferred from this list. */
+  supported_symbols: string[]
+  /** Markets whose qualified instruments can be checked by this strategy at plan creation time. */
+  supported_markets: Array<'us' | 'hong_kong' | 'china_shanghai' | 'china_shenzhen'>
+  default_plan: {
+    schedule_kind: 'monthly' | 'weekly'
+    schedule_day: number
+    core_ratio: string
+    opportunity_ratio: string
+    risk_mode: PlanExecutionConfiguration['risk_mode']
+  }
+  data_requirements: string[]
+  /** Machine-readable minimum history needed before a market-dependent plan can be admitted. */
+  data_requirement: {
+    required_close_observations: number
+  }
+  /** Product-facing family used to group parameter presets without flattening the catalog. */
+  family?: {
+    id: string
+    name: string
+    description: string
+    category: string
+  }
+  /** Immutable parameter profile within one strategy family. */
+  preset?: {
+    id: string
+    name: string
+    order: number
+  }
+  /** Traceable reference that inspired this independently implemented rule family. */
+  source?: {
+    name: string
+    url: string
+    license: string
+    adaptation: string
+  }
+  /** Searchable, server-owned descriptors; never interpreted as executable code. */
+  tags?: string[]
+  /** Level of server-side validation completed for this catalog response. */
+  validation_mode?: 'reference' | 'fixed_fixture' | 'compiled_formula'
+  adoptable: boolean
+  research_status: 'reference' | 'available' | 'blocked'
+  formula?: StrategySpecDocument
+  research?: StrategyAdmissionReport
+}
+
+/** User-facing date window accepted by the real strategy backtest endpoint. */
+export type StrategyBacktestRange = '1m' | '3m' | '6m' | '1y' | '3y' | '5y' | 'all'
+
+/** Read-only request for a fair comparison on one market-qualified instrument. */
+export interface StrategyBacktestRequest {
+  symbol: string
+  strategy_refs: Array<{ policy_id: string; policy_version: number }>
+  range: StrategyBacktestRange
+  monthly_day: number
+  contribution: string
+}
+
+/** Provider and immutable dataset metadata attached to every real backtest. */
+export interface BacktestDataProvenance {
+  provider: string
+  market: 'us' | 'hong_kong' | 'china_shanghai' | 'china_shenzhen'
+  instrument_type: string
+  currency: string
+  timezone: string
+  adjustment: string
+  fetched_at: string
+  requested_start: string
+  requested_end: string
+  dataset_version: string
+  checksum: string
+}
+
+/** One daily time-weighted point rebased to 100 on the common start date. */
+export interface NormalizedBacktestPoint {
+  date: string
+  value: number
+}
+
+/** One provider-supplied adjusted close inside the common visible backtest window. */
+export interface BacktestMarketPoint {
+  date: string
+  adjusted_close: number
+}
+
+/** One scheduled simulated purchase produced by an immutable strategy version. */
+export interface BacktestExecutionPoint {
+  date: string
+  adjusted_close: number
+  invested_amount: number
+  budget_utilisation_percent: number
+  scheduled_contribution_amount: number
+  core_invested_amount: number
+  opportunity_invested_amount: number
+  unallocated_amount: number
+  transaction_cost: number
+  strategy_rule_matched: boolean
+}
+
+export interface BacktestDrawdownPoint {
+  date: string
+  value_percent: number
+}
+
+export interface BacktestCalculationDetails {
+  elapsed_days: number
+  daily_return_count: number
+  mean_daily_return_percent?: number
+  daily_standard_deviation_percent?: number
+  downside_deviation_percent?: number
+  drawdown_peak_date?: string
+  drawdown_trough_date?: string
+  drawdown_recovery_date?: string
+  total_transaction_cost: number
+  rule_matched_count: number
+  standard_execution_count: number
+  trading_periods_per_year: number
+  calendar_days_per_year: number
+  buy_cost_bps: number
+}
+
+/** Professional metrics calculated from the same trajectory shown in the chart. */
+export interface DynamicBacktestMetrics {
+  total_return_percent: number
+  annualized_return_percent?: number
+  xirr_percent?: number
+  maximum_drawdown_percent: number
+  annualized_volatility_percent?: number
+  sortino_ratio?: number
+  total_contributed: number
+  total_invested: number
+  cash_utilisation_percent: number
+  terminal_wealth: number
+  terminal_cash: number
+}
+
+/** One immutable policy result in an on-demand backtest response. */
+export interface DynamicBacktestSeries {
+  strategy_id: string
+  strategy_version: number
+  strategy_name: string
+  normalized_points: NormalizedBacktestPoint[]
+  execution_points: BacktestExecutionPoint[]
+  drawdown_points: BacktestDrawdownPoint[]
+  metrics: DynamicBacktestMetrics
+  calculation_details: BacktestCalculationDetails
+}
+
+/** Real backend response used by both the intuitive and professional views. */
+export interface StrategyBacktestResponse {
+  requested_range: StrategyBacktestRange
+  data: BacktestDataProvenance
+  result: {
+    symbol: string
+    effective_start: string
+    effective_end: string
+    contribution_count: number
+    market_points: BacktestMarketPoint[]
+    series: DynamicBacktestSeries[]
+  }
 }
 
 /** A server-side investment plan. Decimal values remain JSON strings. */
@@ -304,20 +559,6 @@ export interface HoldingPriceHistory {
   trades: PaperTradeMarker[]
 }
 
-/** One value point in the transparent one-year historical replay. */
-export interface HistoricalBacktestPoint {
-  date: string
-  plain_dca_value: number
-  adaptive_value: number
-}
-
-/** Explicitly scoped historical comparison, not an account return claim. */
-export interface HistoricalBacktest {
-  currency: string
-  methodology: string
-  points: HistoricalBacktestPoint[]
-}
-
 /** Read-only service liveness response. */
 export interface HealthStatus {
   status: 'ok'
@@ -350,6 +591,7 @@ export interface RuntimeStatus {
   service: 'running'
   database: 'ready' | 'unavailable'
   market_data: 'configured' | 'not_configured' | 'unavailable'
+  historical_prices: 'configured' | 'not_configured' | 'unavailable'
   qwen: 'configured' | 'not_configured'
   paper_broker: 'configured' | 'not_configured' | 'unavailable'
   scheduler: SchedulerStatus

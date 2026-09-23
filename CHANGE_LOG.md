@@ -2,6 +2,378 @@
 
 ## Unreleased
 
+### 2026-09-23 11:13 AEST — 修复 SQLite-only 收口后的依赖图 CI
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：GitHub Actions CI 契约修复。
+- 涉及文件：`.github/workflows/rust-ci.yml`、`CHANGE_LOG.md`。
+- 变更内容：删除已经失效的“`indexlink-storage` 必须提供 `postgres` feature”断言；依赖图门禁现在检查整个受支持 workspace 不得引入 `sqlx-postgres`，并单独确认 storage 真实包含 `sqlx-sqlite`。这与 V2.1 本地安全收口后的 SQLite-only 公开边界一致，修复同一失败分别由 push 与 pull_request 触发而显示的两个红色检查。
+- 验证：本地依赖图检查两项通过，`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+
+### 2026-09-23 11:01 AEST — V2.1 本地安全收口、公开仓库瘦身与发布文档重建
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：本地部署安全、依赖升级、输入边界、日志隐私、移动端导航、公开仓库清理、README/安全/第三方声明与发布验证。
+- 涉及文件：`.env.example`、`.gitignore`、`AGENTS.md`、`Cargo.toml`、`Cargo.lock`、`apps/server/src/config.rs`、`deployment/docker-compose.yml`、`crates/ai-client/src/{client.rs,news.rs,provider.rs}` 及测试、`crates/storage/{Cargo.toml,src/lib.rs}`、`apps/web/{package.json,pnpm-lock.yaml,vite.config.ts,vitest.config.ts}`、`apps/web/src/{App.tsx,index.css,components/layout/{app-header.tsx,app-sidebar.tsx},i18n/locales/{zh.ts,en.ts},pages/v2_1-shell.test.tsx}`、`readme.md`、`readme.en.md`、`SECURITY.md`、`THIRD_PARTY_NOTICES.md`、`docs/{README.md,reviews/v2_1_code_audit_2026-09-23.md,plans/{v2_1_closeout_hardness.md,v2_1_productization_plan.md},reference/api-management.md}`、`CHANGE_LOG.md`；并从 Git 跟踪移除 `.gitignore` 中逐项列明的旧 dashboard/Studio/UI 组件、模板资源、原始网页抓取、阿里云部署脚本、PostgreSQL 草稿迁移和过期执行计划，原文件仍保留在维护者本机。
+- 变更内容：服务端默认监听与 Docker 宿主端口统一收紧到 `127.0.0.1`，明确无认证版本不得暴露到 LAN/公网；RSS 改为流式读取并限制 1 MiB，AI JSON 提取支持字符串与转义边界，解析失败日志不再写入完整模型正文；升级 `quick-xml`、`rustls`、Vite、Tailwind 与 React Router，移除生产依赖中的 shadcn CLI；公开构建只保留已接线的 SQLite 存储，未完成的 PostgreSQL adapter 不再制造支持错觉；顶栏补齐真实移动端 Sheet 导航并删除无效账户菜单，Vite 8 路径写法与 coverage 旧文件引用一并清理。中英文 README 按当前 V2.1 功能、启动方式、真实数据/AI 边界重写，新增安全政策、第三方代码/策略/架构引用和最终审查记录。测试中的仿真密钥改用不会被 secret scanner 误判的占位文本；全仓扫描未发现真实密钥、个人绝对路径或微信临时路径。
+- 风险结论：`pnpm audit --prod` 为 0；`cargo audit` 仅剩 `rsa 0.9.10 / RUSTSEC-2023-0071`（无可用修复），`cargo tree -i rsa --workspace` 显示支持的 SQLite workspace 没有活动依赖路径，因此作为 lock-only 中风险在 `SECURITY.md` 中公开记录，未使用 allowlist 隐藏。ECharts 两个生产 chunk 超过 500 kB 仍是已知性能债务；无认证 API 仍只支持本机回环。
+- 验证：`cargo test --workspace` 全部通过（真实网络/OpenD 写单 smoke 按设计 ignored）；`cargo test -p core-domain` 13 项包含于全仓测试；`cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 和 `git diff --check` 通过；`pnpm --dir apps/web test:coverage` 78 项通过，Statements 94.41%、Branches 90.10%、Functions 94.94%、Lines 97.10%；`pnpm --dir apps/web audit --prod` 为 0。生产构建仅保留已记录的两个大 chunk warning。
+
+### 2026-09-23 00:34 AEST — 顶栏品牌标识与 V2.1 全仓上线审查
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端品牌、聚焦测试、全仓代码/依赖/安全审查与收口建议。
+- 涉及文件：`apps/web/src/components/layout/app-header.tsx`、`apps/web/src/pages/v2_1-shell.test.tsx`、`docs/reviews/v2_1_code_audit_2026-09-23.md`、`CHANGE_LOG.md`。
+- 变更内容：将全局顶栏左上角的临时字母图标与重复文字替换为项目现有 `apps/web/public/logo.png` 蓝绿色横版 Logo，并保留返回个人中心的可访问链接；新增壳层测试，锁定 Logo 路径、首页链接和无重复 wordmark。对 Rust workspace、React/Vite 前端、API 暴露面、AI/行情会话配置、依赖锁文件和未引用代码完成一次 V2.1 上线审查，记录默认 `0.0.0.0` + 无认证 API、Rust/npm 已知依赖公告、移动端无可用导航、AI JSON 提取与日志隐私问题、无效交互、bundle 体积及可裁撤旧页面/资源，并给出五步修复顺序；本次不擅自改写上述产品/部署边界。
+- 技能影响：`frontend-design` 用于选择项目既有横版品牌资产、控制其在 72px 顶栏中的视觉尺寸并避免重复品牌文字；`vercel-react-best-practices` 用于确认路由级懒加载现状、识别仍需拆分的 ECharts 大 chunk，并保持本次品牌改动不引入额外组件状态或运行依赖。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/v2_1-shell.test.tsx`（29 项）、`pnpm --dir apps/web test:coverage`（77 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`cargo test -p core-domain`（13 项）与 `git diff --check` 通过；生产构建保留两个超过 500 kB 的 chunk 警告。`cargo-audit` 报告 4 个漏洞与 2 个 warning，`pnpm audit --prod` 报告 36 条公告，均已按实际运行链路在审查文档中分级。
+
+### 2026-09-23 00:08 AEST — AI 草案改为表单配置后由服务端确定性编译
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI 策略草案契约、服务端安全编译、错误分层、策略工坊校验、公开 API 文档与聚焦测试。
+- 涉及文件：`crates/ai-client/src/{client.rs,copilot.rs,mock.rs}`、`crates/ai-client/tests/openai_compatible_client.rs`、`crates/api/src/{error.rs,state.rs,routes/strategies.rs}`、`crates/api/tests/strategies.rs`、`apps/web/src/{api/queries.ts,pages/strategy-builder/{index.tsx,model.ts,model.test.ts,page.test.tsx}}`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：修复“回测解释可用、自然语言策略草案却失败”的契约不对称。策略草案不再要求模型直接生成完整 `StrategySpecDocument`、内部 policy identity 或 evidence ID，而是把与页面完全一致的 Strategy Workshop V1 表单模板和用户目标发送给模型；模型只填写最多三条规则、每条三个条件以及固定四档机会额度。服务端掌控 policy ID/version 和可信证据，把用户可读百分数转换为领域小数，确定性编译为 DSL 并重新执行全部领域校验。前后端观察窗口统一为 DSL 实际支持的 2–365 个交易日；用户描述限制为 500 字。供应商不可用继续返回 `503 service_unavailable`，模型外层响应错误改为 `502 ai_response_invalid`，可解析但越过表单边界改为 `502 ai_draft_invalid`，策略工坊分别给出可行动提示且不暴露模型原文或凭据。
+- 技能影响：`frontend-design` 用于保持失败反馈在原 AI 卡片内、使用既有低饱和琥珀提示而不新增干扰性弹窗；`vercel-react-best-practices` 用于继续以 React Query mutation 承载显式 AI 请求，只把未保存描述与候选保留为组件局部状态，不复制或持久化服务端策略数据。
+- 验证：`cargo test -p ai-client -p indexlink-api -p core-domain -p indexlink-server`（AI 客户端 104 项单元测试、14 项本地兼容协议集成测试及文档测试通过，2 项真实网络测试按设计忽略；API 全部单元/集成测试通过；core-domain 13 项；server 38 项通过、1 项真实 OpenD smoke 按设计忽略）、`cargo clippy -p ai-client -p indexlink-api -p indexlink-server --all-targets -- -D warnings`、`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/model.test.ts src/pages/strategy-builder/page.test.tsx src/pages/v2_1-shell.test.tsx vite.config.test.ts`（41 项）、`pnpm --dir apps/web test:coverage`（76 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint` 与 `pnpm --dir apps/web build` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 23:55 AEST — AI 页面统一优先本次运行连接
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI profile 选择修复、前端行为、聚焦测试。
+- 涉及文件：`apps/web/src/{api/queries.ts,pages/strategy-builder/page.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：修复服务器同时暴露环境变量 Qwen profile 与高级实验室 QwenCloud 会话 profile 时，策略工坊默认选择列表第一项 `Qwen · qwen-plus`，导致已验证的 QwenCloud 连接未被使用的问题。所有复用 `useAiProviders` 的 AI 页面现在都会把 `session-*` 本次运行连接排在首位并作为默认选择；用户仍可在下拉框手动切换到其他已部署 profile。聚焦测试覆盖“旧 Qwen 在前、QwenCloud 会话在后”的真实返回顺序，并断言草案请求发送 `session-qwen-cloud`。
+- 技能影响：`frontend-design` 用于保持模型选择器不增加额外控件，只通过符合用户最新显式配置意图的默认顺序修复交互歧义。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/page.test.tsx src/pages/v2_1-shell.test.tsx`（31 项）、`pnpm --dir apps/web test:coverage`（75 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`cargo test -p core-domain`（13 项）与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 23:35 AEST — AI 真实连通性验证与 QwenCloud 超时修正
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI provider 诊断、请求超时、公开 API、前端交互、文档与聚焦测试。
+- 涉及文件：`crates/ai-client/src/{provider.rs,client.rs}`、`crates/api/src/{state.rs,routes/ai_session_provider.rs}`、`crates/api/tests/ai_session_provider.rs`、`apps/web/src/{api/{types.ts,queries.ts},pages/{lab/index.tsx,v2_1-shell.test.tsx}}`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：QwenCloud 控制台显示调用成功且平均首轮耗时约 29.2 秒，而会话客户端原超时为 30 秒，表明供应商可能已成功但本地在响应返回前先行超时；因此只把 QwenCloud 会话调用上限放宽至 90 秒，其余 provider 仍为 30 秒。新增 `POST /ai/session-provider/test` 与高级实验室“验证 AI 可用性”按钮，仅由用户手动发起最小文本请求，并将认证、权限/计费、模型、限流、网络和响应格式问题映射为安全可操作提示，不保存提示词、响应或密钥。没有引入 Agent 编排层，因为当前故障发生在 provider 传输/等待边界，编排层不会修复底层超时。
+- 技能影响：`frontend-design` 用于把验证状态设计成低饱和、紧凑且不扩宽侧栏的行内反馈，并明确区分“凭据已保存”“连接已验证”和“验证未通过”。
+- 验证：`cargo test -p ai-client`（104 项单元测试、14 项兼容适配集成测试及文档测试通过；2 项真实网络测试按设计忽略）、`cargo test -p indexlink-api`（全部单元、集成与文档测试通过）、`cargo test -p indexlink-server`（38 项通过、1 项真实 OpenD smoke 按设计忽略）、`cargo test -p core-domain`（13 项）、`cargo clippy -p ai-client -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all`、`pnpm --dir apps/web exec vitest run src/pages/v2_1-shell.test.tsx`（28 项）、`pnpm --dir apps/web test:coverage`（75 项；Statements 94.27%、Branches 90.12%、Functions 94.24%、Lines 96.82%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 23:05 AEST — QwenCloud 与阿里云百炼会话适配分离
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI provider 适配、前端配置、公开 API 文档、聚焦测试。
+- 涉及文件：`crates/api/src/routes/ai_session_provider.rs`、`crates/api/tests/ai_session_provider.rs`、`apps/web/src/{api/types.ts,pages/{lab/index.tsx,v2_1-shell.test.tsx}}`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：为高级实验室新增独立的 `qwen_cloud` 会话服务商，固定使用 QwenCloud Pay-As-You-Go OpenAI-compatible endpoint `https://maas.qwencloudapi.com/compatible-mode/v1`，页面默认模型为 `qwen3.8-max`；原 `qwen` 明确重命名为“阿里云百炼 / DashScope”并继续使用 `qwen-plus`。两种 Qwen 服务仍由服务端固定 endpoint，浏览器不能提交任意 URL，Key 只停留在当前 Rust 进程内存。
+- 技能影响：`frontend-design` 用于把两个同名但凭据不互通的 Qwen 服务拆成清楚的用户选项，并用 `sk-ws-` 提示降低再次选错服务商的概率。
+- 验证：`cargo test -p core-domain`（13 项）、`cargo test -p indexlink-api`（全部单元、集成与文档测试）、`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web test:coverage`（74 项；Statements 94.21%、Branches 90.17%、Functions 94.22%、Lines 96.79%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 22:35 AEST — AI 凭据状态、失败指引与策略工坊宽度收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：前端布局修复、AI 状态语义、错误提示、聚焦测试。
+- 涉及文件：`apps/web/src/{api/queries.ts,pages/{lab/index.tsx,personal/index.tsx,strategy-analysis/index.tsx,strategy-builder/{index.tsx,page.test.tsx},v2_1-shell.test.tsx}}`、`CHANGE_LOG.md`。
+- 变更内容：为策略工坊 AI 区域和高级实验室展开卡补齐 `min-width: 0`、受限网格列及溢出保护，避免本次运行的长 provider/model 名称撑宽页面并覆盖左侧导航；把会话配置状态从容易误解的“已配置”改为“凭据已保存、尚未验证”，明确第一次手动 AI 动作才访问供应商；统一将 AI 503 转成可操作的 Key、模型、额度与网络检查提示，不再向普通用户显示 `service is unavailable`，并覆盖草案、回测解释和个人摘要三处入口。
+- 诊断结果：使用本地 `DASHSCOPE_API_KEY` 发起不落库的最小 DashScope 请求，供应商返回 HTTP 401 `invalid_api_key`；未输出或记录完整凭据。
+- 技能影响：`frontend-design` 用于收紧高风险凭据状态文案和失败后的下一步指引，并维持既有低饱和布局，不增加额外装饰。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/page.test.tsx src/pages/v2_1-shell.test.tsx`（30 项）、`pnpm --dir apps/web test:coverage`（74 项；Statements 94.21%、Branches 90.17%、Functions 94.22%、Lines 96.79%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 22:10 AEST — 修复本地 AI 配置请求未进入 Rust API
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：本地开发代理修复、聚焦测试。
+- 涉及文件：`apps/web/vite.config.ts`、`apps/web/vite.config.test.ts`、`CHANGE_LOG.md`。
+- 变更内容：补齐 Vite 对 `/ai` 与 `/personal` 的本地 API 代理。此前高级实验室提交 `/ai/session-provider` 时请求停留在前端开发服务器，因而无论 Key 是否正确都会显示“连接配置未保存”；现在会转发至 `127.0.0.1:8080`，个人中心手动 AI 摘要也复用同一正确边界。
+- 验证：`pnpm --dir apps/web exec vitest run vite.config.test.ts`（2 项）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 21:20 AEST — 高级实验室会话 AI 配置与策略工坊导航修复
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：旧能力退役、会话级 AI 配置、前端信息架构、公开 API、安全边界、文档与聚焦测试。
+- 涉及文件：`crates/api/src/{state.rs,routes/{mod.rs,ai_session_provider.rs,session_market_data.rs,paper_performance.rs}}`、`crates/api/tests/{ai_session_provider.rs,session_market_data.rs,paper_performance.rs}`、`apps/web/src/{api/{queries.ts,types.ts},components/v2_1/{strategy-center-nav.tsx,legacy-replay-panel.tsx},pages/{lab/index.tsx,strategy-center/index.tsx,strategy-builder/{index.tsx,page.test.tsx},v2_1-shell.test.tsx},i18n/locales/{zh.ts,en.ts}}`、`apps/web/PLAN.md`、`docs/{reference/api-management.md,plans/{v2_1_closeout_hardness.md,v2_1_productization_plan.md}}`、`readme.md`、`CHANGE_LOG.md`。
+- 变更内容：彻底删除高级实验室的旧 MA200 回放组件、前端 query/type、后端 `GET /paper-performance/historical-backtest` 兼容端点及专用计算代码，产品回测只保留统一真实策略回测；新增 `POST/DELETE /ai/session-provider`，允许用户在高级实验室输入 Qwen、GPT、Claude 或 DeepSeek 的模型名和 API Key，服务端固定四家 HTTPS endpoint/协议，只在当前 Rust 进程内存持有凭据且响应永不回传 Key，重启或手动清除即失效；新增 `POST/DELETE /market-data/session-opend`，允许页面输入 loopback OpenD host/port，并立即装配本次进程的只读行情与真实回测来源，不接受账户 ID、不创建 broker 或订单权限。保存两类配置均不主动调用外部服务，草案、解释、摘要、高级新闻情绪和行情读取仍需分别手动触发。策略中心胶囊导航在 `/strategy-builder` 常驻，原“我的策略”统一改为“策略工坊”，避免与已保存个人策略列表混淆。
+- 技能影响：`frontend-design` 用于把高风险凭据配置收拢为单一、低噪声且先说明生命周期的表单，并保持现有低饱和墨绿视觉；其余基础设施卡只陈述真实启动边界，不伪装成可热切换连接。
+- 验证：`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo test -p core-domain`（13 项）、`cargo test -p indexlink-api`（全部单元/集成/文档测试，含会话凭据不回传、OpenD loopback/read-only 边界、清除与旧端点 404）、`cargo test -p indexlink-server`（38 项通过、1 项真实 OpenD smoke 按设计忽略）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（71 项；Statements 94.20%、Branches 90.05%、Functions 94.22%、Lines 96.79%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 19:50 AEST — V2.1 手动 AI 助手与四供应商适配
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：AI provider 边界、受限策略草案、真实回测解释、个人中心摘要、前端交互、公开 API、配置文档与聚焦测试。
+- 涉及文件：`crates/ai-client/src/{client.rs,guidance.rs,lib.rs,mock.rs,provider.rs}`、`apps/server/src/{config.rs,main.rs}`、`crates/api/src/{state.rs,routes/{mod.rs,ai_assistance.rs,strategy_backtests.rs}}`、`crates/api/tests/{ai_assistance.rs,strategy_backtests.rs}`、`apps/web/src/{api/{queries.ts,types.ts},pages/{strategy-builder/{index.tsx,model.ts,model.test.ts,page.test.tsx},strategy-analysis/index.tsx,personal/index.tsx,lab/index.tsx,v2_1-shell.test.tsx},i18n/locales/{zh.ts,en.ts}}`、`.env.example`、`readme.md`、`apps/web/PLAN.md`、`docs/{reference/api-management.md,plans/v2_1_productization_plan.md}`、`CHANGE_LOG.md`。
+- 变更内容：新增统一的有界只读解释契约与 `read_only_explanations` capability；`AI_PROVIDER_PROFILES` 可按协议选择 Qwen/DeepSeek 的 OpenAI-compatible Chat Completions、GPT 的 OpenAI Responses 或 Claude Messages，密钥仍只由本地服务端环境变量读取。个人策略工坊新增“自然语言 → 受限草案”，模型结果必须重新映射到最多三条规则、每条三个条件及固定机会额度动作，用户显式放入表单后才可继续验证与保存。新增 `POST /strategy-backtests/explain`，服务端重算同一真实回测后只发送紧凑指标、假设、来源和 checksum，并返回不落库的普通语言解释；新增 `POST /personal/ai-summary`，只读取本机计划与最近 20 条决策/手工确认状态并返回一次性小摘要。三项能力均只能由页面按钮手动调用，不进入 scheduler、自动建议、计划变更或下单；新闻情绪继续留在高级实验室。同步把运行状态文案从 Qwen 收口为 provider-neutral AI。
+- 技能影响：`openai-docs` 用于确认 GPT 使用当前 Responses API 且不为新模型发送已不适用的 temperature；`frontend-design` 用于把三处 AI 能力设计为低强调、可选、先披露数据边界再操作的卡片；`vercel-react-best-practices` 用于继续以 React Query 管理 provider 列表与手工 mutation，不把 AI 响应放入 Valtio 或持久状态。
+- 验证：`cargo test -p ai-client -p indexlink-server`（ai-client 102 项单元测试、14 项兼容适配集成测试及文档测试通过；2 项真实网络测试按设计忽略；server 38 项通过、1 项真实 OpenD smoke 按设计忽略）、`cargo test -p indexlink-api`（全部单元/集成/文档测试通过，含新增个人摘要与回测解释测试）、`cargo test -p core-domain`（13 项）、`cargo clippy -p ai-client -p indexlink-api -p indexlink-server --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（71 项；Statements 94.61%、Branches 90.06%、Functions 95.09%、Lines 96.95%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过。生产构建仅保留既有策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 07:53 AEST — 个人策略前端发现、精确版本分析与五 Push 收口（Push 5）
+
+- 执行模型：GPT-5 Codex（多 Agent；主线程完成前端集成、页面验收与五个 Push 总体验证）。
+- 变更类型：策略中心信息架构、个人策略导航、精确版本回测选择、React Query/Valtio 状态边界、前端测试与 V2.1 计划同步。
+- 涉及文件：`apps/web/src/{api/types.ts,stores/ui.ts,components/{layout/app-sidebar.tsx,v2_1/strategy-center-nav.tsx},i18n/locales/{zh.ts,en.ts},pages/{strategy-center/index.tsx,strategy-analysis/index.tsx,strategy-builder/page.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/plans/v2_1_productization_plan.md`、`CHANGE_LOG.md`。
+- 变更内容：策略中心新增与官方方法家族分离的“我的个人策略”区域，展示个人来源、生命周期、状态和不可变版本，并提供创建、精确版本分析及建立计划入口；侧边栏和策略中心导航加入“我的策略工坊”。策略分析的浏览器状态从策略 ID 升级为 `policy.id + policy.version`，回测请求统一发送 `strategy_refs`，深链、选择和提交均冻结同一版本且同一 policy 不允许同时选择多个版本，避免图表 series ID 冲突；服务端目录数据仍由 React Query 管理，Valtio 只保存临时分析选择。同步收口前端/API 类型、中文和英文文案、计划状态与个人策略页面测试。
+- 技能影响：`frontend-design` 用于将个人策略设计为独立、低噪声的内容层级并延续现有低饱和墨绿视觉；`vercel-react-best-practices` 用于维持服务端目录由 React Query 管理、临时筛选由 Valtio 管理，并以稳定的精确版本 key 避免错误重渲染；`browser:control-in-app-browser` 用于本地验证策略工坊新增条件交互、策略中心个人区域和控制台状态。
+- 验证：`cargo test -p core-domain`（13 项）、`cargo test -p indexlink-api`（全部单元/集成/文档测试）、`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（66 项；Statements 94.78%、Branches 90.46%、Functions 95.60%、Lines 96.84%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；浏览器确认个人策略工坊与策略中心加载、交互正常且无 console error/warning。生产构建仅保留既有策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-22 00:08 AEST — 个人策略计划准入与建议运行时闭环（Push 4）
+
+- 执行模型：GPT-5 Codex（多 Agent；计划运行时 Agent 实现，主线程修复固定定投输入回归并提交）。
+- 变更类型：计划版本冻结、Formula 数据准入、建议运行时解析、入站 DTO 安全与 API 集成测试。
+- 涉及文件：`crates/api/src/{state.rs,routes/{investment_plans.rs,decision_preview.rs}}`、`crates/api/tests/strategies.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：新增统一 `executable_plan_formula`，按 exact policy ID/version 从官方注册表或 SQLite 个人存储重建公式；创建、更新与激活计划统一执行标的/币种、真实预算、指标、最长 lookback、行情完整性及时效预检，不支持的固定金额动作、VIX 数据依赖和缺失行情能力均故障关闭且不落库。计划 DTO 拒绝客户端注入 `formula`，自动建议与 decision preview 只运行服务端保存的同一不可变版本。集成时恢复 Fixed DCA 的市场代码与币种校验，避免非 Formula 路径绕过输入边界。
+- 验证：`cargo test -p indexlink-api --test strategies`（9 项）、`--test decision_preview`（17 项）、`--test investment_plans`（10 项）、`--test strategy_catalog`（7 项）、`cargo test -p core-domain`（13 项）、`cargo clippy -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+
+### 2026-09-21 22:30 AEST — 个人策略接入真实回测与精确版本对比（Push 3）
+
+- 执行模型：GPT-5 Codex（多 Agent；回测 Agent 实现，主线程审查与提交）。
+- 变更类型：动态回测请求契约、个人策略解析、故障关闭、API 文档与集成测试。
+- 涉及文件：`crates/api/src/routes/strategy_backtests.rs`、`crates/api/tests/strategy_backtests.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：`POST /strategy-backtests` 新增最多三项的 `strategy_refs[{policy_id,policy_version}]`，官方与本机个人 Formula 均按精确不可变版本进入同一 `run_dynamic_backtest`；旧 `strategy_ids` 仅保留为官方目录兼容入口，禁止与新字段混用。不存在/错版返回 400，损坏存储返回 503，绝不切换最新版、Fixed DCA 或演示策略；策略解析提前到行情读取前，避免无效引用触发外部数据请求。响应继续冻结真实策略 ID、版本和名称，可与官方 Fixed DCA 在同一标的、窗口、投入节奏和成本口径下比较。
+- 验证：`cargo test -p indexlink-api --test strategy_backtests`（8 项）、`cargo test -p core-domain`（13 项）、`cargo fmt --all -- --check` 与 `git diff --check` 通过；覆盖个人/官方同窗回测、错误版本、缺失版本、重复引用、双字段冲突与损坏 SQLite 文档。
+
+### 2026-09-21 22:25 AEST — 受限个人策略可视化构造器（Push 2）
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：个人策略工坊、Formula V1 安全映射、前端路由、React Query 缓存与聚焦测试。
+- 涉及文件：`apps/web/src/{App.tsx,api/queries.ts,pages/strategy-builder/{index.tsx,model.ts,model.test.ts}}`、`CHANGE_LOG.md`。
+- 变更内容：新增 `/strategy-builder` 普通用户策略工坊，以“指标—观察窗口—比较—机会额度”句式构造个人 Formula V1；最多三条优先规则、每条最多三个条件，动作固定为跳过或 50%/100%/120% 机会额度，核心桶不可被规则取消。用户不再填写 policy ID 或版本，页面生成合法的本机个人 ID，经现有 `/strategies/validate` 重建领域类型后才保存不可变 v1；百分比输入在边界处转换为公式 decimal，拒绝任意代码、任意倍率和非法窗口。保存成功同时失效个人版本与统一目录缓存。
+- 技能影响：`frontend-design` 用于把编辑器设计成可阅读的规则句式与单一保存出口，延续现有低饱和墨绿体系；`vercel-react-best-practices` 用于保持草稿为本地表单状态、服务端校验/保存交给 React Query，并避免把服务端策略写入 Valtio。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/strategy-builder/model.test.ts`（5 项）与 `pnpm --dir apps/web exec tsc -b --pretty false` 通过；集成完成后再统一执行完整 lint、覆盖率和生产构建。
+
+### 2026-09-21 22:20 AEST — 个人策略统一目录契约（Push 1）
+
+- 执行模型：GPT-5 Codex（多 Agent；目录契约 Agent 实现，主线程审查与提交）。
+- 变更类型：统一策略目录、个人策略状态投影、API 聚焦测试与实施 Hardness。
+- 涉及文件：`crates/api/src/routes/strategy_catalog.rs`、`crates/api/tests/strategy_catalog.rs`、`docs/plans/personal_strategy_catalog_push1.md`、`CHANGE_LOG.md`。
+- 变更内容：`GET /strategy-catalog` 在既有 101 个官方版本之后追加本机 SQLite 中的不可变个人 Formula 版本；每项明确返回 `origin`、`lifecycle` 与 `status`，并继续以完整 `policy.id + policy.version` 作为唯一身份。个人文档在目录投影前重新经过领域校验；倍率/跳过版本复用固定样本准入，当前运行时不支持的固定金额动作只标记为已验证且不可建立计划。复用既有不可变主键，不新增数据库迁移。
+- 验证：新增个人多版本目录、不可覆盖、可用/仅验证状态测试通过；官方 101 条目录回归通过；`cargo test -p indexlink-api --test strategies`（8 项）、`cargo test -p core-domain`（13 项）、`cargo fmt --all -- --check` 与 `git diff --check` 通过。完整目录测试暂受并行中的计划绑定修改影响，留待五个 Push 集成后统一复跑。
+
+### 2026-09-21 21:18 AEST — 可审计的专业研究公式与资金路径
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：动态回测公开契约、专业研究信息架构、风险与资金可视化、API 文档、聚焦测试与计划同步。
+- 涉及文件：`crates/strategy-evaluation/src/{lib.rs,dynamic_backtest.rs}`、`crates/api/tests/strategy_backtests.rs`、`apps/web/src/{api/types.ts,stores/ui.ts,pages/{strategy-analysis/index.tsx,strategy-analysis/research-view.tsx,strategy-analysis/research-chart-options.ts,strategy-analysis/interactive-chart.tsx,strategy-analysis/market-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：`POST /strategy-backtests` 的每条 series 新增逐日峰值相对回撤、最大回撤峰值/低点/恢复日、区间日数、日收益样本数、平均日收益、样本标准差、下行偏差、年化常量、累计模拟成本、规则命中/标准执行次数；每个 execution point 冻结本期预算、核心投入、机会投入、未投入现金和交易成本。专业研究以真实指标表为入口，点击任一指标可查看公式、口径和每条策略的本次代入值；新增资金与执行事实表、可缩放回撤图和每期资金堆叠图，所有结果来自同一次真实 API 响应，不在浏览器生成第二套收益结论。最大回撤以负百分比展示损失方向，Fixed DCA 的规则命中明确为 0，5 bps 成本从模拟买入现金支出中扣除后再换算资产单位。
+- 技能影响：`frontend-design` 用于保持现有低饱和层级，让指标表承担导航、公式面板承担解释、图表只展示路径；`vercel-react-best-practices` 用于把图表 option 纯函数化并用 `useMemo` 避免无关重算，React Query 继续管理服务端回测数据、Valtio 只保存当前指标与资金拆分策略；`browser:control-in-app-browser` 用于真实 OpenD 页面验证公式切换、布局、两张交互图和控制台状态。
+- 验证：`cargo test -p core-domain`（13 项）、`cargo test -p strategy-evaluation`（22 项）、`cargo test -p indexlink-api --test strategy_backtests`（5 项）、`cargo clippy -p strategy-evaluation -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（59 项；Statements 94.56%、Branches 91.02%、Functions 95.37%、Lines 96.73%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；浏览器确认真实 US.SPY OpenD 回测可切换年化收益公式并显示 `1093` 天和 `365.25` 的代入过程，回撤路径、峰谷恢复日、37 期资金拆分均正常，页面无 section 横向溢出，控制台无 error/warning。生产构建仅保留既有 ECharts 路由 chunk 超过 500 kB 的体积提示。
+
+### 2026-09-21 17:24 AEST — 回测图悬浮与规则触发点修正
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：图表交互修复、动态回测公开契约、策略信号表达、聚焦测试与文档同步。
+- 涉及文件：`crates/strategy-evaluation/src/dynamic_backtest.rs`、`crates/api/tests/strategy_backtests.rs`、`apps/web/src/{api/types.ts,pages/{strategy-analysis/index.tsx,strategy-analysis/chart-options.ts,strategy-analysis/market-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：净值曲线为 ECharts 悬浮态显式继承策略色，避免进入 emphasis 后 SVG 折线丢失 `stroke`、只剩活动点；动态回测的每个 `execution_point` 新增 `strategy_rule_matched`，保留全部共同计划日记录的同时标明 Formula 是否真正命中规则。价格图将 Formula 规则命中点同时叠加到复权价格线和下方策略轨道，Fixed DCA 仍展示全部计划日；上下网格统一时间轴宽度，不再把每个公共评估日误画成每条 Formula 的独有信号。
+- 技能影响：`frontend-design` 用于复用既有低饱和策略色与形状编码，把唯一视觉重点放在价格线上的真实规则触发点；`browser:control-in-app-browser` 用于真实页面复现并验证悬浮折线、价格线标记、分策略触发日期和上下时间轴对齐。
+- 验证：`cargo test -p strategy-evaluation`（21 项）、`cargo test -p indexlink-api --test strategy_backtests`（5 项）、`cargo test -p core-domain`（13 项）、`cargo clippy -p strategy-evaluation -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、前端聚焦测试（26 项）、`pnpm --dir apps/web test:coverage`（Statements 94.61%、Branches 90.59%、Functions 95.49%、Lines 96.76%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；浏览器确认悬浮时折线路径颜色仍保留，三条 Formula 在价格线与各自轨道分别显示 9/10/15 个规则触发点，两个区域日期一一对应。生产构建仅保留既有策略分析 chunk 超过 500 kB 的体积提示。
+
+### 2026-09-21 16:51 AEST — 可缩放回测曲线与分策略执行轨道
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略分析交互图表、买点信息表达、前端依赖与聚焦测试。
+- 涉及文件：`apps/web/{package.json,pnpm-lock.yaml,vitest.config.ts}`、`apps/web/src/pages/strategy-analysis/{index.tsx,chart-options.ts,interactive-chart.tsx,market-execution.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：策略分析的净值曲线和真实价格/执行图由静态 Recharts 展示改为按需路由内的 Apache ECharts SVG 图表，统一提供鼠标滚轮缩放、拖动平移与底部时间滑块；真实价格与策略动作图改成上下联动布局，每个策略独占执行轨道，并使用固定大小、不同形状和既有策略色的标记，不再用圆点面积表达投入金额。悬停只展示当前价格点或当前模拟投入点，金额与本期预算使用比例保留在单点提示中；同日多策略通过独立轨道和共享时间指示线区分。保持 `POST /strategy-backtests`、React Query 缓存和真实行情 checksum 不变，没有增加第二次行情请求。
+- 技能影响：`frontend-design` 用于把唯一视觉重点放在“价格走势＋执行轨道”的时间关系上，删除模糊的点面积编码并保持现有低饱和视觉；`vercel-react-best-practices` 用于将 ECharts 注册、生命周期和 resize 隔离到单一组件，用 memo 化纯 option 构造避免无关重绘，并保持图表依赖只进入策略分析路由 chunk；`browser:control-in-app-browser` 用于在真实本地 API 页面核验价格曲线、执行轨道、单点 Tooltip、滚轮事件接管和控制台错误。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（58 项；Statements 94.54%、Branches 90.56%、Functions 95.39%、Lines 96.72%）、`pnpm --dir apps/web build`、`cargo test -p core-domain` 与 `git diff --check` 通过；真实浏览器核验确认图表 SVG 正常渲染、滚轮缩放不会带动页面滚动、单点 Tooltip 不再展开整条轨道，控制台无 error/warning。生产构建保留策略分析 ECharts chunk 超过 500 kB 的体积提示。
+
+### 2026-09-21 09:35 AEST — 真实股价走势与策略模拟投入点
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：动态回测公开契约、策略执行快照、直观分析图表、API 文档、计划状态与聚焦测试。
+- 涉及文件：`crates/strategy-evaluation/src/{lib.rs,dynamic_backtest.rs}`、`crates/api/tests/strategy_backtests.rs`、`apps/web/src/{api/types.ts,pages/{strategy-analysis/index.tsx,strategy-analysis/market-execution-model.ts,strategy-analysis/market-execution.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/{PLAN.md,vitest.config.ts}`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：`POST /strategy-backtests` 在原有归一化净值与专业指标之外，新增同一共同有效窗口内的 `market_points` 复权收盘价，以及每个策略的 `execution_points`；每个模拟投入点冻结日期、成交使用的复权收盘价、投入金额和本期预算使用比例，继续遵守此前收盘证据、共同计划日、5 bps 成本与单期预算边界。直观视角新增“标的走势与模拟投入点”图，与净值图共享同一次 React Query 响应和数据 checksum，不发起第二次行情请求；同日多策略点横向轻微错开，点大小表达预算使用率，Tooltip 展示策略、金额与比例，并明确这些是历史规则执行结果而非最佳买点预测。同步把投入点数据组装拆为独立纯函数，补齐无投入日、窗口外记录、同日多策略、极端点大小和 Tooltip 空/有数据态测试。
+- 技能影响：`frontend-design` 用于将真实价格线保持为安静底图，仅用现有策略色强调模拟投入动作，并以原位说明代替新增复杂控件；`vercel-react-best-practices` 用于复用单一服务端响应、以 `useMemo` 派生图表数据，并把纯数据组装从页面组件中分离以保持 Fast Refresh 边界。
+- 验证：`cargo test -p strategy-evaluation`（21 项）、`cargo test -p indexlink-api --test strategy_backtests`（5 项）、`cargo test -p core-domain`（13 项）、`cargo clippy -p strategy-evaluation -p indexlink-api --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（58 项；Statements 93.94%、Branches 90.23%、Functions 93.63%、Lines 95.97%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-20 22:15 AEST — 回测净值轴解释与重合曲线显式化
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略分析可解释性、重合曲线可视化、行情依赖失败态与前端聚焦测试。
+- 涉及文件：`apps/web/src/pages/{strategy-analysis/index.tsx,v2_1-shell.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：将直观回测主图明确命名为“策略净值指数（起点 = 100）”，在 Y 轴、Tooltip 和图上说明中统一解释 100/110/95 的含义，说明该指标不是股价或账户金额，而是在剔除新增投入影响后连接“持仓市值 + 未投入现金”每日变化形成的时间加权净值。新增归一化序列重合检测：当两条完整日线的净值指数差不超过 0.01 时，后绘制曲线改用虚线露出下方实线，并列出重合策略与原因，避免被误认为策略未返回。数据来源条将 `opend` 明确显示为“本机 OpenD”，披露真实回测需要可用行情源或精确缓存；503 失败态改为明确的数据连接说明并提供高级实验室入口，仍不回退演示曲线。
+- 技能影响：`frontend-design` 用于把净值读法设为页面唯一教学重点，以低饱和说明条和虚实线差异解决重合问题，不增加新的大卡片层级。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（55 项）、`pnpm --dir apps/web test:coverage`（Statements 93.80%、Branches 90.40%、Functions 93.75%、Lines 95.97%）、`pnpm --dir apps/web build`、`cargo test -p core-domain` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-20 20:30 AEST — 参数化命名与计划入口收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：策略目录展示契约、我的计划信息架构、策略卡操作层级、公开 API 文档与聚焦测试。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/strategy_catalog.rs}`、`crates/api/tests/strategy_catalog.rs`、`apps/web/src/{components/v2_1/strategy-card.tsx,pages/{plans/index.tsx,plans/minimal-plan.test.tsx,strategy-center/index.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：保留全部不可变 policy ID、版本和内部公式名称，同时为目录增加由实际窗口生成的参数化展示名；`preset.name` 从“灵敏 / 稳健 / 长期”等定性档位改成 `20日`、`20/50日` 或 `趋势150日 / 波动63日` 等可核验参数，`价格与指数均线` 简化为 `价格与指数`。我的计划页移除重复的 100 张策略选择卡，改为在“你的长期计划”标题旁常驻“建立新计划”并跳转策略中心；只有策略中心携带精确 policy 深链返回时才显示单一配置表。策略中心把分析动作降为左侧文本链接，将建立计划的主按钮固定到卡片右下角；计划卡的策略说明同步读取目录新名称，但保留用户已有计划标题。
+- 技能影响：`frontend-design` 用于压缩重复入口并拉开“分析 / 建立”的视觉层级；`vercel-react-best-practices` 用于保持目录数据由 React Query 管理、移除不再需要的页面内选择状态，并继续使用长列表 `content-visibility`。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p indexlink-api official_strategies`、`cargo test -p indexlink-api --test strategy_catalog`、`cargo test -p core-domain`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（54 项；Statements 93.75%、Branches 90.58%、Functions 93.53%、Lines 96.26%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；本地真实 API 浏览器核验确认计划页不再出现策略卡墙，策略中心参数名与操作区层级符合预期。
+
+### 2026-09-20 AEST — Push 5：百预设策略中心与任意策略真实分析
+
+- 执行模型：GPT-5 Codex（多 Agent：策略中心与动态分析分文件并行；主线程整合深链状态、移除旧演示回退、补足覆盖率和计划文档）。
+- 变更类型：前端策略目录信息架构、真实 policy 导航与回测选择、API 类型、聚焦测试和 V2.1 计划状态。
+- 涉及文件：`apps/web/src/{api/types.ts,features/v2_1/{model.ts,model.test.ts},pages/{strategy-center/index.tsx,strategy-analysis/index.tsx,v2_1-shell.test.tsx},stores/ui.ts}`、`apps/web/PLAN.md`、`docs/plans/v2_1_productization_plan.md`、`CHANGE_LOG.md`。
+- 变更内容：策略中心不再平铺 101 张同质卡片，而把 Fixed DCA 单独作为共同基准，将 100 个 Formula 预设聚合为 20 个方法家族；支持规则/描述/标签搜索、类别筛选、家族内 5 档参数选择，并展示风险、最小日线、服务端校验、公开来源和限制。分析与建计划链接始终携带所选不可变 policy ID；策略分析移除三策略前端白名单，任意目录版本均可进入真实回测并最多比较三条，名称来自服务端、颜色按 policy ID 稳定生成，未知/下线 ID 明确失败且不降级成 DCA。URL 深链只初始化一次，之后尊重用户的比较选择。删除已无生产调用的三策略本地演示曲线和未知策略 DCA 回退。
+- 技能影响：`frontend-design` 用于维持低饱和、以家族而非卡片墙组织信息的视觉层级；`vercel-react-best-practices` 用于保持 React Query 管理目录/回测服务端状态、Valtio 只保存临时选择，并用 memo 与 `content-visibility` 控制大目录渲染。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（54 项；Statements 93.88%、Branches 90.50%、Functions 93.65%、Lines 96.55%）、`pnpm --dir apps/web build`、`cargo test -p core-domain` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-20 AEST — Push 4：100 个预设的批量质量门
+
+- 执行模型：GPT-5 Codex（多 Agent；质量门 Agent 落地测试，主线程根据实测耗时将固定样本准入压缩为每个家族一档，并完成整体验证）。
+- 变更类型：策略批量准入、重复规则检测、动态多市场建计划与真实回测回归测试。
+- 涉及文件：`crates/api/src/official_strategies.rs`、`crates/api/tests/{strategy_catalog.rs,strategy_backtests.rs}`、`CHANGE_LOG.md`。
+- 变更内容：对全部 100 个 Formula 预设生成仅含规则的规范化指纹，拒绝重复规则结构；逐一验证无固定金额动作、当期 1,000 预算安全，并从 20 个家族各取均衡档运行完整固定样本准入，要求两项资产均可计算且只影响弹性桶。新增预设 `dsl_price_sma_responsive@1` 进一步实际走通 US/HK/SH/SZ 四市场计划创建，以及 SH.600519 的 provider 日线真实回测，证明批量目录不是仅前端可见的静态条目。既有动态回测测试继续锁定相同共同窗口、执行日收盘价不可前视，以及回测与新计划一致的当期预算失效语义。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p indexlink-api official_strategies --lib`（含 20 家族完整准入，约 14 秒）、`cargo test -p indexlink-api --test strategy_catalog --test strategy_backtests`、`cargo test -p strategy-evaluation dynamic_backtest`、`cargo test -p core-domain` 与 `git diff --check` 通过。
+
+### 2026-09-20 AEST — Push 3：20 个策略家族与 100 个不可变预设
+
+- 执行模型：GPT-5 Codex（按用户要求启用多 Agent；主线程完成后端策略工厂、目录契约和验证，前端 Agent 并行准备分组浏览）。
+- 变更类型：官方 Formula 策略工厂、批量版本注册、策略目录元数据、公开 API 文档与聚焦测试。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/strategy_catalog.rs}`、`crates/api/tests/strategy_catalog.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：在统一注册表上加入 20 个可解释的中长线规则家族，每个家族提供灵敏、偏短期、均衡、稳健、长期 5 档不可变参数，共生成 100 个 Formula V1 策略版本；覆盖 SMA/EMA 趋势、均线交叉、绝对/双周期动量、RSI、价格分位、波动率、回撤和受限复合规则。原有 MA200 与增长/波动 policy ID、版本和公式保持不变；每个预设提供家族、参数档、标签、公开思想来源、适配声明和所需日线数。新增预设只使用通用价格指标，不绑定 SPY/VOO、不复制第三方交易代码，也不突破计划当期预算。目录对 98 个新增预设返回轻量 `compiled_formula` 元数据，按需读取精确公式和执行真实标的预检，避免一次响应重复携带大型研究结果。
+- 验证：`cargo fmt --all -- --check`、`cargo check -p indexlink-api`、`cargo test -p indexlink-api official_strategies --lib`（4 项注册表/重建测试）和 `cargo test -p indexlink-api --test strategy_catalog`（6 项目录/动态市场计划测试）通过；`git diff --check` 通过。
+
+### 2026-09-20 AEST — Push 2：回测与真实计划资金契约一致
+
+- 执行模型：GPT-5 Codex（多 Agent 并行审计，主线程完成共享工作区实现与验证）。
+- 变更类型：Formula 回测语义、指标预热不变量、聚焦测试与计划文档。
+- 涉及文件：`crates/strategy-dsl/src/lib.rs`、`crates/strategy-evaluation/src/dynamic_backtest.rs`、`docs/plans/dynamic_backtest_push2.md`、`CHANGE_LOG.md`。
+- 变更内容：修复 RSI `N` 日变化实际需要 `N + 1` 个收盘价、而预检少报一根的错误；动态回测不再固定使用 `carry_forward` 与 1.5 倍单次上限，改为与当前消费级建计划请求一致的 `expire_each_period` 和本期基础预算硬上限，因此未使用的机会预算不会在回测中滚存，超过 1.0 的机会桶倍率也不会产生真实计划无法执行的虚假加码。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p strategy-dsl`、`cargo test -p strategy-evaluation`、`cargo test -p core-domain` 与 `git diff --check` 通过；新增 RSI 15 根预热和 1.2 倍动作被真实单期上限约束的回归测试。
+
+### 2026-09-20 AEST — Push 1：统一官方策略注册表
+
+- 执行模型：GPT-5 Codex（按用户要求启用多 Agent；主线程在共享工作区整合后端注册表改造）。
+- 变更类型：后端策略注册、目录与回测准入去硬编码、聚焦测试。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/{strategy_catalog.rs,strategy_backtests.rs}}`、`CHANGE_LOG.md`。
+- 变更内容：新增包含 policy/version、产品文案、风险、数据需求、默认计划与 Formula 构造器的单一官方策略描述符注册表；`GET /strategy-catalog`、真实回测策略解析、保留 ID、官方存储映射和计划目录判断均从同一注册表派生，未知策略继续失败关闭；现有 Fixed DCA、MA200 与增长/波动策略的 HTTP 字段和行为保持兼容，为后续批量预设生成留下统一扩展点。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p indexlink-api official_strategies --lib`、`cargo test -p indexlink-api --test strategy_catalog --test strategy_backtests` 通过（2 项注册表单测、10 项目录/回测集成测试）；`git diff --check` 通过。
+
+### 2026-09-19 AEST — 动态多市场计划与 Formula 创建前预检
+
+- 执行模型：GPT-5 Codex（按用户要求启动多 Agent 分工；三个子 Agent 因并发额度中断，主线程逐项审查其残留改动并完成实现。使用 `frontend-design` 保持现有低饱和计划页风格，使用 `vercel-react-best-practices` 保持 React Query 服务端状态与事件驱动表单边界）。
+- 变更类型：官方策略目录契约、动态标的计划创建、Formula 行情预检、计划页市场/币种体验、小幅评估节奏改进、公开 API 文档与 V2.1 计划状态收口。
+- 涉及文件：`crates/api/src/{official_strategies.rs,routes/{investment_plans.rs,strategy_catalog.rs}}`、`crates/api/tests/strategy_catalog.rs`、`apps/web/src/{api/types.ts,pages/{plans/{index.tsx,minimal-plan.test.tsx},personal/{index.tsx,personal-execution.test.tsx},v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`docs/{plans/v2_1_productization_plan.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：删除官方 Formula 的 `SPY/VOO` 静态准入列表；`GET /strategy-catalog` 改为声明 US/HK/SH/SZ 支持市场与策略所需的最小日线观测数，并仅保留始终为空的弃用 `supported_symbols`。计划创建由服务端解析 market-qualified symbol、复核市场币种并规范化存储；Fixed DCA 继续在无行情 provider 时可用，Formula 则在落库前通过同一 `HistoricalPriceProvider` 检查最小窗口与十日内最近数据，历史不足/过期返回 `400`，provider 或数据集不可用返回 `503`，不回退 DCA、不保存半成品计划。计划页按代码动态显示 USD/HKD/CNY、数据需求与可理解错误，Formula 将执行文案改为评估文案且周度评估只提供工作日；完整的资金周期/观察频率、交易日历、节假日和周期级幂等仍明确列入后续。同步将策略先行建计划和个人中心方法/预算/下一评估日展示纳入本次提交。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项）、`cargo test -p indexlink-api --locked`（含 6 项动态目录/计划集成测试）、`cargo clippy -p indexlink-api --all-targets --locked -- -D warnings`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（49 项；Statements 92.61%、Branches 90.04%、Functions 92.26%、Lines 96.22%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 多策略建计划与个人中心计划契约
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 技能重整策略先行的建计划层级，使用 `vercel-react-best-practices` 技能保持 React Query 服务端目录状态与事件驱动表单边界）。
+- 变更类型：我的计划创建流程、个人中心策略说明、资金边界、失败态与前端聚焦测试。
+- 涉及文件：`apps/web/src/pages/{plans/{index.tsx,minimal-plan.test.tsx},personal/{index.tsx,personal-execution.test.tsx},v2_1-shell.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：“我的计划”新建区改为先读取服务端官方策略目录并显式选择策略，未选择时不再静默创建 Fixed DCA；不可采用、空目录和目录不可用均保持明确状态。选中后才展开该策略允许的标的、每期基础预算和评估节奏，创建请求始终冻结目录 policy/version 和资金桶边界。个人中心将原“计划摘要”扩展为计划方法契约：显示官方方法、限制、本期/下一评估日、基础预算与执行节奏；Fixed DCA 显示确定金额，Formula 明确拆分固定核心额度、最大弹性额度和单次上限，并说明实际建议只在评估日由当日规则计算。策略目录暂时不可用时使用已冻结计划中的 policy 与资金桶进行保守降级展示，不影响建议和执行历史主链路。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（47 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.43%、Branches 90.18%、Functions 91.71%、Lines 96.21%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）与 `git diff --check` 通过；同时在本地实际页面验证未选择/已选择建计划状态与 Formula 个人中心金额边界。生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 策略运行时行情依赖解耦（回测 Push 5）
+
+- 执行模型：GPT-5 Codex（多 Agent；子 Agent 留下初版后由主线程审查、补齐生产装配、公开契约与验证）。
+- 变更类型：Formula 实时证据、最小数据依赖、运行能力状态、失败语义、API 文档与聚焦测试。
+- 涉及文件：`crates/market-data/src/{history.rs,alpaca.rs,opend_history.rs}`、`crates/api/src/{state.rs,routes/{decision_preview.rs,runtime_status.rs,strategy_backtests.rs}}`、`crates/api/tests/{decision_preview.rs,health.rs,strategies.rs,strategy_backtests.rs}`、`apps/server/src/main.rs`、`apps/web/src/api/types.ts`、`docs/{plans/runtime_data_decoupling_push5.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：自动决策按策略类型读取最小数据依赖：Fixed DCA 继续完全离线；官方 Formula 直接通过统一 `HistoricalPriceProvider` 获取自身指标所需的有界规范化日线，不再先请求旧 CAPE、国债与 VIX 整包；旧 `core_opportunity_v1` 保留原兼容链路。Formula 成功证据保存 provider、dataset version、checksum、复权、区间与证据截止日；历史数据未配置、供应商失败、样本不足或需要尚未独立建模的 VIX 时明确返回 `503`，不生成 `waiting` 或任何 DecisionRecord。新增 provider-neutral 的推荐复权能力，Alpaca 美股声明 `all`、OpenD 各市场声明前复权，修复生产 OpenD 被 API 固定美股 `all` 请求拒绝的问题。`/runtime-status` 新增独立 `historical_prices` 三态，并让生产 server 在已配置 adapter 初始化失败时正确报告 `unavailable`；TypeScript 契约和 API 文档同步更新。Scheduler 当前仍按 UTC 日期运行，本 Push 不引入 plan timezone 或交易日历迁移。
+- 验证：`cargo test -p market-data --locked`（14 项通过、1 项真实 OpenD/公网 smoke 忽略；两项 loopback 协议测试在沙箱外通过）、`cargo test -p indexlink-api --locked`（含 Formula 仅调用历史价格、数据失败不落记录、策略激活与七档真实回测）、`cargo test -p indexlink-server --locked`（37 项通过、1 项真实下单 smoke 忽略）、`cargo test -p core-domain --locked`（13 项）、`cargo clippy -p market-data -p indexlink-api -p indexlink-server --all-targets --locked -- -D warnings`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（42 项）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check` 与 `git diff --check` 通过；前端构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 自选标的真实回测前端（回测 Push 4）
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 保持现有低饱和消费级视觉，使用 `vercel-react-best-practices` 约束 React Query 服务端状态、Valtio 本地筛选和派生图表数据）。
+- 变更类型：策略分析真实 API 接入、自选标的、七档范围、归一化图表、专业指标、来源披露、错误态与前端测试。
+- 涉及文件：`apps/web/src/{api/{queries.ts,types.ts},features/v2_1/model.ts,pages/{strategy-analysis/index.tsx,v2_1-shell.test.tsx},stores/ui.ts}`、`apps/web/{vite.config.ts,vite.config.test.ts,vitest.config.ts,PLAN.md}`、删除的 `apps/web/src/components/v2_1/professional-research-panel.tsx`、`CHANGE_LOG.md`。
+- 变更内容：策略分析页删除本地确定性演示曲线，改为调用 `POST /strategy-backtests`；支持输入 `US/HK/SH/SZ` 自选标的、选择 1–3 条官方策略，以及 1m/3m/6m/1y/3y/5y/all。直观视角展示同一共同窗口的真实归一化日线和区间摘要，专业视角直接展示同一响应的年化收益、XIRR、最大回撤、波动率、Sortino 与现金使用率。新增紧凑的数据来源条，公开 provider、数据版本、复权、checksum、币种、时区和有效范围；503/400 均明确说明且绝不回退静态图。服务端数据由 React Query 管理，草稿标的/范围/策略/视角与最近提交请求由 Valtio 管理。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（42 项通过）、`pnpm --dir apps/web test:coverage`（Statements 91.83%、Branches 90.07%、Functions 91.08%、Lines 95.82%）和 `pnpm --dir apps/web build` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 任意标的真实策略回测 API（回测 Push 3）
+
+- 执行模型：GPT-5 Codex（多 Agent；本 Agent 负责 HTTP 契约、历史行情 port 注入、路由测试和 API 文档）。
+- 变更类型：产品回测 API、可选能力注入、数据来源披露、范围/请求校验与聚焦测试。
+- 涉及文件：`crates/api/src/{state.rs,routes/{mod.rs,strategy_backtests.rs}}`、`crates/api/tests/strategy_backtests.rs`、`apps/server/src/main.rs`、`crates/strategy-evaluation/src/dynamic_backtest.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `POST /strategy-backtests`，一次接收一个市场限定 symbol、1–3 个唯一官方策略、`1m/3m/6m/1y/3y/5y/all` 范围、1–28 日的月度检查日与十进制投入金额。ApiState 通过 `Arc<dyn HistoricalPriceProvider>` 显式注入可选历史行情能力；生产 server 将已配置的只读 OpenD 行情与 SQLite 精确快照缓存组合为真实 provider。路由读取同一带来源/复权/版本/checksum 的日线快照，解析官方 Formula 版本并调用纯 `run_dynamic_backtest`，返回共同有效窗口、真实归一化轨迹、指标和完整无密钥 provenance。回测金额字段不绑定 USD，按响应的标的交易币种解释且不做隐式汇兑。未配置/失败的数据源显式返回既有 `503`，非法或历史不足请求返回既有 `400`，不调用 broker、不使用旧 MA200 回放，也不伪造成功数据。
+- 验证：`cargo test -p indexlink-api --locked`（含 4 项新回测集成测试，覆盖全部 7 个范围、三策略共同窗口、HK 复权/币种元数据、请求拒绝和 provider 不可用）、`cargo test -p indexlink-server --locked`（37 项通过、1 项真实下单 smoke 忽略；回环启动测试在沙箱外通过）、`cargo test -p strategy-evaluation --locked`（19 项）、`cargo test -p core-domain --locked`（13 项）、`cargo clippy -p indexlink-api -p indexlink-server --all-targets --locked -- -D warnings`、`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+
+### 2026-09-19 AEST — 任意标的统一 Formula 回测内核（回测 Push 2）
+
+- 执行模型：GPT-5 Codex（主线程实现；多 Agent 并行负责行情数据层、HTTP 契约与运行时解耦）。
+- 变更类型：纯函数回测、因果证据、统一现金流、归一化轨迹、专业指标与聚焦测试。
+- 涉及文件：`crates/strategy-evaluation/src/{lib.rs,dynamic_backtest.rs}`、`docs/plans/dynamic_backtest_push2.md`、`CHANGE_LOG.md`。
+- 变更内容：新增与 symbol 和供应商无关的 `run_dynamic_backtest`，接收调用方提供的复权日线，在完全相同的标的、数据快照、月度现金流、5 bps 成本和共同有效窗口中比较 Fixed DCA 与受限 Formula V1。Formula 决策只能读取模拟成交日之前的收盘价；比较必须等所有策略完成指标预热，不能通过默认值或少投周期制造优势。输出共同起止日期、投入次数、每日时间加权归一化指数，以及区间/年化收益、XIRR、最大回撤、年化波动率、Sortino、投入、现金使用率和期末资产。仅有价格时显式拒绝 VIX 等外部指标和精确金额动作，不以 0 冒充真实数据。
+- 验证：`cargo test -p strategy-evaluation dynamic_backtest --no-fail-fast`（3 项通过）、`cargo clippy -p strategy-evaluation --all-targets -- -D warnings` 与 `git diff --check` 通过；全 workspace fmt/回归在并行 API 文件冻结后统一执行。
+
+### 2026-09-19 AEST — 任意标的历史日线来源与本地可复现缓存（回测 Push 1）
+
+- 执行模型：GPT-5 Codex（多 Agent：本 Agent 负责独立行情数据层与 SQLite 缓存；官方文档和兼容许可证开源项目仅作契约/架构参考）。
+- 变更类型：历史行情 port、Alpaca/OpenD adapter、SQLite migration、本地缓存、数据来源审计与聚焦测试。
+- 涉及文件：`crates/market-data/{Cargo.toml,src/{lib.rs,history.rs,alpaca.rs,opend_history.rs}}`、`crates/storage/{Cargo.toml,src/{lib.rs,sqlite.rs,sqlite_market_price_history.rs}}`、`migrations/sqlite/20260919120000_create_market_price_history.sql`、`docs/plans/market_data_push1.md`、`Cargo.lock`、`CHANGE_LOG.md`。
+- 变更内容：新增与供应商无关的 `HistoricalPriceProvider`、`PriceHistoryStore` 和严格校验的日线数据集契约，统一保存 market、symbol、instrument type、currency、timezone、adjustment、requested range、provider、dataset version、fetched-at 与 SHA-256。Alpaca adapter 仅支持美股，显式使用 `1Day`、feed、复权和 `next_page_token`；API key 不进入存储或 Debug。OpenD adapter 仅连接字面 loopback，按官方枚举支持 `US.*`、`HK.*`、`SH.*`、`SZ.*` 及 raw/QFQ/HFQ。SQLite 按 provider + instrument + adjustment + exact range 原子保存独立快照，命中时不访问远端，不跨来源、区间或复权方式混拼。既有 `MarketSignalProvider` 保持兼容。
+- 外部参考：Alpaca 与 Futu OpenD 官方文档作为协议语义来源；参考 `wmzhai/alpaca-data-rs`（MIT OR Apache-2.0）的凭据脱敏与分页边界，不复制实现；`d-e-s-o/apca`（GPL-3.0）仅作生态调研，未复制代码。
+- 验证：`cargo test -p market-data --locked`（14 项通过、1 项需真实 OpenD/公网的 smoke 忽略；其中 2 项 loopback 协议测试由主线程在沙箱外验证）、`cargo test -p indexlink-storage --locked`（34 项通过）、`cargo fmt -p market-data -p indexlink-storage -- --check`、`cargo clippy -p market-data -p indexlink-storage --all-targets --locked -- -D warnings`、`cargo test -p core-domain --locked` 与 `git diff --check` 通过。最终全 workspace fmt check 需在并行 Push 2/API 文件冻结后由主线程统一执行。
+
+### 2026-09-19 AEST — 计划删除确认与策略分析导航修正
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能约束站内确认层、卡片导航语义与服务端状态边界）。
+- 变更类型：计划管理交互、策略分析深链、演示数据披露与前端聚焦测试。
+- 涉及文件：`apps/web/src/{components/v2_1/strategy-card.tsx,pages/{plans/{index.tsx,minimal-plan.test.tsx},strategy-center/index.tsx,strategy-analysis/index.tsx,v2_1-shell.test.tsx}}`、`CHANGE_LOG.md`。
+- 变更内容：“我的计划”删除操作不再调用浏览器原生确认框，改为带遮罩、计划名、不可恢复范围和券商边界说明的站内确认层；用户确认前不会发送 DELETE，删除进行中锁定关闭与重复提交。策略中心的策略主卡改为语义化链接，直接携带策略 ID 进入“策略分析 / 直观视角”，不再保留没有后续作用的“正在查看”局部状态；采用按钮仍作为独立入口进入建计划。直观视角顶部新增醒目的“演示数据 · 非真实回测”标记，并明确曲线来自前端确定性公式、不连接市场行情；专业研究继续显示后端目录返回的真实固定样本聚合指标。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test -- --run`（41 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.18%、Branches 90.18%、Functions 92.16%、Lines 96.37%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check` 通过；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 修复策略目录开发代理
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：Vite 本地开发代理与回归测试。
+- 涉及文件：`apps/web/vite.config.ts`、`apps/web/vite.config.test.ts`、`CHANGE_LOG.md`。
+- 变更内容：将新增的 `/strategy-catalog` 正式加入 Vite → `127.0.0.1:8080` 代理清单，并抽取可直接测试的不可变代理映射，避免前端开发服务器把 API 路径回退为 HTML 后再以 JSON 解析失败。按用户要求核对并正常终止旧 `target/debug/indexlink-server` 进程 PID 91955；未删除数据库或其他本地数据。
+- 验证：确认 `lsof -nP -iTCP:8080 -sTCP:LISTEN` 无监听进程；`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（40 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.57%、Branches 91.22%、Functions 92.99%、Lines 96.56%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）完成；生产构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 官方策略采用到个人计划闭环（Push 5）
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能保持既有视觉、React Query 服务端状态与事件驱动表单边界；多 Agent 尝试因并行额度中断后由主线程完成）。
+- 变更类型：策略采用路由、真实计划创建、服务端标的白名单、计划文案、API/前端计划文档与聚焦测试。
+- 涉及文件：`apps/web/src/pages/plans/{index.tsx,minimal-plan.test.tsx}`、`crates/api/src/{official_strategies.rs,routes/investment_plans.rs}`、`crates/api/tests/strategy_catalog.rs`、`docs/reference/api-management.md`、`apps/web/PLAN.md`、`CHANGE_LOG.md`。
+- 变更内容：策略卡的 policy ID/version 通过查询参数进入“我的计划”，页面重新读取官方目录核对版本、准入、支持标的与默认桶配置后才允许提交。Fixed DCA 保持 100% 核心桶；MA200 与增长/波动公式冻结为 70% 核心、30% 弹性和 approval，成功后继续复用真实 `POST /investment-plans` 与自动建议准备链路。前后端同时拒绝官方 Formula 使用目录外标的；创建、修改策略版本与激活既有计划均不能绕过服务端 SPY/VOO 白名单。旧自适应计划保留只读兼容标签，但不再提供新建入口。
+- 验证：`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项）、`cargo test -p strategy-dsl --all-features --locked`（16 项）、`cargo test -p strategy-evaluation --locked`（16 项）、`cargo test -p indexlink-api --locked`（含 3 项目录/采用集成测试）、`cargo clippy -p indexlink-api --all-targets --locked -- -D warnings`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（39 项通过；Statements 92.57%、Branches 91.22%、Functions 92.99%、Lines 96.56%）、`pnpm --dir apps/web build` 与 `git diff --check` 通过；构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 策略中心接入真实官方目录（Push 4）
+
+- 执行模型：GPT-5 Codex（使用 `frontend-design` 与 `vercel-react-best-practices` 技能约束信息层级、交互反馈与服务端状态边界；多 Agent 尝试因并行额度中断后由主线程完成）。
+- 变更类型：React Query 数据接入、消费级策略卡、真实专业研究、静态自适应入口隐藏与前端聚焦测试。
+- 涉及文件：`apps/web/src/{api/{types.ts,queries.ts},components/v2_1/{strategy-card.tsx,professional-research-panel.tsx},features/v2_1/{model.ts,model.test.ts},pages/{strategy-center/index.tsx,v2_1-shell.test.tsx},stores/ui.ts}`、`CHANGE_LOG.md`。
+- 变更内容：策略中心改读 `GET /strategy-catalog`，删除静态自适应/股债卡与演示年化、回撤；卡片只显示服务端规则、限制、固定样本范围和准入状态，整卡浏览继续保持柔和选中反馈。只有 `adoptable` 策略显示醒目的“用这个策略建立计划”，并通过 policy ID/version 导向“我的计划”。专业视角改为直接读取目录附带的真实 admission 报告，不再要求用户先在高级实验室保存 DSL；Fixed DCA 保持同口径对照列。普通分析示例中的旧 70/20/10 也替换为 MA200 与增长/波动 Formula 名称，避免隐藏入口从其他页面重新出现。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（37 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.10%、Branches 90.71%、Functions 92.90%、Lines 96.94%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）、`git diff --check` 通过；构建仅保留既有主 chunk 大小提示。
+
+### 2026-09-19 AEST — 官方 Formula V1 策略目录（Push 3）
+
+- 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。
+- 变更类型：官方策略注册、消费级目录 API、固定样本准入、不可变版本保护、API 文档与集成测试。
+- 涉及文件：`crates/api/src/{lib.rs,state.rs,official_strategies.rs,routes/{mod.rs,strategy_catalog.rs}}`、`crates/api/tests/strategy_catalog.rs`、`docs/reference/api-management.md`、`CHANGE_LOG.md`。
+- 变更内容：新增 `GET /strategy-catalog`，只发布 Fixed DCA、200 日均线趋势保护、增长与波动平衡三个版本；两条 Formula V1 策略由服务端通过领域构造器生成，只调整 30% 弹性桶，并在响应中附规范公式和真实固定样本 admission。官方 DSL 版本接入既有读取、准入与运行时解析路径，同时拒绝本机策略覆盖同一 ID/version。依赖 AI 降级口径的 `core_opportunity_v1` 不进入普通目录，但未删除历史运行兼容。
+- 验证：`cargo test -p core-domain --locked` 通过（13 项）；`cargo test -p indexlink-api --locked` 全部通过（含 2 项新目录集成测试）；`cargo clippy -p indexlink-api --all-targets --locked -- -D warnings` 通过；`cargo fmt --all` 与 `git diff --check` 完成。
+
+### 2026-09-19 AEST — Formula V1 统一研究与实时证据（Push 2）
+
+- 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。
+- 变更类型：策略证据契约、实时行情窗口、研究/运行一致性与聚焦测试。
+- 涉及文件：`crates/strategy-dsl/src/lib.rs`、`crates/api/src/routes/decision_preview.rs`、`CHANGE_LOG.md`。
+- 变更内容：为策略规格增加最少收盘价观察数推导；收益率和波动率按 `window + 1`，其他滚动指标按完整窗口申请数据。实时 Decision Preview 不再只允许 RSI/VIX，也不再使用固定 366 天窗口，而是按策略最长指标窗口请求保守日历天数，并复用准入回测相同的因果 `DslEvidence` 构造器；预热不足继续安全拒绝，不补默认值、不读取未来数据。
+- 验证：`cargo test -p strategy-dsl --all-features --locked` 通过（16 项）；`cargo test -p strategy-evaluation --locked` 通过（16 项）；`cargo test -p indexlink-api --locked --test decision_preview` 通过（15 项）；`cargo fmt --all` 完成。
+
+### 2026-09-19 AEST — Formula V1 通用指标领域契约（Push 1）
+
+- 执行模型：GPT-5 Codex（多 Agent 尝试因并行额度中断，主线程接管审查与完成）。
+- 变更类型：受限策略 DSL、确定性通用指标、serde 契约与领域测试。
+- 涉及文件：`crates/strategy-dsl/src/lib.rs`、`CHANGE_LOG.md`。
+- 变更内容：在既有 Close/SMA/EMA/RSI/Drawdown/VIX 白名单上增加周期价格收益率、年化历史波动率、价格经验分位与均线距离四类 Formula V1 指标；所有指标使用同一因果收盘价快照和纯 Decimal 计算，窗口不足时安全拒绝，不读取网络或未来数据。同步增加不可变 JSON document 变体及往返重建，继续复用 `LookbackWindow` 不变量和既有 first-match/默认标准机会桶语义。
+- 验证：`cargo test -p strategy-dsl --all-features --locked` 通过（15 项）；`cargo fmt --all` 完成。
+
+### 2026-09-19 AEST — 策略中心真实计划来源与浏览态语义修正
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：消费级前端状态来源、策略卡交互反馈、低饱和语义配色与聚焦测试。
+- 涉及文件：`apps/web/src/{components/v2_1/strategy-card.tsx,pages/{personal/index.tsx,strategy-center/index.tsx,v2_1-shell.test.tsx}}`、`CHANGE_LOG.md`。
+- 变更内容：将个人中心未完成建议卡由近黑褐色调亮为仍保持克制的琥珀褐色，并增强边框、状态胶囊与阴影区分；策略中心顶部不再把前端当前查看的静态策略伪装为“正在坚持”，改为读取真实 `GET /investment-plans` 并列出全部 active 计划，点击计划会进入“我的计划”并设置当前查看项。删除策略中心顶部的临时双策略对比入口；策略卡改为整卡可点击，当前浏览卡使用柔和淡绿背景、边框、光晕和“正在查看”反馈，明确浏览状态不会创建或采用计划。移除“选用这个策略 → 个人中心已同步”的虚假前端闭环；由于“稳中有进组合”尚无后端多资产、股债比例及再平衡计划契约，本轮未伪造全策略一键建计划能力。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（36 项通过）、`pnpm --dir apps/web test:coverage`（Statements 92.94%、Branches 90.75%、Functions 92.15%、Lines 96.83%）、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项通过）。浏览器自动验收因当前 in-app Browser 无法接管新建本地标签页而未完成，未将其记为通过。
+
+### 2026-09-18 AEST — 本期建议待办/完成视觉状态
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：个人中心执行状态层级、低饱和语义配色、确认反馈动画与聚焦测试。
+- 涉及文件：`apps/web/src/pages/personal/{index.tsx,personal-execution.test.tsx}`、`CHANGE_LOG.md`。
+- 变更内容：在本期建议卡标题行加入紧凑的真实状态胶囊，未确认显示“本期待办 · 未完成”，已执行显示“本期待办 · 已完成”，跳过与迁移前 partial 记录分别显示已跳过和历史部分完成；读取失败时保持“执行状态待确认”，不把未知状态伪装成待办。建议卡按 journal 真实结果使用低饱和暖褐警示、深森林绿完成与中性深蓝已处理配色，并以 700ms 背景色、边框和阴影过渡响应确认结果；`prefers-reduced-motion` 下禁用过渡。状态完全由 React Query journal 数据派生，不新增浏览器持久状态。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（36 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.63%、Branches 91.48%、Functions 92.76%、Lines 97.13%）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）。浏览器在 1280×720 下分别确认 completed 为 `rgb(23, 48, 39)`、pending 为 `rgb(40, 36, 29)`、过渡时间为 `0.7s`，页面无横向溢出且控制台无 warning/error。
+
+### 2026-09-18 AEST — 个人中心与“我的计划”执行语义收口
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：消费级信息层级、计划管理导航、一次性手工确认约束、兼容迁移、聚焦测试与文档同步。
+- 涉及文件：`apps/web/src/{components/{layout/app-sidebar.tsx,v2_1/page-heading.tsx},i18n/locales/{zh.ts,en.ts},pages/{personal/index.tsx,personal/personal-execution.test.tsx,plans/index.tsx,plans/minimal-plan.test.tsx,v2_1-shell.test.tsx}}`、`apps/web/PLAN.md`、`crates/{api/tests/manual_executions.rs,storage/src/sqlite_manual_executions.rs}`、`migrations/sqlite/20260918090000_limit_manual_execution_to_one_per_decision.sql`、`docs/{plans/v2_1_closeout_hardness.md,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：解除个人中心页头与计划选择器的同排宽度竞争，标题和说明恢复完整内容宽度；新增醒目的“正在查看 + 计划名”上下文。侧边栏在个人中心下新增“我的计划”，`/plans` 改为先展示真实计划详情和管理动作、再建立新 Fixed DCA 计划，个人中心移除误导性的“管理计划”链接。普通执行确认删除“部分执行”，仅保留“我已执行/这次跳过”；前端只对真实 `due` 建议开放操作，读取到任意既有结果后隐藏按钮。新增 SQLite trigger，保证同一 decision 即使更换事件 ID 也只能追加一个最终结果并返回 `409 conflict`；迁移前多条历史及 `partial` API 值保持只读兼容，不删除、不改写原记录。
+- 验证：`pnpm --dir apps/web lint`、`pnpm --dir apps/web test`（35 项通过）、`pnpm --dir apps/web test:coverage`（Statements 93.18%、Branches 90.96%、Functions 92.61%、Lines 96.97%）、`pnpm --dir apps/web build`、`cargo fmt --all -- --check`、`cargo test -p core-domain --locked`（13 项通过）、`cargo test -p indexlink-storage --locked`（33 项通过）、`cargo test -p indexlink-api --locked --test manual_executions`（3 项通过）、`git diff --check`。浏览器在 1280×720 下确认页头与说明各为一行、无横向溢出、“正在查看”与 18px 计划选择器形成连续主信息；“我的计划”可从侧边栏进入并先展示真实卡片，既有结果下无“我已执行/部分执行”按钮，控制台无 warning/error。
+
 ### 2026-09-17 AEST — Push 5B：Gate 2 最小 Fixed DCA 收口
 
 - 执行模型：GPT-5 Codex。

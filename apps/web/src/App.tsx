@@ -11,7 +11,7 @@ const StrategyAnalysisPage = lazy(() => import('@/pages/strategy-analysis'))
 const LabPage = lazy(() => import('@/pages/lab'))
 const DecisionsPage = lazy(() => import('@/pages/decisions'))
 const PlansPage = lazy(() => import('@/pages/plans'))
-const StrategiesPage = lazy(() => import('@/pages/strategies'))
+const StrategyBuilderPage = lazy(() => import('@/pages/strategy-builder'))
 
 function PageFallback() {
   return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
@@ -33,7 +33,7 @@ const router = createBrowserRouter([
       { path: '/lab', element: <LazyPage Page={LabPage} /> },
       { path: '/decisions/:id?', element: <LazyPage Page={DecisionsPage} /> },
       { path: '/plans/:id?', element: <LazyPage Page={PlansPage} /> },
-      { path: '/strategy-studio', element: <LazyPage Page={StrategiesPage} /> },
+      { path: '/strategy-builder', element: <LazyPage Page={StrategyBuilderPage} /> },
     ],
   },
 ])

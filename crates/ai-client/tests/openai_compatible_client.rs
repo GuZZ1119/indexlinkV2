@@ -109,12 +109,12 @@ async fn spawn_mock_server() -> SocketAddr {
 
                 if body.messages[0]
                     .content
-                    .contains("restricted investment-policy candidate")
+                    .contains("Strategy Workshop V1")
                 {
                     assert!(body.max_tokens >= 768);
                     return completion_response(
                         StatusCode::OK,
-                        r#"{"document":{"policy_id":"dsl_test_guard","policy_version":1,"name":"Test guard","rules":[{"condition":{"kind":"comparison","expression":{"kind":"indicator","indicator":{"kind":"relative_strength_index","lookback_days":14}},"operator":"less_than","threshold":"35"},"action":{"kind":"set_opportunity_multiplier","multiplier":1.2}}]},"explanation":"Validate before saving.","warnings":["Mock warning."],"evidence_reference_ids":["dsl_allowlist_v1"]}"#,
+                        r#"{"form_config":{"name":"Test guard","rules":[{"match":"all","conditions":[{"indicator":"relative_strength_index","lookback_days":14,"operator":"less_than","threshold":35}],"multiplier":1.2}]},"explanation":"Validate before saving.","warnings":["Mock warning."]}"#,
                     );
                 }
 
@@ -398,7 +398,7 @@ async fn configured_profile_generates_only_a_bounded_read_only_copilot_draft() {
     let draft = client.generate_policy_draft(&request).await.unwrap();
     assert_eq!(client.profile().id().as_str(), "reviewer");
     assert_eq!(draft.evidence_reference_ids(), ["dsl_allowlist_v1"]);
-    assert_eq!(draft.document()["policy_id"], "dsl_test_guard");
+    assert_eq!(draft.form_config()["name"], "Test guard");
 }
 
 #[tokio::test]

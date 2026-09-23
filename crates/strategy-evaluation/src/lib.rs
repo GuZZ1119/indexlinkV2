@@ -7,6 +7,15 @@
 //! reads only committed fixture data, invokes the real quant, decision, and
 //! two-bucket domain functions, and never performs network or broker IO.
 
+mod dynamic_backtest;
+
+pub use dynamic_backtest::{
+    run_dynamic_backtest, BacktestCalculationDetails, BacktestDrawdownPoint,
+    BacktestExecutionPoint, BacktestMarketPoint, BacktestMetrics, BacktestPrice, BacktestSeries,
+    BacktestStrategy, DynamicBacktestError, DynamicBacktestRequest, DynamicBacktestResult,
+    NormalizedBacktestPoint,
+};
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use ai_client::Sentiment;

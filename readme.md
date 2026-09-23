@@ -1,228 +1,232 @@
 <p align="center">
-  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="400">
+  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="160">
 </p>
 
 <p align="center">
-  中文文档 | <a href="./readme.en.md">English</a>
+  <strong>把长期投资方法变成看得懂、能回测、可复查的个人计划。</strong>
 </p>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/status-V2%20demo%20MVP-blue" alt="V2 Demo MVP"></a>
-  <a href="./docs/architecture/strategy-studio-migration-plan.md"><img src="https://img.shields.io/badge/strategy-studio%20migration-5b7cfa" alt="Strategy Studio migration"></a>
+  中文文档 · <a href="./readme.en.md">English</a>
 </p>
 
-# IndexLink V2
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f7661" alt="MIT License"></a>
+  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/release-V2.1%20local--first-10242c" alt="V2.1 local-first"></a>
+  <a href="./SECURITY.md"><img src="https://img.shields.io/badge/security-loopback%20only-c19a55" alt="Loopback only"></a>
+</p>
 
-IndexLink V2 是一个面向长期投资者的**透明、可审计、可扩展的量化定投策略工作台与 paper-trading 执行平台**。它帮助资金有限、希望长期坚持纪律的学生和上班族，把“计划为什么这样建议、是否执行、实际发生了什么”保留为可追溯记录，而不是把黑箱判断包装成投资建议。
+# IndexLink V2.1
 
-当前版本为可演示的 V2 MVP：可在本地 SQLite 或 Alibaba Cloud ECS 上运行，创建定投计划、配置/激活版本化策略、拉取市场输入、获得受限 Qwen 解释，并由已部署 AI profile 生成**只读** DSL 候选草案；随后可生成决策存证、查看模拟账户，并在操作者明确确认后向 MockBroker 或本机 Futu/Moomoo OpenD **模拟账户**提交 paper order。策略 Studio、统一策略运行时、固定样本准入和 Web 运行状态提示均已接入；系统仍只支持单用户、paper-only 演示。
+IndexLink 是一个面向普通长期投资者的**本地策略计划与研究工具**。它把一条投资方法拆成可解释的规则、真实历史回测、定期建议和不可覆盖的执行记录，让用户能回答四个问题：
 
-> **不承诺跑赢。** IndexLink 不预测市场，不判断“真实价值”，不保证收益。固定 DCA 是必须保留的公平基准；任何策略都必须在匹配的资金流、成本、数据和执行时点下接受验证。
+1. 这条策略在做什么；
+2. 在同一只标的、同一段时间和同一资金节奏下，它与其他策略有什么区别；
+3. 这期为什么建议投入、减量或等待；
+4. 我最终是否执行，历史记录能否复查。
 
-## 项目演示
+V2.1 是**单用户、本地优先、人工执行**版本。它不会代替用户下单，不承诺收益，也不把 AI 变成交易决策者。
 
-观看历史演示视频：[IndexLink V1 固定策略演示（YouTube）](https://www.youtube.com/watch?v=t8TCjlqE7D0)。
+> **风险声明：** 本项目仅供学习、策略研究和 paper-trading 演示，不构成投资建议。历史回测不预测未来；数据错误、市场制度变化、税费、滑点和流动性都可能改变结果。
 
-该视频记录的是 **V1 固定化策略** 的本地/模拟账户演示，不展示当前 V2 的 Strategy Studio、多 Provider AI Profile、受限 Copilot 草案或策略准入流程。它不代表真实投资建议、实盘下单能力或收益承诺；当前 V2 功能以本仓库和 [文档索引](./docs/README.md) 为准。
+## 当前已经能做什么
 
-## 产品目标
+| 模块 | 当前能力 | 明确边界 |
+| --- | --- | --- |
+| 个人中心 | 读取真实计划、本期建议、下次评估日和 append-only 执行历史；手动记录“已执行”或“跳过” | 不自动下单；同一到期建议只能形成一条最终确认 |
+| 我的计划 | 创建、暂停、继续和删除长期计划；冻结策略版本、标的、预算与评估节奏 | Fixed DCA 不依赖行情；公式策略创建前必须通过历史数据预检 |
+| 策略中心 | 1 个 Fixed DCA 基准、20 个规则家族 × 5 组不可变参数，共 101 个官方版本；个人版本单独标注 | “可建立”不代表适合任何资产，也不代表未来有效 |
+| 策略工坊 | 用白名单指标、观察窗口、比较符、阈值和机会额度建立个人规则；保存不可变版本 | 不接受任意代码；最多三条优先规则、每条三个条件；核心投入不能被取消 |
+| 策略分析 | 对 US/HK/SH/SZ 的自选标的运行真实日线回测；支持 1m/3m/6m/1y/3y/5y/all；展示净值、买点、资金账本和风险指标 | 所有策略使用同一标的、日期、现金流与成本口径；缺少真实数据时明确失败，不生成演示曲线 |
+| 高级实验室 | 临时连接本机 Futu/Moomoo OpenD；临时输入 QwenCloud、百炼、GPT、Claude 或 DeepSeek Key | 凭据只留在当前 Rust 进程内存，重启即失效；OpenD 页面配置只授予只读行情能力 |
+| 可选 AI | 手动执行“自然语言 → 受限草案”“真实回测 → 普通解释”“近期计划摘要” | 不参与回测计算，不保存/激活策略，不生成订单，不自动运行 |
 
-目标体验不是单一公式，而是一个可复现的策略生命周期：
-
-```text
-创建策略 → 验证 → 回测 → 审阅 → 保存版本 → 激活 → 调度
-→ 评估 → Paper 执行 → 监控 → 审计
-```
-
-| 目标 | 含义 |
-| :--- | :--- |
-| **透明** | 使用者能看到策略版本、输入证据、推荐金额、风险提示和订单回执。 |
-| **可审计** | 每次决策保存输入快照、策略引用、Qwen 理由、订单和成交相关记录。 |
-| **可复现** | 相同策略版本与完整上下文必须得到相同推荐；历史与实时使用同一确定性运行时。 |
-| **可扩展** | 内置策略、固定 DCA 和后续受限 DSL 策略共享同一执行与审计边界。 |
-| **安全** | 仅支持 paper trading；scheduler 只生成审计，不能自动下单；AI 不拥有交易授权。 |
-
-完整迁移设计、兼容策略和 PR 拆分见 [策略工作台迁移计划](./docs/architecture/strategy-studio-migration-plan.md)。
-
-## 实现与策略研究
-
-当前生产演示仍包含历史的 70/20/10 决策路径：基本面/历史位置、趋势和受限 Qwen 情绪用于生成建议及证据。这是现有的 `CoreOpportunityV1` 候选语义，**不是经证明能提高收益的默认承诺**。
-
-仓库保留 C1–C4、校准夹具和报告，以记录真实的研究结果与失败候选：在匹配固定 DCA 的历史样本中，部分候选主要改变现金使用率、回撤或波动，并未稳定形成收益优势。旧模型现已作为版本化内置策略保留，`FixedDcaPolicy` 已成为新计划默认值和公平对照基准。受限 DSL 已具备确定性、无 IO 的解释器，并由历史评估器直接调用；SQLite 保存不可变 DSL 版本，Strategy Studio 已支持校验、保存、复制、当前数据模拟、固定样本准入和计划激活。激活后的策略版本由 Decision Preview、scheduler、审计与 paper-only 执行共用同一 resolver。
-
-### 原始 70/20/10 研究：可复现风险观察，而非收益承诺
-
-原始 `CoreOpportunityV1` 以 70% 基本面、20% 趋势、10% AI 情绪形成建议；但历史上没有可信可回放的 Qwen 新闻判断。因此下表的收益/风险基线严格使用 **90/10/0 的 AI 不可用降级线**，并直接调用生产领域函数。冻结 Qwen 样本只用于分数与动作分布敏感性，不计入收益结论。
-
-基线使用版本化 `calibration-v1` 数据、月度相同 USD 1,000 外部现金流、5 bps 买入成本、零现金利息与无未来函数口径；未投入现金始终计入期末净值。SPY/QQQ 是指数代理，不是可交易 ETF 的完整复权回测。
-
-| 指数代理 | 固定 DCA：XIRR / 期末净值 | 原始核心+机会：XIRR / 期末净值 | 相对 DCA 期末差 | 最大回撤（DCA → 原策略） | 年化波动（DCA → 原策略） | 现金使用率（DCA → 原策略） |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| S&P 500（SPY 代理） | 19.61% / $71,669 | 17.54% / $68,926 | -3.83% | 9.70% → 9.44% | 13.32% → 12.28% | 100.00% → 82.65% |
-| NASDAQ Composite（QQQ 代理） | 16.88% / $815,385 | 15.84% / $740,761 | -9.15% | 33.03% → 31.29% | 16.83% → 15.71% | 100.00% → 83.31% |
-
-两组样本确实观察到较低的最大回撤和年化波动，但它们同时伴随约 17% 的未部署现金与更低期末净值；这**不能**被表述为无条件的“稳定性提升”或策略优势。V2 的可验证价值是把该取舍完整暴露出来：策略版本、`as_of`、数据来源、输入快照、推荐、预算约束、订单意图与回执都可追溯、复跑和审查。
-
-完整数据口径、分数/动作分布、滚动样本外窗口与冻结 Qwen 敏感性见 [策略校准基线 V1](./docs/research/calibration/STRATEGY_CALIBRATION_BASELINE_V1.md)；C1–C4 研究及其未升级为默认策略的理由见 [C4 研究 V1](./docs/research/calibration/STRATEGY_C4_RESEARCH_V1.md)。
-
-| 实现 | 细节与边界 |
-| :--- | :--- |
-| 计划管理、周期规则与本地 SQLite | 单用户本地持久化；已有计划保持既有行为与兼容读取。 |
-| 70/20 市场输入、AI Evidence 与 Copilot Draft | 基本面/趋势输入与带 Provider 身份的受限 AI Evidence 均保留来源和时间语义；仅 `CoreOpportunityV1` 将分数兼容映射为旧 10% 输入。已部署 profile 可将用户目标转换为只读 `StrategySpecDocument` 草案，但 API 会重做领域校验；Fixed DCA/DSL 不受 AI 改写，外部源失败时明确降级或拒绝自动决策。 |
-| 决策存证与历史查询 | 记录策略 ID/版本、通用推荐、输入、结果、无密钥 AI profile、理由/新闻/警告及可选订单回执；旧记录保持可读。 |
-| 最小 scheduler | 到期时幂等生成存证；**从不自动下单**。 |
-| 双桶预算、机会现金与周期约束 | 核心/机会桶受计划预算、可用现金、周期累计上限与 paper-only 边界共同约束。 |
-| Mock/OpenD paper trading | 仅连接 loopback OpenD 模拟账户；没有实盘交易能力。 |
-| 内置策略与统一执行入口 | 新计划使用 `fixed_dca@1`；既有 SQLite 计划迁移为 `core_opportunity_v1@1`；预览、scheduler、审计和 paper-only 订单使用同一 resolver。 |
-| 不可变技术研究夹具 | `technical-v1` 将 FRED S&P 500 / NASDAQ Composite 日线作为 SPY / QQQ 指数代理，并与 Cboe VIX 原始快照分开版本化；来源、适用条款说明、日期/缺失值规则、共同覆盖范围和 SHA-256 均被校验。它只读编译期嵌入文件，不联网、不前填、不插值；带日期的技术快照只接受 `timestamp <= as_of` 的观察。 |
-| 受限 DSL、确定性 runtime、Studio 与准入 | 仅表达白名单指标、有限表达式和机会桶动作；保存时重建领域不变量，激活前比较固定样本回测并检查预算/核心桶安全。Close、SMA、EMA、RSI、回撤和 VIX 均从 `technical-v1` 的截止日因果证据生成；历史成交固定为决策日后的首个交易日。准入以同一现金流、成交时点和成本对照 Fixed DCA，展示 XIRR、期末净值、最大回撤、年化波动、Sortino、现金使用率与滚动窗口；跑赢不是激活条件，预热/证据不足时拒绝激活。 |
-
-### 使用 Strategy Studio 与受限 Copilot
-
-1. 在“定投标的”创建计划；新计划默认绑定 `fixed_dca@1`，不会因 AI 或市场信号而改写核心预算。
-2. 打开“策略 Studio”，先选择服务器实际部署、且具备 `restricted_policy_drafts` 能力的 AI Profile，再用自然语言说明希望约束的**机会桶**行为。
-3. Copilot 先在只读审阅区显示草案与当前表单的字段/规则差异，再由使用者显式确认“应用到表单”；它同时显示 provider、简短解释、风险提示与服务端提供的可信引用，且不会自行保存、回测、激活、绑定计划或下单。
-4. 使用者审阅并编辑白名单指标、条件和机会桶动作后，手动“验证并保存不可变版本”。任意脚本、用户代码、核心桶否决和未被白名单允许的动作均会被拒绝。
-5. 对保存版本运行固定样本准入。页面会如实展示与 Fixed DCA 的 XIRR、期末净值、最大回撤、波动、Sortino、现金使用率和滚动窗口；这不是收益预测。
-6. 仅当准入通过后，使用者才能显式将该版本绑定到计划。后续 Decision Preview、scheduler 和审计才使用同一版本；审批模式仍要对已保存的决策记录单独确认 paper order。
-
-若没有配置 `DASHSCOPE_API_KEY` 或其他服务器部署的兼容 Provider，Profile 列表为空，Studio 会禁用草案生成；手工 DSL 编辑、校验和固定样本准入不依赖 AI Key。Key 仅可存放在服务端环境变量或 secret manager，绝不可提交到仓库、浏览器或决策存证中。
-
-### V2 演示闭环
-
-创建计划 → 选择 Fixed DCA 或已准入 DSL → （可选）审阅并应用 Copilot 的只读草案 → 运行自动 Decision Preview → 查看 AI 调用追踪/安全降级原因、与上次决策的差异及完整存证 → 对 `approval` 计划显式确认 paper order。Scheduler 只创建审计，不会自动下单；AI 也不会获得下单或激活权限。
-
-## 架构与安全边界
-
-IndexLink 采用 **Hexagonal Architecture + Modular Monolith**。领域策略保持纯函数；网络、数据库、Qwen、市场数据和 Broker 均在适配器边界之外。
-
-```mermaid
-graph TD
-    WEB[Web Dashboard]
-    SCH[Scheduler]
-    API[API / Application Service]
-    POLICY[Policy Runtime\nDeterministic, no IO]
-    LEGACY[CoreOpportunityV1\nlegacy adapter]
-    DCA[Fixed DCA\nimplemented]
-    EVIDENCE[Market Data + Qwen Evidence]
-    RECORDS[(SQLite\nplans, records, ledger)]
-    BROKER[Paper Broker\nMock / OpenD]
-    ECS[Alibaba Cloud ECS\nDocker Compose]
-    QWEN[DashScope / Qwen]
-
-    WEB --> API
-    SCH --> API
-    API --> POLICY
-    POLICY --> LEGACY
-    POLICY -. planned .-> DCA
-    EVIDENCE --> API
-    API --> RECORDS
-    API --> BROKER
-    ECS -. hosts .-> API
-    ECS -. hosts .-> SCH
-    QWEN --> EVIDENCE
-```
-
-关键约束：
-
-- **策略运行时无 IO**：策略只接收已解析的上下文，不能直接读数据库、调用网络、读取密钥或下单。
-- **AI 受限**：已部署 Provider 仅输出解释、风险提示与只读候选草案；草案必须经 DSL 校验、固定样本准入和用户显式保存/激活，不能越过预算、人工确认或 paper-only 限制。
-- **订单安全**：只有操作者显式请求的、到期且已验证的 paper order 才能提交；不支持实盘、自动撤单或 scheduler 自动下单。
-- **审计优先**：记录输入而非只记录结论；新记录保存策略 ID、版本与通用推荐快照，旧记录保持可读。
-
-## 当前 Workspace
+## 一条完整的本地闭环
 
 ```text
-indexlink/
-├─ crates/
-│  ├─ core-domain/          # 金额、动作、Percentile 等带不变量领域类型
-│  ├─ quant-engine/         # 当前分位、基本面与趋势纯函数
-│  ├─ decision-engine/      # 当前 70/20/10 legacy 决策实现
-│  ├─ investment-plans/     # 计划、周期、双桶预算与执行预览
-│  ├─ decision-records/     # 决策存证领域 port
-│  ├─ market-data/          # 市场输入 provider
-│  ├─ ai-client/            # DashScope/Qwen 适配与降级
-│  ├─ broker/               # Mock/OpenD paper-only adapter
-│  ├─ storage/              # SQLite 与持久化 adapter
-│  ├─ strategy-evaluation/  # 离线、版本化策略研究
-│  ├─ strategy-dsl/         # 受限策略 AST 与纯函数校验
-│  └─ api/                  # Axum HTTP 与应用编排
-├─ apps/
-│  ├─ server/               # 组合根与 scheduler
-│  └─ web/                  # Vite + React Dashboard
-├─ docs/                    # API、架构计划、策略研究与历史实验
-└─ deployment/aliyun/       # ECS Docker Compose 部署脚本
+策略中心 / 策略工坊
+        ↓ 选择不可变策略版本
+真实标的回测与数据预检
+        ↓
+建立个人计划
+        ↓ 到期时由调度器幂等生成建议
+查看建议与依据
+        ↓ 用户在自己的券商操作
+手工确认“已执行 / 跳过”
+        ↓
+执行历史与输入快照永久追加、不可覆盖
 ```
 
-> 已实现 `strategy-policy`（策略契约）、两个内置策略和受限 Strategy DSL runtime；后续不会将任意用户脚本加入运行时。
+系统中的“执行”默认是**用户报告的事实记录**。可选 OpenD paper broker 仅用于本机模拟账户实验；scheduler 和 AI 都没有自动提交订单的权限。
 
-## 本地运行
+## 策略模型
 
-1. 安装 stable Rust、`rustfmt`、`clippy` 和 pnpm。
-2. 创建本地配置并启动服务：
+V2.1 的公共策略不是 100 份互不兼容的脚本，而是同一个受限公式框架下的不可变版本：
 
-   ```bash
-   cp .env.example .env
-   cargo run -p indexlink-server
-   ```
+```text
+历史日线 → 因果指标（只读取观察日及以前数据）
+         → 按优先级检查规则
+         → 调整本期“机会额度”
+         → 核心投入保持不变
+```
 
-3. 检查健康状态：
+当前白名单覆盖价格/指数均线、双均线、三均线、RSI、历史价格分位、波动率、波动率扩张、回撤、接近高点、趋势与波动组合、动量与波动组合、趋势与回撤组合、趋势与动量组合等家族。公式定义、参数和来源随策略版本一起冻结；第一个命中的规则停止后续判断。
 
-   ```bash
-   curl http://localhost:8080/health
-   curl http://localhost:8080/ready
-   ```
+Fixed DCA 始终保留为基准。旧“70/20/10 自适应”研究没有进入普通用户目录；其历史实验与未形成稳定收益优势的结论仍保留在 [研究文档](./docs/README.md)，避免把失败结果从项目历史中抹去。
 
-4. 启动 Web：
+### 回测口径
 
-   ```bash
-   pnpm --dir apps/web install --frozen-lockfile
-   pnpm --dir apps/web dev
-   ```
+- 真实日线来自当前配置的只读 provider；普通运行时目前接入本机 OpenD，并使用 SQLite 缓存命中。
+- 相同对比中的策略共享标的、起止日期、投入预算、交易日映射和成本模型。
+- 净值指数以共同起点 `100` 归一化，只比较资金路径变化，不代表股价或账户余额。
+- 专业视角提供区间收益、年化收益、XIRR、最大回撤、年化波动、Sortino、现金使用率、交易成本、峰值/低点/恢复日以及公式代入值。
+- 指标预热不足、行情授权不足、数据过期或 provider 不可用时返回明确错误；不会用静态收益率或随机曲线补位。
 
-本地 `.env` 已被 Git 忽略。可选的 `DASHSCOPE_API_KEY` 只用于 Qwen 证据；也可在 `AI_PROVIDER_PROFILES` 中声明多个已部署的 OpenAI-compatible profile（清单只引用 `api_key_env` 环境变量名，必须恰有一个 `default`，远程 endpoint 必须 HTTPS）。用户和浏览器只能从已部署 profile 中选择，永远看不到 Key 或 endpoint。`OPEND_PROVIDER`、`OPEND_HOST`、`OPEND_PORT` 与 `OPEND_ACCOUNT_ID` 只用于本机 loopback OpenD；`OPEND_MARKET_DATA_ENABLED` 和 `OPEND_PAPER_BROKER_ENABLED` 可独立关闭行情或模拟 broker。可选 adapter 失败不会阻止 SQLite 核心启动，broker 失败也不会回退到 Mock。所有配置均不得提交或写入日志。
+## 本地启动
 
-启动后在浏览器访问 Vite 输出的本地地址（通常为 `http://localhost:5173`）。如需使用受限 Copilot，先确认状态栏显示“AI 已配置”；没有配置时其余 Studio 流程仍可正常使用。
+### 依赖
 
-### Docker / Alibaba Cloud ECS
+- Rust stable（包含 `cargo`、`rustfmt`、`clippy`）
+- Node.js 与 pnpm
+- 可选：本机 Futu/Moomoo OpenD，用于 US/HK/SH/SZ 真实日线与模拟账户实验
 
-项目可用 Docker Compose 在 Alibaba Cloud ECS 运行；SQLite 由本地 Docker volume 持久化：
+### 1. 启动后端
 
 ```bash
-docker compose -f deployment/docker-compose.yml up --build -d
-docker compose -f deployment/docker-compose.yml ps
+git clone https://github.com/GuZZ1119/indexlinkV2.git
+cd indexlinkV2
+cp .env.example .env
+cargo run -p indexlink-server
+```
+
+默认监听 `127.0.0.1:8080`。检查服务：
+
+```bash
+curl http://127.0.0.1:8080/health
 curl http://127.0.0.1:8080/ready
 ```
 
-部署说明见 [deployment/aliyun/README.md](./deployment/aliyun/README.md)。
+### 2. 启动前端
 
-## 路线图
+```bash
+pnpm --dir apps/web install --frozen-lockfile
+pnpm --dir apps/web dev
+```
 
-1. **策略契约与兼容包装**：已增加通用 `InvestmentPolicy` 契约，用 `CoreOpportunityV1` 包装旧逻辑并锁定回归。
-2. **固定 DCA 与统一解析入口**：已完成；固定 DCA 与旧策略通过同一预览、scheduler、审计和 paper-only 流程运行。
-3. **策略版本与审计升级**：已完成；新记录保存策略版本和通用推荐快照，旧记录保持可读。
-4. **受限 DSL/AST、校验与确定性 runtime**：已完成；仅允许白名单指标、有限表达式与机会桶动作，拒绝任意脚本、超深条件树和超预算固定金额；首条命中规则会在完整快照上生成通用推荐。
-5. **统一历史评估**：已完成；`strategy-evaluation` 直接调用同一 DSL 解释器，全部白名单技术指标仅使用决策日及此前原始证据，并固定在下一交易日成交。
-6. **策略存储、Studio 与准入**：已完成不可变版本存储、受控创建/验证、当前数据模拟和计划激活。DSL 版本激活前必须在固定样本中与 Fixed DCA 对照 XIRR、期末净值、回撤、波动、Sortino、现金使用率和滚动窗口，并通过证据完整性、预算/核心桶安全门槛；结果不构成收益承诺。
-7. **运行可观测性与前端联调**：已完成；Web 通过 `/health`、`/ready`、`/runtime-status` 区分 API、SQLite、Qwen、OpenD 与 scheduler 状态，并使用 React Query 管理服务端数据缓存。
-8. **AI Evidence Registry 与 Copilot Draft**：已完成多 Profile 的 OpenAI-compatible 无密钥 Registry、只读 DSL 草案接口与 Studio 草案交互；Qwen 是默认样本，用户只能选择服务器已部署的 profile，密钥仅留在服务端环境或 secret manager。草案只会回填可编辑表单，仍须经确定性校验、回测、人工保存与激活，且永不获得下单权限。
+浏览器打开 Vite 输出的本地地址，通常是 `http://127.0.0.1:5173`。
 
-详见 [策略工作台迁移计划](./docs/architecture/strategy-studio-migration-plan.md) 与 [文档索引](./docs/README.md)。
+### 3. 可选：接入 OpenD
 
-## 免责声明
+先启动并登录 Futu/Moomoo OpenD，再在“高级实验室”输入回环地址；也可在本机 `.env` 中配置：
 
-> 本项目仅供学习、技术研究和 paper-trading 演示，不构成投资建议。
+```dotenv
+OPEND_PROVIDER=moomoo
+OPEND_HOST=127.0.0.1
+OPEND_PORT=11111
+OPEND_MARKET_DATA_ENABLED=true
+OPEND_PAPER_BROKER_ENABLED=false
+```
 
-- 所有策略输出都可能亏损，历史结果不预测未来收益。
-- 未证明稳定优势的策略不得被描述为“提高收益”或“跑赢市场”。
-- 使用者应自行理解策略、数据来源、延迟、成本、税费、合规义务与交易风险。
-- 当前不提供实盘交易功能；在任何情况下，AI 都不拥有下单权限。
+没有 OpenD 时，计划管理、Fixed DCA、执行日志和已缓存研究仍可使用；新的任意标的真实回测与需要行情的公式策略会明确提示数据不可用。
 
-## 版权与贡献者
+### 4. 可选：接入自己的 AI
 
-Copyright © 2026 IndexLink Contributors。项目以 [MIT License](./LICENSE) 发布。
+在“高级实验室”选择供应商、模型并输入 Key，然后点击“验证 AI 可用性”。Key 只发送到当前本机后端进程，不写入浏览器存储、SQLite、`.env` 或日志。保存连接本身不会调用模型；所有 AI 功能仍需用户逐次点击。
 
-- [Jame (`jamesra26`)](https://github.com/jamesra26) — 项目发起者；架构设计、70/20/10 基本面与趋势层设计、前端实现、PR 审阅与持续维护。
-- [Xuanzhou Gu (`GuZZ1119`)](https://github.com/GuZZ1119) — V2 独立项目维护者；后端与 API、SQLite 持久化、计划/双桶/调度闭环、策略契约与 DSL Studio、回测与校准、Qwen/OpenD paper-trading 集成、阿里云部署、测试、文档与演示闭环实现。
-- [Yucong Peng (`YucongPeng`)](https://github.com/YucongPeng) — AI 层设计与实现。
+### 5. 可选：本地 Docker
+
+```bash
+docker compose -f deployment/docker-compose.yml up --build
+```
+
+Compose 只把服务发布到宿主机 `127.0.0.1`。本仓库不再提供云服务器一键部署脚本；若自行反向代理或开放端口，必须先增加认证、TLS、限流和 CSRF/Origin 防护。
+
+## 安全模型
+
+- 后端和 Docker 默认只监听/发布到 loopback；当前 API **没有账户认证**，不得直接暴露到局域网或公网。
+- HTTP 请求体和 RSS 响应体均有 1 MiB 上限；模型解析错误不记录原始输出。
+- AI endpoint 由服务端供应商配置固定，远程地址要求 HTTPS；API Key 不回显。
+- OpenD host 必须是回环地址，页面会话配置不会自动开启 paper broker。
+- 领域 newtype、受限 DSL、策略版本和执行 journal 在服务端重新校验；前端输入不是安全边界。
+- SQL 写入使用参数绑定；策略 runtime 不执行用户脚本，也不直接访问网络、数据库或 broker。
+
+完整威胁模型、仍未解决的依赖告警和公开披露方式见 [SECURITY.md](./SECURITY.md)；本次收口审查见 [V2.1 代码审查](./docs/reviews/v2_1_code_audit_2026-09-23.md)。
+
+## 架构
+
+IndexLink 使用 **Hexagonal Architecture（Ports & Adapters）+ Rust modular monolith**。领域规则位于内部，SQLite、OpenD、AI、HTTP 与 Web 都是可替换适配器。
+
+```mermaid
+flowchart LR
+  Web[React Web] --> API[Axum application API]
+  Scheduler[Local scheduler] --> API
+  API --> Plans[Plans and decisions]
+  API --> Runtime[Deterministic policy runtime]
+  API --> Backtest[Backtest and research]
+  Runtime --> Journal[(SQLite snapshots and journal)]
+  Backtest --> Data[OpenD daily bars and cache]
+  API -. manual only .-> AI[User-provided AI provider]
+  API -. explicit paper only .-> Broker[OpenD paper broker]
+```
+
+主要目录：
+
+```text
+apps/server                 Rust 组合根、本地 scheduler
+apps/web                    Vite + React + Tailwind 前端
+crates/core-domain          带不变量的领域类型
+crates/investment-plans     计划、周期和预算规则
+crates/strategy-policy      统一策略契约
+crates/strategy-dsl         受限公式 AST、校验与解释器
+crates/builtin-policies     Fixed DCA 与兼容策略
+crates/strategy-evaluation  回测、指标、研究夹具
+crates/market-data          OpenD/Alpaca 只读数据适配器与缓存契约
+crates/ai-client            多供应商 AI 协议与有界输出
+crates/broker               Mock/OpenD paper-only 适配器
+crates/storage              SQLite 审计存储
+crates/api                  HTTP 契约与应用编排
+docs                        API、计划、审查与策略研究
+```
+
+公开 API 契约见 [API 管理手册](./docs/reference/api-management.md)，前端边界见 [Web Plan](./apps/web/PLAN.md)，完整文档见 [docs/README.md](./docs/README.md)。
+
+## 验证
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+pnpm --dir apps/web lint
+pnpm --dir apps/web test:coverage
+pnpm --dir apps/web build
+```
+
+行为变更需要聚焦测试，并在 [CHANGE_LOG.md](./CHANGE_LOG.md) 记录涉及文件、验证结果和模型。前端覆盖率门槛为 90%。
+
+## 开源来源与引用
+
+本项目没有把 QuantConnect LEAN、TA-Lib 或论文中的交易代码直接复制进 runtime；它们用于指标语义、回测边界和策略研究的交叉核对。公式实现、因果性约束、预算模型与审计契约均在本仓库独立实现并测试。
+
+- 架构：Alistair Cockburn 的 [Hexagonal Architecture](https://alistair.cockburn.us/hexagonal-architecture)。
+- 回测与研究参考：[QuantConnect LEAN](https://github.com/QuantConnect/Lean)（Apache-2.0）、[TA-Lib](https://ta-lib.github.io/)（BSD）、Meb Faber 的 [A Quantitative Approach to Tactical Asset Allocation](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461)。
+- UI 与图表：[shadcn/ui](https://github.com/shadcn-ui/ui)（MIT，组件模式与少量 Tailwind variant）、[Recharts](https://recharts.github.io/)（MIT）、[Apache ECharts](https://echarts.apache.org/)（Apache-2.0）、[TanStack Query](https://github.com/TanStack/query)（MIT）。
+- 行情接口：Futu 官方 [OpenD / OpenAPI 文档](https://openapi.futunn.com/futu-api-doc/en/intro/intro.html)。
+- 研究数据：FRED 与 Cboe 原始来源及校验值记录在 `crates/strategy-evaluation/data/generated/*.manifest.json`；使用者仍须遵守各数据提供方条款。
+
+逐项用途、许可证和“参考而非复制”的边界见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+
+## 项目状态与不做事项
+
+V2.1 的目标是把本地闭环做完整，不继续扩大成券商托管平台。以下内容不在当前承诺中：
+
+- 多用户账户、云端同步和公网服务；
+- 自动实盘、托管资金、自动撤单和收益保证；
+- 分钟级/高频策略、任意 Python/JavaScript 策略；
+- 社交发布、跟单、策略市场和跨用户排行榜；
+- 把 AI 新闻情绪自动注入普通策略。
+
+下一阶段优先项是数据许可复核、依赖审计余项、交易日历，以及把“资金周期”和“策略观察频率”拆成两个独立契约。
+
+## License
+
+Copyright © 2026 IndexLink Contributors。项目代码以 [MIT License](./LICENSE) 发布。第三方库、研究数据和外部服务分别受其原始许可证与使用条款约束。

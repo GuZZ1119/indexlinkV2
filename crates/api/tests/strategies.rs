@@ -10,12 +10,16 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use chrono::Datelike;
+use chrono::{Datelike, Duration as ChronoDuration, Utc};
 use core_domain::Multiplier;
 use http_body_util::BodyExt;
 use indexlink_api::{build_router, ApiState};
 use indexlink_storage::{SqliteStorage, SqliteStrategySpecRepository};
-use market_data::{MarketDataError, MarketPricePoint, MarketSignalInput, MarketSignalProvider};
+use market_data::{
+    Adjustment, DatasetSource, HistoricalPriceBar, HistoricalPriceDataset, HistoricalPriceProvider,
+    HistoricalPriceRequest, Market, MarketDataError, MarketPricePoint, MarketSignalInput,
+    MarketSignalProvider,
+};
 use rust_decimal::Decimal;
 use serde_json::Value;
 use strategy_dsl::{
@@ -61,26 +65,103 @@ impl AiProvider for UntrustedCopilotAi {
     /// Return a valid-looking document with an untrusted evidence-reference ID.
     async fn generate_policy_draft(
         &self,
-        request: &AiCopilotDraftRequest,
+        _request: &AiCopilotDraftRequest,
     ) -> Result<AiCopilotDraft, AiClientError> {
         AiCopilotDraft::new(
             serde_json::json!({
-                "policy_id": request.policy_id(),
-                "policy_version": request.policy_version(),
                 "name": "Untrusted candidate",
                 "rules": [{
-                    "condition": {
-                        "kind": "comparison",
-                        "expression": {"kind": "indicator", "indicator": {"kind": "vix"}},
+                    "match": "all",
+                    "conditions": [{
+                        "indicator": "relative_strength_index",
+                        "lookback_days": 14,
                         "operator": "less_than",
-                        "threshold": "30"
-                    },
-                    "action": {"kind": "set_opportunity_multiplier", "multiplier": 1.0}
+                        "threshold": 30
+                    }],
+                    "multiplier": 1.0
                 }]
             }),
             "This model attempted to cite an unknown source.".to_owned(),
             Vec::new(),
             vec!["invented_source".to_owned()],
+        )
+        .map_err(|_| AiClientError::ParseFailure)
+    }
+}
+
+/// Provider transport succeeded, but the model response could not satisfy the outer JSON contract.
+struct InvalidResponseCopilotAi;
+
+#[async_trait]
+impl AiProvider for InvalidResponseCopilotAi {
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::new(
+            AiProviderProfileId::new("invalid-response-copilot").unwrap(),
+            AiProviderId::new("test").unwrap(),
+            "Invalid response Copilot".to_owned(),
+            "fixture".to_owned(),
+            AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
+        )
+        .unwrap()
+    }
+
+    async fn analyze(&self, _prompt: &str) -> Result<Sentiment, AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
+    }
+
+    async fn generate_policy_draft(
+        &self,
+        _request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        Err(AiClientError::ParseFailure)
+    }
+}
+
+/// Provider returns valid JSON whose form values exceed the Strategy Workshop allowlist.
+struct InvalidFormCopilotAi;
+
+#[async_trait]
+impl AiProvider for InvalidFormCopilotAi {
+    fn profile(&self) -> AiProviderProfile {
+        AiProviderProfile::new(
+            AiProviderProfileId::new("invalid-form-copilot").unwrap(),
+            AiProviderId::new("test").unwrap(),
+            "Invalid form Copilot".to_owned(),
+            "fixture".to_owned(),
+            AiProviderCapabilities::market_evidence_and_restricted_policy_drafts(),
+        )
+        .unwrap()
+    }
+
+    async fn analyze(&self, _prompt: &str) -> Result<Sentiment, AiClientError> {
+        Err(AiClientError::UnsupportedCapability)
+    }
+
+    async fn generate_policy_draft(
+        &self,
+        request: &AiCopilotDraftRequest,
+    ) -> Result<AiCopilotDraft, AiClientError> {
+        AiCopilotDraft::new(
+            serde_json::json!({
+                "name": "Unsupported multiplier",
+                "rules": [{
+                    "match": "all",
+                    "conditions": [{
+                        "indicator": "price_return",
+                        "lookback_days": 63,
+                        "operator": "less_than",
+                        "threshold": -10
+                    }],
+                    "multiplier": 0.8
+                }]
+            }),
+            "The provider returned a form-shaped response.".to_owned(),
+            Vec::new(),
+            request
+                .evidence()
+                .iter()
+                .map(|reference| reference.id().to_owned())
+                .collect(),
         )
         .map_err(|_| AiClientError::ParseFailure)
     }
@@ -123,6 +204,47 @@ impl MarketSignalProvider for StaticMarketData {
                 close: 100.0 + f64::from(day),
             })
             .collect())
+    }
+}
+
+/// Canonical daily closes used by the live Formula decision path.
+struct StaticHistoricalPrices;
+
+#[async_trait]
+impl HistoricalPriceProvider for StaticHistoricalPrices {
+    fn provider_id(&self) -> &'static str {
+        "strategy-test-history"
+    }
+
+    fn preferred_adjustment(&self, market: Market) -> Result<Adjustment, MarketDataError> {
+        Ok(match market {
+            Market::Us => Adjustment::All,
+            Market::HongKong | Market::ChinaShanghai | Market::ChinaShenzhen => Adjustment::Forward,
+        })
+    }
+
+    async fn fetch_history(
+        &self,
+        request: &HistoricalPriceRequest,
+    ) -> Result<HistoricalPriceDataset, MarketDataError> {
+        let count = request
+            .end()
+            .signed_duration_since(request.start())
+            .num_days();
+        let bars = (0..=count)
+            .map(|offset| {
+                HistoricalPriceBar::new(
+                    request.start() + ChronoDuration::days(offset),
+                    100.0 + offset as f64,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        HistoricalPriceDataset::new(
+            request,
+            DatasetSource::new("strategy-test-history", "fixture-v1")?,
+            Utc::now(),
+            bars,
+        )
     }
 }
 
@@ -229,6 +351,53 @@ async fn copilot_draft_is_validated_but_never_persisted_or_activated() {
         .unwrap();
     assert_eq!(stored.status(), StatusCode::OK);
     assert_eq!(response_json(stored).await, serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn copilot_draft_distinguishes_provider_structure_from_form_contract_failures() {
+    async fn call(provider: Arc<dyn AiProvider>) -> axum::response::Response {
+        let storage =
+            SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+                .await
+                .unwrap();
+        storage.migrate().await.unwrap();
+        let profile_id = provider.profile().id().as_str().to_owned();
+        build_router(
+            ApiState::new(storage, "0.1.0").with_market_sentiment(Arc::new(NoopNews), provider),
+        )
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/strategies/copilot-draft")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "profile_id": profile_id,
+                        "policy_id": "dsl_failure_stage",
+                        "policy_version": 1,
+                        "objective": "Use a simple bounded rule"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    let response_invalid = call(Arc::new(InvalidResponseCopilotAi)).await;
+    assert_eq!(response_invalid.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response_json(response_invalid).await["error"]["code"],
+        "ai_response_invalid"
+    );
+
+    let form_invalid = call(Arc::new(InvalidFormCopilotAi)).await;
+    assert_eq!(form_invalid.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response_json(form_invalid).await["error"]["code"],
+        "ai_draft_invalid"
+    );
 }
 
 /// Verify neither invalid custom policy references nor invented evidence can cross the draft boundary.
@@ -404,6 +573,172 @@ async fn validates_then_saves_a_restricted_strategy_document() {
     assert_eq!(response_json(saved).await["policy"]["id"], "dsl_api_test");
 }
 
+/// Verify plan creation binds only an exact server-stored Formula version and never accepts a
+/// client-supplied executable document.
+#[tokio::test]
+async fn creates_plan_from_exact_stored_strategy_and_rejects_formula_injection() {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    SqliteStrategySpecRepository::new(storage.pool().clone())
+        .save(&strategy())
+        .await
+        .unwrap();
+    let app = build_router(
+        ApiState::new(storage, "0.1.0")
+            .with_historical_price_provider(Arc::new(StaticHistoricalPrices)),
+    );
+    let request = serde_json::json!({
+        "name": "Stored RSI plan",
+        "symbol": "voo",
+        "base_contribution": "100.00",
+        "currency": "USD",
+        "schedule_kind": "monthly",
+        "schedule_day": 18,
+        "max_single_execution": "100.00",
+        "bucket_allocation": {"core_ratio":"0.70", "opportunity_ratio":"0.30"},
+        "risk_mode": "approval",
+        "policy": {"id":"dsl_api_test", "version":1}
+    });
+
+    let created = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = response_json(created).await;
+    assert_eq!(created["policy"]["id"], "dsl_api_test");
+    assert_eq!(created["policy"]["version"], 1);
+    assert_eq!(created["symbol"], "VOO");
+    let plan_id = created["id"].as_str().unwrap();
+
+    let preview = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/investment-plans/{plan_id}/automatic-decision-preview"
+                ))
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.status(), StatusCode::OK);
+    let preview = response_json(preview).await;
+    assert_eq!(preview["decision"]["policy"]["id"], "dsl_api_test");
+    assert_eq!(preview["decision"]["policy"]["version"], 1);
+
+    let mut injected = request;
+    injected["formula"] = serde_json::to_value(
+        strategy_dsl::StrategySpecDocument::from_strategy_spec(&strategy()),
+    )
+    .unwrap();
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header("content-type", "application/json")
+                .body(Body::from(injected.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+
+    let mut missing_version = serde_json::json!({
+        "name": "Unknown version",
+        "symbol": "VOO",
+        "base_contribution": "100.00",
+        "currency": "USD",
+        "schedule_kind": "monthly",
+        "schedule_day": 18,
+        "max_single_execution": "100.00",
+        "bucket_allocation": {"core_ratio":"0.70", "opportunity_ratio":"0.30"},
+        "risk_mode": "approval",
+        "policy": {"id":"dsl_api_test", "version":1}
+    });
+    missing_version["policy"]["version"] = serde_json::json!(2);
+    let rejected = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header("content-type", "application/json")
+                .body(Body::from(missing_version.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
+}
+
+/// Verify a personal Formula cannot enter Plan state when its declared market evidence cannot be
+/// sourced; the default Fixed DCA path remains independent of this optional capability.
+#[tokio::test]
+async fn personal_formula_plan_fails_closed_without_historical_price_capability() {
+    let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
+        .await
+        .unwrap();
+    storage.migrate().await.unwrap();
+    SqliteStrategySpecRepository::new(storage.pool().clone())
+        .save(&strategy())
+        .await
+        .unwrap();
+    let app = build_router(ApiState::new(storage, "0.1.0"));
+    let request = serde_json::json!({
+        "name": "No evidence plan",
+        "symbol": "VOO",
+        "base_contribution": "100.00",
+        "currency": "USD",
+        "schedule_kind": "monthly",
+        "schedule_day": 18,
+        "max_single_execution": "100.00",
+        "bucket_allocation": {"core_ratio":"0.70", "opportunity_ratio":"0.30"},
+        "risk_mode": "approval",
+        "policy": {"id":"dsl_api_test", "version":1}
+    });
+
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let plans = app
+        .oneshot(
+            Request::builder()
+                .uri("/investment-plans")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(plans.status(), StatusCode::OK);
+    assert_eq!(response_json(plans).await, serde_json::json!([]));
+}
+
 /// Verify explicit activation makes automatic preview execute the persisted DSL runtime version.
 #[tokio::test]
 async fn activates_a_validated_strategy_and_uses_it_for_automatic_audit() {
@@ -416,7 +751,9 @@ async fn activates_a_validated_strategy_and_uses_it_for_automatic_audit() {
         .await
         .unwrap();
     let app = build_router(
-        ApiState::new(storage, "0.1.0").with_market_data(std::sync::Arc::new(StaticMarketData)),
+        ApiState::new(storage, "0.1.0")
+            .with_market_data(std::sync::Arc::new(StaticMarketData))
+            .with_historical_price_provider(std::sync::Arc::new(StaticHistoricalPrices)),
     );
     let day = chrono::Utc::now().weekday().number_from_monday();
     let plan = serde_json::json!({

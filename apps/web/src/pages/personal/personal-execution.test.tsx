@@ -42,6 +42,38 @@ const decision = {
   created_at: '2026-09-15T00:00:00Z',
 }
 
+const fixedCatalogEntry = {
+  policy: { id: 'fixed_dca', version: 1 },
+  name: '每月稳步投入',
+  summary: '在固定日期，用固定金额持续买入宽基指数。',
+  rule: '无论市场涨跌，按计划投入。',
+  limitation: '市场极端高估时仍会按原金额买入。',
+  risk: 'stable',
+  supported_symbols: [],
+  supported_markets: ['us', 'hong_kong', 'china_shanghai', 'china_shenzhen'],
+  default_plan: { schedule_kind: 'monthly', schedule_day: 18, core_ratio: '1.00', opportunity_ratio: '0.00', risk_mode: 'fixed' },
+  data_requirements: [],
+  data_requirement: { required_close_observations: 0 },
+  adoptable: true,
+  research_status: 'available',
+}
+
+const formulaCatalogEntry = {
+  policy: { id: 'dsl_ma200_trend_guard', version: 1 },
+  name: '200 日均线趋势保护',
+  summary: '保留固定核心投入，在价格低于 200 日均线时暂停当期弹性投入。',
+  rule: '每期检查价格相对 200 日均线的位置；低于均线时弹性桶为 0。',
+  limitation: '均线具有滞后性。',
+  risk: 'stable',
+  supported_symbols: [],
+  supported_markets: ['us', 'hong_kong', 'china_shanghai', 'china_shenzhen'],
+  default_plan: { schedule_kind: 'monthly', schedule_day: 18, core_ratio: '0.70', opportunity_ratio: '0.30', risk_mode: 'approval' },
+  data_requirements: ['daily_close_200'],
+  data_requirement: { required_close_observations: 200 },
+  adoptable: true,
+  research_status: 'available',
+}
+
 type TestEvent = {
   id: string
   decision_record_id: string
@@ -70,6 +102,7 @@ function createApi(options: {
   plans?: unknown[]
   decisions?: unknown[]
   events?: TestEvent[]
+  catalog?: unknown[]
   failHistory?: boolean
   postStatus?: number
 } = {}) {
@@ -80,6 +113,7 @@ function createApi(options: {
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
     requests.push({ url, method, body })
+    if (url.endsWith('/strategy-catalog')) return jsonResponse(options.catalog ?? [fixedCatalogEntry])
     if (url.endsWith('/investment-plans')) return jsonResponse(options.plans ?? [plan])
     if (url.includes('/investment-plans/') && url.includes('/decisions')) return jsonResponse(options.decisions ?? [decision])
     if (url.includes(`/decisions/${decision.id}/manual-executions`) && method === 'POST') {
@@ -119,58 +153,76 @@ describe('personal manual execution loop', () => {
 
     expect(await screen.findByRole('heading', { name: /按建议投入/ })).toBeTruthy()
     expect(screen.getByText(/保持原来的金额和节奏/)).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '每月稳步投入' })).toBeTruthy()
+    expect(screen.getByText('无论市场涨跌，按计划投入。')).toBeTruthy()
+    expect(screen.getAllByText(/US\$1,000/).length).toBeGreaterThan(0)
     expect(screen.queryByText(decision.summary)).toBeNull()
     expect(await screen.findByText(/还没有执行记录/)).toBeTruthy()
+    const pendingStatus = screen.getByLabelText('本期办理状态')
+    expect(pendingStatus.textContent).toContain('本期待办 · 未完成')
+    expect(pendingStatus.closest('section')?.getAttribute('data-advice-state')).toBe('pending')
+    expect(pendingStatus.closest('section')?.className).toContain('duration-700')
 
-    fireEvent.click(screen.getByRole('button', { name: '我已执行' }))
+    expect(screen.queryByRole('button', { name: '部分执行' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
     const amount = screen.getByLabelText('实际金额') as HTMLInputElement
     expect(amount.value).toBe('1000.00')
     fireEvent.change(amount, { target: { value: '980.50' } })
     fireEvent.change(screen.getByLabelText('备注（可选）'), { target: { value: ' 已在券商完成 ' } })
     fireEvent.click(screen.getByRole('button', { name: '确认记录完成' }))
 
-    expect((await screen.findByRole('status')).textContent).toContain('已完成，已加入执行历史')
+    expect(await screen.findByText('已完成，已加入执行历史。')).toBeTruthy()
     expect(await screen.findByText(/980\.50/)).toBeTruthy()
     expect(screen.getByText('已在券商完成')).toBeTruthy()
     const post = api.requests.find((request) => request.method === 'POST')
     expect(post?.body).toMatchObject({ outcome: 'executed', actual_amount: '980.50', note: '已在券商完成' })
     expect(post?.body?.event_id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(screen.queryByRole('button', { name: '我已执行' })).toBeNull()
+    expect(screen.getAllByText(/每个计划日只能确认一次/).length).toBeGreaterThan(0)
+    const completedStatus = screen.getByLabelText('本期办理状态')
+    expect(completedStatus.textContent).toContain('本期待办 · 已完成')
+    expect(completedStatus.closest('section')?.getAttribute('data-advice-state')).toBe('completed')
   })
 
-  it('validates a partial amount locally and can then append a skipped event without an amount', async () => {
-    const api = createApi()
-    vi.stubGlobal('fetch', api.fetchMock)
-    renderPage()
-    await screen.findByRole('heading', { name: /按建议投入/ })
-
-    fireEvent.click(screen.getByRole('button', { name: '部分执行' }))
+  it('validates an executed amount locally and can record one skipped outcome without an amount', async () => {
+    const invalid = createApi()
+    vi.stubGlobal('fetch', invalid.fetchMock)
+    const first = renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
     fireEvent.change(screen.getByLabelText('实际金额'), { target: { value: '0' } })
-    fireEvent.click(screen.getByRole('button', { name: '确认记录部分执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认记录完成' }))
     expect(screen.getByRole('alert').textContent).toContain('请输入大于 0')
-    expect(api.requests.filter((request) => request.method === 'POST')).toHaveLength(0)
+    expect(invalid.requests.filter((request) => request.method === 'POST')).toHaveLength(0)
+    first.unmount()
 
-    fireEvent.change(screen.getByLabelText('实际金额'), { target: { value: '400' } })
-    fireEvent.click(screen.getByRole('button', { name: '确认记录部分执行' }))
-    expect((await screen.findByRole('status')).textContent).toContain('部分完成')
-
-    fireEvent.click(screen.getByRole('button', { name: '这次跳过' }))
+    const skipped = createApi()
+    vi.stubGlobal('fetch', skipped.fetchMock)
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '这次跳过' }))
     expect(screen.queryByLabelText('实际金额')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '确认记录跳过' }))
-    expect((await screen.findByRole('status')).textContent).toContain('已跳过')
+    expect(await screen.findByText('已跳过，已加入执行历史。')).toBeTruthy()
 
-    const posts = api.requests.filter((request) => request.method === 'POST')
-    expect(posts[0].body).toMatchObject({ outcome: 'partial', actual_amount: '400' })
-    expect(posts[1].body).toMatchObject({ outcome: 'skipped' })
-    expect(posts[1].body).not.toHaveProperty('actual_amount')
+    const posts = skipped.requests.filter((request) => request.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(posts[0].body).toMatchObject({ outcome: 'skipped' })
+    expect(posts[0].body).not.toHaveProperty('actual_amount')
     expect(await screen.findByText('已跳过')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '这次跳过' })).toBeNull()
+    const skippedStatus = screen.getByLabelText('本期办理状态')
+    expect(skippedStatus.textContent).toContain('本期待办 · 已跳过')
+    expect(skippedStatus.closest('section')?.getAttribute('data-advice-state')).toBe('skipped')
   })
 
   it('keeps the real no-advice and journal failure states explicit', async () => {
-    const api = createApi({ decisions: [] })
+    const waitingDecision = { ...decision, execution_status: 'waiting' }
+    const api = createApi({ decisions: [waitingDecision] })
     vi.stubGlobal('fetch', api.fetchMock)
     const first = renderPage()
     expect(await screen.findByRole('heading', { name: '现在只需要继续等待' })).toBeTruthy()
     expect(screen.getByText(/下一次计划日/)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '每月稳步投入' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '我已执行' })).toBeNull()
     expect(api.requests.some((request) => request.url.includes('manual-executions'))).toBe(false)
     first.unmount()
 
@@ -178,8 +230,83 @@ describe('personal manual execution loop', () => {
     vi.stubGlobal('fetch', failed.fetchMock)
     renderPage()
     expect(await screen.findByText('暂时读不到执行历史。')).toBeTruthy()
+    expect(screen.getByLabelText('本期办理状态').textContent).toContain('执行状态待确认')
     fireEvent.click(screen.getByRole('button', { name: '重新读取' }))
     await waitFor(() => expect(failed.requests.filter((request) => request.url.includes('manual-executions'))).toHaveLength(2))
+  })
+
+  it('explains a formula plan with its next evaluation and bounded amount instead of a fake fixed contribution', async () => {
+    const formulaPlan = {
+      ...plan,
+      name: 'VOO 200 日均线趋势保护',
+      policy: { id: 'dsl_ma200_trend_guard', version: 1 },
+      execution_configuration: {
+        bucket_allocation: { core_ratio: '0.70', opportunity_ratio: '0.30' },
+        risk_mode: 'approval',
+        opportunity_cash_policy: 'expire_each_period',
+      },
+      max_single_execution: '1000.00',
+    }
+    const api = createApi({ plans: [formulaPlan], decisions: [], catalog: [formulaCatalogEntry] })
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+
+    expect(await screen.findByRole('heading', { name: '200 日均线趋势保护' })).toBeTruthy()
+    expect(screen.getByText(/每期检查价格相对 200 日均线/)).toBeTruthy()
+    const amountExplanation = screen.getByText(/先保留/)
+    expect(amountExplanation.textContent).toContain('US$700')
+    expect(amountExplanation.textContent).toContain('US$300')
+    expect(amountExplanation.textContent).toContain('不会超过 US$1,000')
+    expect(screen.getByText('每期基础预算')).toBeTruthy()
+  })
+
+  it('keeps plan semantics understandable when catalog metadata is temporarily unavailable', async () => {
+    const fixed = createApi({ decisions: [], catalog: [] })
+    vi.stubGlobal('fetch', fixed.fetchMock)
+    const first = renderPage()
+    expect(await screen.findByRole('heading', { name: '每月稳步投入' })).toBeTruthy()
+    expect(screen.getByText('每个计划日使用同一份金额，不读取市场或 AI 信号。')).toBeTruthy()
+    first.unmount()
+
+    const legacyPlan = {
+      ...plan,
+      name: '历史自适应计划',
+      base_contribution: 'unknown',
+      policy: { id: 'core_opportunity_v1', version: 1 },
+      execution_configuration: {
+        bucket_allocation: { core_ratio: 'unknown', opportunity_ratio: 'unknown' },
+        risk_mode: 'approval',
+        opportunity_cash_policy: 'expire_each_period',
+      },
+    }
+    const legacy = createApi({ plans: [legacyPlan], decisions: [], catalog: [] })
+    vi.stubGlobal('fetch', legacy.fetchMock)
+    renderPage()
+    expect(await screen.findByRole('heading', { name: '旧自适应策略' })).toBeTruthy()
+    expect(screen.getByText('只调整机会桶，不改写核心投入和单次金额上限。')).toBeTruthy()
+    expect(screen.getAllByText('按计划比例计算')).toHaveLength(2)
+  })
+
+  it('keeps a legacy partial result visibly resolved without presenting it as completed', async () => {
+    const partial: TestEvent = {
+      id: '30000000-0000-4000-8000-000000000003',
+      decision_record_id: decision.id,
+      plan_id: plan.id,
+      outcome: 'partial',
+      actual_amount: '500.00',
+      currency: 'USD',
+      occurred_at: '2026-09-15T01:00:00Z',
+      recorded_at: '2026-09-15T01:01:00Z',
+      source: 'user_reported',
+    }
+    const api = createApi({ events: [partial] })
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+
+    const status = await screen.findByLabelText('本期办理状态')
+    await waitFor(() => expect(status.textContent).toContain('本期待办 · 历史部分完成'))
+    expect(status.closest('section')?.getAttribute('data-advice-state')).toBe('partial')
+    expect(screen.queryByRole('button', { name: '我已执行' })).toBeNull()
   })
 
   it('supports switching between real plans and shows service failures without mock data', async () => {
@@ -194,7 +321,7 @@ describe('personal manual execution loop', () => {
     const api = createApi({ plans: [plan, weeklyPlan], decisions: [] })
     vi.stubGlobal('fetch', api.fetchMock)
     const first = renderPage()
-    const selector = await screen.findByLabelText('查看计划') as HTMLSelectElement
+    const selector = await screen.findByLabelText('正在查看的计划') as HTMLSelectElement
     fireEvent.change(selector, { target: { value: weeklyPlan.id } })
     await waitFor(() => expect(api.requests.some((request) => request.url.includes(weeklyPlan.id))).toBe(true))
     first.unmount()
@@ -208,18 +335,25 @@ describe('personal manual execution loop', () => {
     const api = createApi({ postStatus: 400 })
     vi.stubGlobal('fetch', api.fetchMock)
     renderPage()
-    await screen.findByRole('heading', { name: /按建议投入/ })
-
-    fireEvent.click(screen.getByRole('button', { name: '我已执行' }))
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
     fireEvent.change(screen.getByLabelText('实际时间'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: '确认记录完成' }))
     expect(screen.getByRole('alert').textContent).toContain('请选择有效的执行时间')
     fireEvent.click(screen.getByRole('button', { name: '取消' }))
     expect(screen.queryByLabelText('实际金额')).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '我已执行' }))
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认记录完成' }))
     expect((await screen.findByRole('alert')).textContent).toContain('没有通过校验')
+  })
+
+  it('shows a retryable message for a non-validation journal failure', async () => {
+    const api = createApi({ postStatus: 503 })
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认记录完成' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('暂时没有记录成功')
   })
 
   it('renders server action wording and real weekly paused plan facts', async () => {
@@ -244,7 +378,7 @@ describe('personal manual execution loop', () => {
     vi.stubGlobal('fetch', amountless.fetchMock)
     renderPage()
     expect(await screen.findByRole('heading', { name: '查看本期建议' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '我已执行' }))
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
     expect((screen.getByLabelText('实际金额') as HTMLInputElement).value).toBe('')
   })
 
@@ -257,6 +391,7 @@ describe('personal manual execution loop', () => {
       const method = init?.method ?? 'GET'
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined
       api.requests.push({ url, method, body })
+      if (url.endsWith('/strategy-catalog')) return jsonResponse([fixedCatalogEntry])
       if (url.endsWith('/investment-plans')) return jsonResponse([plan])
       if (url.includes(`/investment-plans/${plan.id}/decisions`)) return jsonResponse([decision])
       if (url.includes('manual-executions') && method === 'POST') {
@@ -273,11 +408,10 @@ describe('personal manual execution loop', () => {
     })
     vi.stubGlobal('fetch', api.fetchMock)
     renderPage()
-    await screen.findByRole('heading', { name: /按建议投入/ })
-    fireEvent.click(screen.getByRole('button', { name: '我已执行' }))
+    fireEvent.click(await screen.findByRole('button', { name: '我已执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认记录完成' }))
 
-    expect((await screen.findByRole('status')).textContent).toContain('这次记录已经存在')
+    expect(await screen.findByText('这次记录已经存在，执行历史已为你刷新。')).toBeTruthy()
     expect(postSeen).toBe(true)
     await waitFor(() => expect(screen.getByLabelText('执行历史').textContent).toContain('1,000.00'))
   })
