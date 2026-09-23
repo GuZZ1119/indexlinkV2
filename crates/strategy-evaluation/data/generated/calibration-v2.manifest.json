@@ -35,10 +35,10 @@
       "sha256": "b057ca2243f0fb022062a03258a9e68afca7708e19a564ceedf32735c4314dc0"
     },
     {
-      "file": "multpl_shiller_pe.html",
+      "file": "shiller_cape_monthly.csv",
       "url": "https://www.multpl.com/shiller-pe/table/by-month",
-      "note": "Monthly Shiller CAPE HTML snapshot; values are parsed by date and never interpolated.",
-      "sha256": "d99ac7da3599a2f3eca2401f8dd5edd6c1ac4024116505b111b870f3f4916024"
+      "note": "Sanitized monthly date/value extract from the Multpl Shiller P/E table; page markup is excluded and values are never interpolated.",
+      "sha256": "b4b2e410bc681956c72d7daa6129c3701164d4e79e505a6a8e3f0688e921f750"
     }
   ],
   "generated_fixture": {

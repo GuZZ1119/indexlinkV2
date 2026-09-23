@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the immutable calibration-v2 fixture from committed public-source snapshots.
+"""Build the immutable calibration-v1/v2 fixtures from committed source snapshots.
 
 The script intentionally performs no network IO.  It turns the committed raw
 snapshots into a dated monthly decision set. Each decision uses only
@@ -22,8 +22,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW = ROOT / "crates/strategy-evaluation/data/raw"
-OUT = ROOT / "crates/strategy-evaluation/data/generated/calibration-v2.json"
-MANIFEST = ROOT / "crates/strategy-evaluation/data/generated/calibration-v2.manifest.json"
+GENERATED = ROOT / "crates/strategy-evaluation/data/generated"
+OUT_V1 = GENERATED / "calibration-v1.json"
+OUT_V2 = GENERATED / "calibration-v2.json"
+MANIFEST_V1 = GENERATED / "calibration-v1.manifest.json"
+MANIFEST_V2 = GENERATED / "calibration-v2.manifest.json"
 QWEN_SENSITIVITY = ROOT / "crates/strategy-evaluation/data/generated/qwen-sensitivity-v1.json"
 START = date(2005, 1, 1)
 END = date(2026, 6, 30)
@@ -60,23 +63,25 @@ def read_vix(path: Path) -> list[tuple[date, float]]:
     return rows
 
 
-def read_shiller(path: Path) -> dict[tuple[int, int], float]:
+def read_shiller_monthly(path: Path) -> dict[tuple[int, int], float]:
     values: dict[tuple[int, int], float] = {}
-    text = path.read_text(encoding="utf-8")
-    for row in text.split("<tr")[1:]:
-        cells = [
-            cell.split(">")[-1].replace("&#x2002;", " ").strip()
-            for cell in row.split("</td>")[:-1]
-        ]
-        if len(cells) < 2:
-            continue
-        try:
-            observed = datetime.strptime(cells[0], "%b %d, %Y").date()
-            value = float(cells[1])
-        except (TypeError, ValueError):
-            continue
-        if START <= observed <= END and value > 0:
-            values[(observed.year, observed.month)] = value
+    with path.open(newline="", encoding="utf-8") as handle:
+        for line_number, row in enumerate(csv.DictReader(handle), start=2):
+            try:
+                observed = datetime.strptime(row["observation_month"], "%Y-%m").date()
+                value = float(row["CAPE"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError(f"invalid Shiller CAPE row at line {line_number}") from error
+            if not START <= observed <= END:
+                continue
+            key = (observed.year, observed.month)
+            if value <= 0:
+                raise ValueError(f"non-positive Shiller CAPE at line {line_number}")
+            if key in values:
+                raise ValueError(f"duplicate Shiller CAPE month at line {line_number}")
+            values[key] = value
+    if not values:
+        raise ValueError("Shiller CAPE snapshot contains no observations")
     return values
 
 
@@ -154,8 +159,34 @@ def build_asset(
     }
 
 
+def build_v1_asset(asset: dict[str, object]) -> dict[str, object]:
+    observations = asset["observations"]
+    assert isinstance(observations, list)
+    return {
+        "id": asset["id"],
+        "display_name": asset["display_name"],
+        "source_symbol": asset["source_symbol"],
+        "observations": [
+            {
+                "as_of": observation["decision_as_of"],
+                "close": observation["decision_close"],
+                "ma200_distance": observation["ma200_distance"],
+                "rsi14": observation["rsi14"],
+                "cape": observation["cape"],
+                "erp_proxy": observation["erp_proxy"],
+                "vix": observation["vix"],
+            }
+            for observation in observations
+        ],
+    }
+
+
+def write_json(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def main() -> None:
-    cape = read_shiller(RAW / "multpl_shiller_pe.html")
+    cape = read_shiller_monthly(RAW / "shiller_cape_monthly.csv")
     treasury = monthly_last(read_fred_daily(RAW / "fred_dgs10_daily.csv", "DGS10"))
     vix = monthly_last(read_vix(RAW / "cboe_vix_daily.csv"))
     assets = [
@@ -178,7 +209,7 @@ def main() -> None:
             vix,
         ),
     ]
-    payload = {
+    payload_v2 = {
         "schema_version": 2,
         "dataset_version": "calibration-v2",
         "capture_date": "2026-08-21",
@@ -186,8 +217,17 @@ def main() -> None:
         "frequency": "monthly final available decision observation; execute at first strictly later daily price observation",
         "assets": assets,
     }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    payload_v1 = {
+        "schema_version": 1,
+        "dataset_version": "calibration-v1",
+        "capture_date": "2026-08-21",
+        "range": {"start": START.isoformat(), "end": END.isoformat()},
+        "frequency": "monthly last available trading observation",
+        "assets": [build_v1_asset(asset) for asset in assets],
+    }
+    GENERATED.mkdir(parents=True, exist_ok=True)
+    write_json(OUT_V1, payload_v1)
+    write_json(OUT_V2, payload_v2)
     sources = [
         (
             "fred_sp500_daily.csv",
@@ -210,40 +250,57 @@ def main() -> None:
             "Daily CBOE VIX close; the last valid observation in a calendar month is used.",
         ),
         (
-            "multpl_shiller_pe.html",
+            "shiller_cape_monthly.csv",
             "https://www.multpl.com/shiller-pe/table/by-month",
-            "Monthly Shiller CAPE HTML snapshot; values are parsed by date and never interpolated.",
+            "Sanitized monthly date/value extract from the Multpl Shiller P/E table; page markup is excluded and values are never interpolated.",
         ),
     ]
-    manifest = {
+    source_entries = [
+        {
+            "file": filename,
+            "url": url,
+            "note": note,
+            "sha256": hashlib.sha256((RAW / filename).read_bytes()).hexdigest(),
+        }
+        for filename, url, note in sources
+    ]
+    qwen_entry = {
+        "file": QWEN_SENSITIVITY.name,
+        "sha256": hashlib.sha256(QWEN_SENSITIVITY.read_bytes()).hexdigest(),
+        "scope": "Distribution sensitivity only; excluded from historical performance claims.",
+    }
+    manifest_v1 = {
+        "dataset_version": "calibration-v1",
+        "captured_on": "2026-08-21",
+        "range": payload_v1["range"],
+        "frequency": payload_v1["frequency"],
+        "missing_value_rule": "Drop a month for an asset when any required CAPE, DGS10, VIX, or technical observation is absent; do not forward-fill or interpolate.",
+        "sources": source_entries,
+        "generated_fixture": {
+            "file": OUT_V1.name,
+            "sha256": hashlib.sha256(OUT_V1.read_bytes()).hexdigest(),
+        },
+        "frozen_qwen_sensitivity_fixture": qwen_entry,
+        "generator": "tools/generate_calibration_fixture.py",
+    }
+    manifest_v2 = {
         "dataset_version": "calibration-v2",
         "parent_dataset": "calibration-v1",
         "captured_on": "2026-08-21",
-        "range": payload["range"],
-        "frequency": payload["frequency"],
+        "range": payload_v2["range"],
+        "frequency": payload_v2["frequency"],
         "missing_value_rule": "Drop a month for an asset when any required CAPE, DGS10, VIX, technical observation, or strictly later execution price is absent; do not forward-fill or interpolate.",
         "execution_timing_rule": "Calculate after the decision observation at t and execute at the first committed daily price observation strictly after t. Never execute at the decision close.",
-        "sources": [
-            {
-                "file": filename,
-                "url": url,
-                "note": note,
-                "sha256": hashlib.sha256((RAW / filename).read_bytes()).hexdigest(),
-            }
-            for filename, url, note in sources
-        ],
+        "sources": source_entries,
         "generated_fixture": {
-            "file": OUT.name,
-            "sha256": hashlib.sha256(OUT.read_bytes()).hexdigest(),
+            "file": OUT_V2.name,
+            "sha256": hashlib.sha256(OUT_V2.read_bytes()).hexdigest(),
         },
-        "frozen_qwen_sensitivity_fixture": {
-            "file": QWEN_SENSITIVITY.name,
-            "sha256": hashlib.sha256(QWEN_SENSITIVITY.read_bytes()).hexdigest(),
-            "scope": "Distribution sensitivity only; excluded from historical performance claims.",
-        },
+        "frozen_qwen_sensitivity_fixture": qwen_entry,
         "generator": "tools/generate_calibration_fixture.py",
     }
-    MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    write_json(MANIFEST_V1, manifest_v1)
+    write_json(MANIFEST_V2, manifest_v2)
 
 
 if __name__ == "__main__":

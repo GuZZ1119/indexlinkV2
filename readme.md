@@ -1,9 +1,13 @@
 <p align="center">
-  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="160">
+  <img src="assets/icons/indexlink-logo.png" alt="IndexLink" width="360">
 </p>
 
 <p align="center">
   <strong>把长期投资方法变成看得懂、能回测、可复查的个人计划。</strong>
+</p>
+
+<p align="center">
+  Rust 本地服务 · React 用户界面 · SQLite 审计存储 · OpenD 真实日线 · 用户自带 AI
 </p>
 
 <p align="center">
@@ -28,6 +32,22 @@ IndexLink 是一个面向普通长期投资者的**本地策略计划与研究�
 V2.1 是**单用户、本地优先、人工执行**版本。它不会代替用户下单，不承诺收益，也不把 AI 变成交易决策者。
 
 > **风险声明：** 本项目仅供学习、策略研究和 paper-trading 演示，不构成投资建议。历史回测不预测未来；数据错误、市场制度变化、税费、滑点和流动性都可能改变结果。
+
+## 技术制作
+
+IndexLink 不是一组静态页面，也不是把策略判断交给大模型的聊天壳。它是一套在本机运行、由确定性 Rust 规则负责计算、由 React 负责解释与操作的完整应用。
+
+| 层次 | 技术与职责 |
+| --- | --- |
+| 服务端 | Rust 2021、Axum 与 Tokio；负责策略不变量、计划调度、回测、AI/OpenD 适配和 HTTP 契约 |
+| 领域与研究 | Rust workspace 模块化单体；受限 Formula AST、因果指标、统一资金账本、不可变策略版本和可复现研究夹具 |
+| 本地数据 | SQLx + SQLite；保存计划、建议输入快照、个人策略和 append-only 手工执行记录 |
+| Web | React 19、TypeScript、Vite 8、Tailwind CSS v4、TanStack Query 与 Valtio；服务端状态和临时界面状态分离 |
+| 图表 | Apache ECharts 用于可缩放净值、价格与执行轨道；Recharts 用于轻量结果展示 |
+| 外部适配 | Futu/Moomoo OpenD 提供本机只读日线；QwenCloud、百炼、GPT、Claude、DeepSeek 仅在用户手动触发时调用 |
+| 质量门禁 | Rustfmt、Clippy、Cargo workspace tests、ESLint、TypeScript build 与 Vitest；前端覆盖率门槛 90% |
+
+架构采用 **Hexagonal Architecture（Ports & Adapters）+ Rust modular monolith**：核心规则不依赖浏览器、数据库、行情源或模型供应商，外部能力可以替换，输入与结论均能留下可审计证据。
 
 ## 当前已经能做什么
 
