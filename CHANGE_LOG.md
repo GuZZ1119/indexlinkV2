@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-23 17:46 AEST — 补充 MIT 版权署名
+
+- 执行模型：GPT-5 Codex。
+- 变更类型：开源许可证署名。
+- 涉及文件：`LICENSE`、`CHANGE_LOG.md`。
+- 变更内容：保留原作者 `Jame` 的版权行，并新增 `Copyright (c) 2026 Xuan Zhou`；MIT 授权正文与授权范围不变。
+- 验证：人工核对 MIT 标准正文未发生变化，`git diff --check` 通过。
+
 ### 2026-09-23 11:43 AEST — README 首屏与公开研究复现链收口
 
 - 执行模型：GPT-5 Codex。
