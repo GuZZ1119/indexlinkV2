@@ -322,6 +322,7 @@ function PlanList({
                   <div><p className="text-xs text-slate-400">{plan.policy.id === 'fixed_dca' ? '投入节奏' : '评估节奏'}</p><p className="mt-1 font-semibold text-[#102028]">{scheduleLabel(plan)}</p></div>
                 </div>
                 <p className="mt-3 text-xs leading-5 text-slate-500">策略：{strategyLabel(plan, strategyNames)} · 单次上限 {formatMoney(plan.currency, plan.max_single_execution)}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-400">计划时区：{plan.timezone}</p>
               </button>
               <div className="mt-5 flex gap-2 border-t border-slate-100 pt-4">
                 <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => onToggle(plan)}>{plan.is_active ? <><Pause />暂停</> : <><Play />继续</>}</Button>
@@ -347,8 +348,8 @@ function defaultScheduleDay(kind: MinimalPlanDraft['scheduleKind'], strategy?: S
       : nearestWeekday(strategy.default_plan.schedule_day)
   }
   const now = new Date()
-  if (kind === 'monthly') return Math.min(now.getUTCDate(), 28)
-  const day = now.getUTCDay() === 0 ? 7 : now.getUTCDay()
+  if (kind === 'monthly') return Math.min(now.getDate(), 28)
+  const day = now.getDay() === 0 ? 7 : now.getDay()
   return strategy?.policy.id === 'fixed_dca' ? day : nearestWeekday(day)
 }
 
@@ -362,6 +363,7 @@ function planPayload(draft: MinimalPlanDraft, symbol: string, currency: string, 
     schedule_kind: draft.scheduleKind,
     schedule_day: draft.scheduleDay,
     schedule_days: [draft.scheduleDay],
+    timezone: browserTimeZone(),
     policy: strategy.policy,
     bucket_allocation: {
       core_ratio: defaults.core_ratio,
@@ -371,6 +373,10 @@ function planPayload(draft: MinimalPlanDraft, symbol: string, currency: string, 
     opportunity_cash_policy: 'expire_each_period',
     max_single_execution: draft.amount.trim(),
   }
+}
+
+function browserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 }
 
 function policyKey(policy: { id: string; version: number }): string {

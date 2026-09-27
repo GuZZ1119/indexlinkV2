@@ -157,7 +157,7 @@ async fn approve_paper_order(
         .reserve_period_execution(
             plan.id,
             record.id,
-            &period_key(plan.schedule_kind, Utc::now().date_naive()),
+            &period_key(plan.schedule_kind, plan.timezone.local_date_at(Utc::now())),
             limit,
             amount,
         )

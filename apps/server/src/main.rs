@@ -46,6 +46,12 @@ async fn run_with_shutdown<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    if !config.address.ip().is_loopback() {
+        tracing::warn!(
+            address = %config.address,
+            "UNSAFE explicit non-loopback bind enabled; IndexLink has no authentication and must remain behind a host loopback-only boundary"
+        );
+    }
     let storage = SqliteStorage::connect_with_options(
         &config.database_url,
         config.database_max_connections,
@@ -106,7 +112,7 @@ where
 /// Spawn the safe periodic audit scheduler when enabled by local configuration.
 ///
 /// The task reads each plan's monthly/weekly fixed-day set and creates at most one
-/// server-sourced decision record per active plan and UTC day.
+/// server-sourced decision record per active plan and plan-local scheduled day.
 /// It never submits a broker order; an operator must still explicitly request paper submission.
 fn start_automatic_scheduler(
     state: ApiState,

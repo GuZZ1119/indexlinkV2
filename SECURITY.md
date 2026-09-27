@@ -2,7 +2,7 @@
 
 ## Supported scope
 
-IndexLink V2.1 is a single-user, local-first application. The supported security boundary is:
+IndexLink V2.1 Beta is a single-user, local-first application. The supported security boundary is:
 
 - the Rust API binds to `127.0.0.1` by default;
 - Docker publishes the API only on host loopback;
@@ -10,7 +10,7 @@ IndexLink V2.1 is a single-user, local-first application. The supported security
 - broker integration is paper-only and requires an explicit user action;
 - AI features are optional, read-only helpers invoked manually.
 
-The current API has no account authentication. Exposing it to a LAN, a public IP, a cloud load balancer, or an untrusted reverse proxy is **unsupported and unsafe**.
+The current API has no account authentication. Exposing it to a LAN, a public IP, a cloud load balancer, or an untrusted reverse proxy is **unsupported and unsafe**. Non-loopback `APP_HOST` values are rejected unless the operator deliberately sets `ALLOW_UNSAFE_NON_LOOPBACK_BIND=true`; that escape hatch exists for container namespaces and does not make a remote deployment safe.
 
 ## Credential handling
 
@@ -50,7 +50,7 @@ If remote access is added later, it must be a separate release with authenticati
 
 ## Reporting a vulnerability
 
-Please do not open a public issue containing exploit details, credentials, personal data, or a working attack against a user installation. Contact the repository maintainer privately through the security-reporting channel shown on the GitHub repository. Include:
+Please do not open a public issue containing exploit details, credentials, personal data, or a working attack against a user installation. Use GitHub's private [Report a vulnerability](https://github.com/GuZZ1119/indexlinkV2/security/advisories/new) form. Include:
 
 - affected commit and platform;
 - prerequisites and impact;

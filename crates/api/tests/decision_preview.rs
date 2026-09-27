@@ -419,6 +419,7 @@ fn plan_from(id: Uuid, input: CreateInvestmentPlan) -> InvestmentPlan {
         schedule_kind: input.schedule_kind,
         schedule_day: input.schedule_day,
         schedule_days: input.schedule_days,
+        timezone: input.timezone,
         policy: input
             .policy
             .unwrap_or_else(investment_plans::default_fixed_dca_policy),
@@ -525,6 +526,7 @@ fn create_input() -> CreateInvestmentPlan {
         schedule_kind: ScheduleKind::Monthly,
         schedule_day: 15,
         schedule_days: vec![15],
+        timezone: investment_plans::PlanTimeZone::utc(),
         policy: Some(investment_plans::legacy_core_opportunity_v1_policy()),
         execution_configuration: PlanExecutionConfiguration::new_with_cash_policy(
             TwoBucketAllocationConfig::new(
@@ -968,7 +970,7 @@ async fn automatic_decision_preview_uses_server_sources_and_writes_readable_audi
 
 /// Verify the persisted scheduler claim prevents duplicate automatic records on a second tick.
 #[tokio::test]
-async fn scheduler_creates_one_due_audit_record_per_plan_and_utc_day() {
+async fn scheduler_creates_one_due_audit_record_per_plan_and_local_day() {
     let storage = SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
         .await
         .unwrap();

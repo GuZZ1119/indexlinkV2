@@ -571,6 +571,7 @@ mod tests {
                 schedule_kind: investment_plans::ScheduleKind::Monthly,
                 schedule_day: 15,
                 schedule_days: vec![15],
+                timezone: investment_plans::PlanTimeZone::utc(),
                 policy: None,
                 execution_configuration: investment_plans::PlanExecutionConfiguration::default(),
                 max_single_execution: money(1500),

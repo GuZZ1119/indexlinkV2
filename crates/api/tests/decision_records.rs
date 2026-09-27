@@ -195,6 +195,7 @@ fn plan(id: Uuid) -> InvestmentPlan {
         schedule_kind: ScheduleKind::Monthly,
         schedule_day: 15,
         schedule_days: vec![15],
+        timezone: investment_plans::PlanTimeZone::utc(),
         policy: investment_plans::legacy_core_opportunity_v1_policy(),
         execution_configuration: investment_plans::PlanExecutionConfiguration::default(),
         max_single_execution: Decimal::new(1500, 0),

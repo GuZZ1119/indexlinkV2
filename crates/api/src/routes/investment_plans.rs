@@ -13,8 +13,8 @@ use chrono::{Duration as ChronoDuration, Utc};
 use investment_plans::{
     default_fixed_dca_policy, BucketAllocationRatio, CreateInvestmentPlan, InvestmentPlan,
     InvestmentPlanExecutionPreview, OpportunityCashPolicy, PlanExecutionConfiguration,
-    PlanRiskMode, PreviewInvestmentPlanExecution, ScheduleKind, TwoBucketAllocationConfig,
-    UpdateInvestmentPlan,
+    PlanRiskMode, PlanTimeZone, PreviewInvestmentPlanExecution, ScheduleKind,
+    TwoBucketAllocationConfig, UpdateInvestmentPlan,
 };
 use market_data::{HistoricalPriceRequest, Instrument, MarketDataError};
 use rust_decimal::Decimal;
@@ -47,6 +47,9 @@ struct CreateInvestmentPlanRequest {
     /// 同一周期内的所有固定执行日；缺省时兼容为仅 `schedule_day`。
     #[serde(default)]
     schedule_days: Vec<i16>,
+    /// 解释计划日期的 IANA 时区；省略时保留旧客户端的 UTC 语义。
+    #[serde(default = "utc_timezone")]
+    timezone: String,
     /// 可选的内置策略版本；省略时新计划默认绑定 `fixed_dca@1`。
     policy: Option<PolicyReferenceRequest>,
     /// 可选核心/机会桶比例；未提供时兼容旧计划，默认全部核心桶。
@@ -138,6 +141,11 @@ struct ActivatePolicyRequest {
     policy: PolicyReferenceRequest,
 }
 
+/// Preserve UTC semantics for older API clients while the first-party web client sends IANA timezones.
+fn utc_timezone() -> String {
+    "UTC".to_owned()
+}
+
 impl PolicyReferenceRequest {
     /// 转换为已校验的领域策略引用。
     fn into_domain(self) -> Result<PolicyRef, ApiError> {
@@ -225,6 +233,7 @@ impl CreateInvestmentPlanRequest {
             schedule_kind,
             schedule_day,
             schedule_days,
+            timezone,
             policy,
             bucket_allocation,
             risk_mode,
@@ -253,6 +262,7 @@ impl CreateInvestmentPlanRequest {
             } else {
                 schedule_days
             },
+            timezone: PlanTimeZone::new(&timezone)?,
             policy: policy
                 .map(PolicyReferenceRequest::into_domain)
                 .transpose()?,

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-27 10:30 AEST — V2.1 Beta 本地发行加固与数据发布门禁
+
+- 执行模型：GPT-5 Codex（多 Agent 并行审查与主线程统一验收）。
+- 变更类型：计划时区、SQLite 灾备、前端 CI、安全默认值、Beta 版本契约、数据/策略许可证与发行门禁。
+- 涉及文件：`Cargo.toml`、`Cargo.lock`、`.env.example`、`.gitignore`、`.github/workflows/web-ci.yml`、`apps/server/src/{config.rs,main.rs}`、`apps/web/{package.json,src/api/types.ts,src/pages/{plans,personal}/**}`、`crates/investment-plans/**`、`crates/api/src/{lib.rs,routes/{investment_plans,decision_preview,decision_records}.rs}` 及 API 测试、`crates/storage/src/sqlite*.rs`、`migrations/sqlite/20260927090000_add_plan_timezone.sql`、`scripts/{sqlite,docker-sqlite}-{backup,restore}.sh`、`deployment/docker-compose.yml`、`DATA_LICENSES.md`、`THIRD_PARTY_NOTICES.md`、`SECURITY.md`、`readme.md`、`readme.en.md`、`docs/{README.md,operations/backup-and-restore.md,contributing/strategy-source-policy.md,releases/v2.1.0-beta.1-candidate.md,plans/**,reference/api-management.md}`、`CHANGE_LOG.md`。
+- 变更内容：计划新增经过 `chrono-tz` 校验的冻结 IANA 时区，调度器、手动/自动建议、执行周期键和 Web 的“今天/下一次日期”统一按计划本地日历解释，旧计划与省略字段的旧客户端保持 `UTC` 兼容；新增原生 SQLite 在线一致性备份、停服确认恢复、校验和/完整性检查、恢复前备份，以及 Docker volume 停服备份恢复与 `/ready` 验证流程，并明确升级前先备份。新增独立 Web CI，在 Node 22 + pnpm 锁文件上执行 lint、90% 覆盖率门禁与生产构建。Rust workspace 与 Web 统一为 `2.1.0-beta.1` 候选版本。无认证 API 默认拒绝非 loopback 绑定，只有显式 `ALLOW_UNSAFE_NON_LOOPBACK_BIND=true` 才允许容器内监听并输出高危警告；OpenD 只读行情维持兼容默认，paper broker 改为默认关闭。GitHub 私密漏洞报告已启用。
+- 许可证结论：新增逐文件数据发行清单与策略来源规范，区分项目原创、研究思想独立实现、第三方代码移植和数据驱动策略。当前 5 份原始市场/估值快照及其派生校准结果的再分发权尚未确认，且部分数据会被 `strategy-evaluation` 通过 `include_str!` 编译进二进制；GitHub 自动 Source archive 也会包含完整 Tag tree。因此本次只形成 Release Candidate，**没有创建 `v2.1.0-beta.1` Git tag 或 GitHub Release**。在取得授权、改为用户本地导入或用明确可发行的 synthetic fixtures 替换前，发布门禁保持失败关闭。
+- 验证：`cargo test --workspace` 全部通过（真实网络/OpenD 写单 smoke 按设计 ignored）；`cargo clippy --workspace --all-targets -- -D warnings`、`cargo fmt --all -- --check`、`pnpm --dir apps/web install --frozen-lockfile`、`pnpm --dir apps/web lint`、`pnpm --dir apps/web test:coverage`（76 项；Statements 94.42%、Branches 90.14%、Functions 94.94%、Lines 97.04%）、`pnpm --dir apps/web build`、四个 shell 脚本的 `sh -n` 和 `git diff --check` 通过。原生 SQLite backup → 修改 → restore 临时库回环验证通过；Docker 脚本未触碰用户真实容器，运行态恢复测试留给隔离 Compose 环境。生产构建仅保留既有两个 ECharts chunk 超过 500 kB 的提示。
+
 ### 2026-09-23 17:46 AEST — 补充 MIT 版权署名
 
 - 执行模型：GPT-5 Codex。

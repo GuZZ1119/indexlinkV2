@@ -226,7 +226,7 @@ strategy_version + dataset_version + assumptions_version → BacktestResult
 
 ## 11. V2.1 发布门槛
 
-发布 `v2.1.0` 前必须满足：
+发布首个公开 Beta `v2.1.0-beta.1` 前必须满足：
 
 1. 干净环境可启动；Fixed DCA 不需要 AI、OpenD、broker、外部 Key 或 Docker 参数。
 2. Plan → Decision → user-reported execution → Audit 完整可复现。

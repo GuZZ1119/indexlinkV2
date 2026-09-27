@@ -8,6 +8,10 @@
 - [Web 信息架构与数据边界](../apps/web/PLAN.md)
 - [安全模型与披露政策](../SECURITY.md)
 - [第三方项目、研究与数据来源](../THIRD_PARTY_NOTICES.md)
+- [数据许可与发行清单](../DATA_LICENSES.md)
+- [策略来源与许可证贡献规范](./contributing/strategy-source-policy.md)
+- [SQLite 备份与恢复](./operations/backup-and-restore.md)
+- [V2.1.0-beta.1 候选发布说明](./releases/v2.1.0-beta.1-candidate.md)
 - [变更与验证日志](../CHANGE_LOG.md)
 
 ## V2.1 收口 / V2.1 closeout
@@ -35,4 +39,5 @@
 1. 新增或修改公开 API 时，同步更新 `docs/reference/api-management.md`。
 2. 功能、配置、安全边界或依赖发生变化时，同步更新根 README、`SECURITY.md` 和 `CHANGE_LOG.md`。
 3. 研究引用应写清原始来源、日期范围、调整方式、缺失值规则和 checksum。
-4. 一次性 push 执行稿完成后应合并进当前计划或移出公开跟踪，避免新贡献者按过期步骤操作。
+4. 新增策略必须区分原创、研究思想独立实现与代码移植；新增数据必须先记录明确的再分发依据或改为用户本地获取。
+5. 一次性 push 执行稿完成后应合并进当前计划或移出公开跟踪，避免新贡献者按过期步骤操作。

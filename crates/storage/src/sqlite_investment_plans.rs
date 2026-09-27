@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use investment_plans::{
     BucketAllocationRatio, CreateInvestmentPlan, InvestmentPlan, InvestmentPlanRepository,
     OpportunityCashPolicy, PlanExecutionConfiguration, PlanRepositoryError, PlanRiskMode,
-    PlanValidationError, ScheduleKind, TwoBucketAllocationConfig, UpdateInvestmentPlan,
+    PlanTimeZone, PlanValidationError, ScheduleKind, TwoBucketAllocationConfig,
+    UpdateInvestmentPlan,
 };
 use rust_decimal::{prelude::ToPrimitive, Decimal};
 use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
@@ -31,15 +32,15 @@ const INSERT_PLAN_SQL: &str = "INSERT INTO investment_plans \
      max_single_execution, is_active) \
     VALUES (?1, ?2, ?3, ?4, ?5, 'monthly', ?6, ?7, 1)";
 const INSERT_EXECUTION_CONFIGURATION_SQL: &str = "INSERT INTO plan_execution_configurations \
-    (plan_id, schedule_kind, schedule_day, schedule_days_json, core_ratio_units, opportunity_ratio_units, risk_mode, opportunity_cash_policy, opportunity_cash_cap, period_execution_limit, policy_id, policy_version) \
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+    (plan_id, schedule_kind, schedule_day, schedule_days_json, timezone, core_ratio_units, opportunity_ratio_units, risk_mode, opportunity_cash_policy, opportunity_cash_cap, period_execution_limit, policy_id, policy_version) \
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)";
 const LIST_PLANS_SQL: &str = "SELECT p.id, p.name, p.symbol, p.base_contribution, p.currency, \
-    c.schedule_kind, c.schedule_day, c.schedule_days_json, c.core_ratio_units, c.opportunity_ratio_units, c.risk_mode, c.opportunity_cash_policy, c.opportunity_cash_cap, c.period_execution_limit, c.policy_id, c.policy_version, \
+    c.schedule_kind, c.schedule_day, c.schedule_days_json, c.timezone, c.core_ratio_units, c.opportunity_ratio_units, c.risk_mode, c.opportunity_cash_policy, c.opportunity_cash_cap, c.period_execution_limit, c.policy_id, c.policy_version, \
     p.max_single_execution, p.is_active, p.created_at, p.updated_at \
     FROM investment_plans p JOIN plan_execution_configurations c ON c.plan_id = p.id \
     ORDER BY p.created_at ASC, p.id ASC";
 const GET_PLAN_SQL: &str = "SELECT p.id, p.name, p.symbol, p.base_contribution, p.currency, \
-    c.schedule_kind, c.schedule_day, c.schedule_days_json, c.core_ratio_units, c.opportunity_ratio_units, c.risk_mode, c.opportunity_cash_policy, c.opportunity_cash_cap, c.period_execution_limit, c.policy_id, c.policy_version, \
+    c.schedule_kind, c.schedule_day, c.schedule_days_json, c.timezone, c.core_ratio_units, c.opportunity_ratio_units, c.risk_mode, c.opportunity_cash_policy, c.opportunity_cash_cap, c.period_execution_limit, c.policy_id, c.policy_version, \
     p.max_single_execution, p.is_active, p.created_at, p.updated_at \
     FROM investment_plans p JOIN plan_execution_configurations c ON c.plan_id = p.id \
     WHERE p.id = ?1";
@@ -132,6 +133,7 @@ impl InvestmentPlanRepository for SqliteInvestmentPlanRepository {
             .bind(schedule_kind_name(input.schedule_kind))
             .bind(schedule_day)
             .bind(schedule_days_json)
+            .bind(input.timezone.as_str())
             .bind(core_ratio_units)
             .bind(opportunity_ratio_units)
             .bind(risk_mode_name(risk_mode))
@@ -394,6 +396,11 @@ fn plan_from_row(row: SqliteRow) -> Result<InvestmentPlan, PlanRepositoryError> 
     if schedule_days[0] != schedule_day {
         return Err(PlanRepositoryError::Unavailable);
     }
+    let timezone = PlanTimeZone::new(
+        row.try_get::<String, _>("timezone")
+            .map_err(map_sqlx_error)?
+            .as_str(),
+    )?;
 
     Ok(InvestmentPlan {
         id: parse_uuid(row.try_get("id").map_err(map_sqlx_error)?)?,
@@ -404,6 +411,7 @@ fn plan_from_row(row: SqliteRow) -> Result<InvestmentPlan, PlanRepositoryError> 
         schedule_kind,
         schedule_day,
         schedule_days,
+        timezone,
         policy: policy_from_row(&row)?,
         execution_configuration: execution_configuration_from_row(&row)?,
         max_single_execution: parse_amount(
@@ -677,6 +685,7 @@ mod tests {
             schedule_kind: ScheduleKind::Monthly,
             schedule_day: 15,
             schedule_days: vec![15],
+            timezone: PlanTimeZone::utc(),
             policy: None,
             execution_configuration: PlanExecutionConfiguration::default(),
             max_single_execution: amount("1500.00"),
@@ -792,6 +801,7 @@ mod tests {
                 schedule_kind: ScheduleKind::Weekly,
                 schedule_day: 1,
                 schedule_days: vec![1, 3, 5],
+                timezone: PlanTimeZone::new("Australia/Sydney").unwrap(),
                 execution_configuration: configuration,
                 ..input()
             })
@@ -801,6 +811,7 @@ mod tests {
         assert_eq!(created.schedule_kind, ScheduleKind::Weekly);
         assert_eq!(created.schedule_day, 1);
         assert_eq!(created.schedule_days, vec![1, 3, 5]);
+        assert_eq!(created.timezone.as_str(), "Australia/Sydney");
         assert_eq!(
             created
                 .execution_configuration

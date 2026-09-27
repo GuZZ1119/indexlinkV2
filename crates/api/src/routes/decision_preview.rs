@@ -16,7 +16,7 @@ use builtin_policies::{
     BuiltinPolicyDecision, BuiltinPolicyError, BuiltinPolicyEvidence, BuiltinPolicyEvidenceKind,
     CoreOpportunityEvidence,
 };
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use core_domain::{Action, Percentile};
 use decision_engine::{DecisionInput, DecisionSentiment, DecisionWeightMode};
 use decision_records::{
@@ -350,13 +350,15 @@ async fn preview_decision(
     let Path(id) = id.map_err(|_| ApiError::BadRequest)?;
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
 
+    let plan = state.plans().get(id).await?;
+    let execution_date = plan.timezone.local_date_at(Utc::now());
     Ok(Json(
         preview_decision_input(
             &state,
             id,
             input,
             DecisionTrigger::ManualInput,
-            Utc::now().date_naive(),
+            execution_date,
         )
         .await?,
     ))
@@ -370,7 +372,10 @@ async fn preview_automatic_decision(
 ) -> Result<Json<DecisionPreviewResponse>, ApiError> {
     let Path(id) = id.map_err(|_| ApiError::BadRequest)?;
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
-    let day_of_month = i16::try_from(Utc::now().day()).map_err(|_| ApiError::ServiceUnavailable)?;
+    let plan = state.plans().get(id).await?;
+    let execution_date = plan.timezone.local_date_at(Utc::now());
+    let day_of_month =
+        i16::try_from(execution_date.day()).map_err(|_| ApiError::ServiceUnavailable)?;
     Ok(Json(
         preview_automatic_for_plan(
             &state,
@@ -387,13 +392,21 @@ async fn preview_automatic_decision(
 pub(crate) async fn run_due_decisions(
     state: &ApiState,
 ) -> Result<ScheduledDecisionRunSummary, ApiError> {
-    let today = Utc::now().date_naive();
+    run_due_decisions_at(state, Utc::now()).await
+}
+
+/// Execute one scheduler tick at an explicit instant so timezone boundaries remain testable.
+async fn run_due_decisions_at(
+    state: &ApiState,
+    now: DateTime<Utc>,
+) -> Result<ScheduledDecisionRunSummary, ApiError> {
     let mut summary = ScheduledDecisionRunSummary::default();
 
     for plan in state.plans().list().await? {
         if !plan.is_active {
             continue;
         }
+        let today = plan.timezone.local_date_at(now);
         for scheduled_date in due_dates_in_current_period(&plan, today) {
             match preview_automatic_for_plan_with_claim(state, plan.id, scheduled_date).await {
                 Ok(Some(_)) => {
@@ -429,6 +442,7 @@ async fn preview_automatic_for_plan_with_claim(
         state,
         &plan,
         day_of_month,
+        scheduled_for,
         AutomaticDecisionPreviewRequest {
             bucket_allocation: None,
             paper_order: None,
@@ -468,9 +482,10 @@ async fn preview_automatic_for_plan(
     trigger: DecisionTrigger,
     options: AutomaticDecisionPreviewRequest,
 ) -> Result<DecisionPreviewResponse, ApiError> {
-    let execution_date = Utc::now().date_naive();
     let plan = state.plans().get(plan_id).await?;
-    let input = automatic_decision_input(state, &plan, day_of_month, options).await?;
+    let execution_date = plan.timezone.local_date_at(Utc::now());
+    let input =
+        automatic_decision_input(state, &plan, day_of_month, execution_date, options).await?;
     let response = preview_decision_input(state, plan_id, input, trigger, execution_date).await?;
     if matches!(trigger, DecisionTrigger::AutomaticPreview)
         && response.execution.status == ExecutionPreviewStatus::Due
@@ -487,6 +502,7 @@ async fn automatic_decision_input(
     state: &ApiState,
     plan: &InvestmentPlan,
     day_of_month: i16,
+    decision_date: NaiveDate,
     options: AutomaticDecisionPreviewRequest,
 ) -> Result<DecisionPreviewRequest, ApiError> {
     let builtin_evidence_kind = state
@@ -516,8 +532,7 @@ async fn automatic_decision_input(
             .await?
             .ok_or(ApiError::ServiceUnavailable)?;
         let (dsl_evidence, input_source) =
-            dsl_evidence_for_live_runtime(state, &strategy, &plan.symbol, Utc::now().date_naive())
-                .await?;
+            dsl_evidence_for_live_runtime(state, &strategy, &plan.symbol, decision_date).await?;
         return Ok(DecisionPreviewRequest {
             day_of_month,
             bucket_allocation: options.bucket_allocation,
@@ -1704,6 +1719,7 @@ mod scheduler_tests {
             schedule_kind: kind,
             schedule_day: days[0],
             schedule_days: days,
+            timezone: investment_plans::PlanTimeZone::utc(),
             policy: investment_plans::legacy_core_opportunity_v1_policy(),
             execution_configuration: PlanExecutionConfiguration::new(
                 TwoBucketAllocationConfig::new(

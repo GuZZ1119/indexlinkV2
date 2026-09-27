@@ -16,11 +16,11 @@
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f7661" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/release-V2.1%20local--first-10242c" alt="V2.1 local-first"></a>
+  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/version-2.1.0--beta.1-10242c" alt="2.1.0-beta.1"></a>
   <a href="./SECURITY.md"><img src="https://img.shields.io/badge/security-loopback%20only-c19a55" alt="Loopback only"></a>
 </p>
 
-# IndexLink V2.1
+# IndexLink V2.1 Beta
 
 IndexLink 是一个面向普通长期投资者的**本地策略计划与研究工具**。它把一条投资方法拆成可解释的规则、真实历史回测、定期建议和不可覆盖的执行记录，让用户能回答四个问题：
 
@@ -29,7 +29,7 @@ IndexLink 是一个面向普通长期投资者的**本地策略计划与研究�
 3. 这期为什么建议投入、减量或等待；
 4. 我最终是否执行，历史记录能否复查。
 
-V2.1 是**单用户、本地优先、人工执行**版本。它不会代替用户下单，不承诺收益，也不把 AI 变成交易决策者。
+`2.1.0-beta.1` 是**单用户、本地优先、人工执行**的 Beta 版本。它不会代替用户下单，不承诺收益，也不把 AI 变成交易决策者。正式 Git tag 与 GitHub Release 只有在随包研究数据的再分发权完成确认或相关数据移出发行物后才会创建。
 
 > **风险声明：** 本项目仅供学习、策略研究和 paper-trading 演示，不构成投资建议。历史回测不预测未来；数据错误、市场制度变化、税费、滑点和流动性都可能改变结果。
 
@@ -159,14 +159,16 @@ OPEND_PAPER_BROKER_ENABLED=false
 docker compose -f deployment/docker-compose.yml up --build
 ```
 
-Compose 只把服务发布到宿主机 `127.0.0.1`。本仓库不再提供云服务器一键部署脚本；若自行反向代理或开放端口，必须先增加认证、TLS、限流和 CSRF/Origin 防护。
+Compose 只把服务发布到宿主机 `127.0.0.1`。本仓库不再提供云服务器一键部署脚本；当前版本不支持自行反向代理或开放端口。远程访问必须作为包含认证、TLS、限流和 CSRF/Origin 防护的独立后续版本实现。
+
+计划、建议快照和执行历史保存在本地 SQLite。升级、切换分支或恢复历史数据前，请先按[本地备份与恢复指南](./docs/operations/backup-and-restore.md)生成并校验备份；不要直接复制仍在运行的 WAL 数据库主文件。
 
 ## 安全模型
 
-- 后端和 Docker 默认只监听/发布到 loopback；当前 API **没有账户认证**，不得直接暴露到局域网或公网。
+- 后端默认只监听 loopback；非回环 `APP_HOST` 会启动失败。Docker 仅在容器命名空间内以 `ALLOW_UNSAFE_NON_LOOPBACK_BIND=true` 监听 `0.0.0.0`，宿主端口仍只发布到 `127.0.0.1`。该开关不提供认证，API **不得**直接暴露到局域网或公网。
 - HTTP 请求体和 RSS 响应体均有 1 MiB 上限；模型解析错误不记录原始输出。
 - AI endpoint 由服务端供应商配置固定，远程地址要求 HTTPS；API Key 不回显。
-- OpenD host 必须是回环地址，页面会话配置不会自动开启 paper broker。
+- OpenD host 必须是回环地址；只配置 provider 默认仅启用只读行情，paper broker 必须通过 `OPEND_PAPER_BROKER_ENABLED=true` 显式开启，页面会话也不会自动授予 broker 能力。
 - 领域 newtype、受限 DSL、策略版本和执行 journal 在服务端重新校验；前端输入不是安全边界。
 - SQL 写入使用参数绑定；策略 runtime 不执行用户脚本，也不直接访问网络、数据库或 broker。
 
@@ -231,9 +233,9 @@ pnpm --dir apps/web build
 - 回测与研究参考：[QuantConnect LEAN](https://github.com/QuantConnect/Lean)（Apache-2.0）、[TA-Lib](https://ta-lib.github.io/)（BSD）、Meb Faber 的 [A Quantitative Approach to Tactical Asset Allocation](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461)。
 - UI 与图表：[shadcn/ui](https://github.com/shadcn-ui/ui)（MIT，组件模式与少量 Tailwind variant）、[Recharts](https://recharts.github.io/)（MIT）、[Apache ECharts](https://echarts.apache.org/)（Apache-2.0）、[TanStack Query](https://github.com/TanStack/query)（MIT）。
 - 行情接口：Futu 官方 [OpenD / OpenAPI 文档](https://openapi.futunn.com/futu-api-doc/en/intro/intro.html)。
-- 研究数据：FRED 与 Cboe 原始来源及校验值记录在 `crates/strategy-evaluation/data/generated/*.manifest.json`；使用者仍须遵守各数据提供方条款。
+- 研究数据：FRED、Cboe 与 Multpl 的来源及校验值记录在 manifest；当前快照的再分发权尚未确认，因此正式 Tag/Release 失败关闭。
 
-逐项用途、许可证和“参考而非复制”的边界见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+逐文件发行判断见 [DATA_LICENSES.md](./DATA_LICENSES.md)，策略贡献分类见[策略来源规范](./docs/contributing/strategy-source-policy.md)，许可证和“参考而非复制”的边界见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ## 项目状态与不做事项
 

@@ -15,6 +15,7 @@ const createdPlan = {
   schedule_kind: 'monthly',
   schedule_day: new Date().getUTCDate() > 28 ? 28 : new Date().getUTCDate(),
   schedule_days: [new Date().getUTCDate() > 28 ? 28 : new Date().getUTCDate()],
+  timezone: 'Australia/Sydney',
   policy: { id: 'fixed_dca', version: 1 },
   execution_configuration: {
     bucket_allocation: { core_ratio: '1.00', opportunity_ratio: '0.00' },
@@ -130,6 +131,7 @@ describe('minimal fixed DCA plan setup', () => {
       risk_mode: 'fixed',
       opportunity_cash_policy: 'expire_each_period',
       max_single_execution: '800.00',
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
     })
     expect(requests.find((request) => request.url.includes('/automatic-decision-preview'))?.body).toEqual({})
   })

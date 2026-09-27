@@ -46,6 +46,7 @@ async fn app_with_decision_status(
             schedule_kind: ScheduleKind::Monthly,
             schedule_day: 15,
             schedule_days: vec![15],
+            timezone: investment_plans::PlanTimeZone::utc(),
             policy: None,
             execution_configuration: PlanExecutionConfiguration::default(),
             max_single_execution: Decimal::new(1500, 0),

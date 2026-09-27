@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
 core-domain.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
