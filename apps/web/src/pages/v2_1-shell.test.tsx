@@ -595,6 +595,7 @@ function investmentPlan(overrides: Record<string, unknown> = {}) {
     schedule_kind: 'monthly',
     schedule_day: 18,
     schedule_days: [18],
+    timezone: 'Australia/Sydney',
     policy: { id: 'fixed_dca', version: 1 },
     execution_configuration: {
       bucket_allocation: { core_ratio: '1.00', opportunity_ratio: '0.00' },

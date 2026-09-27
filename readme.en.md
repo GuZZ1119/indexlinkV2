@@ -16,15 +16,15 @@
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f7661" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/release-V2.1%20local--first-10242c" alt="V2.1 local-first"></a>
+  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/version-2.1.0--beta.1-10242c" alt="2.1.0-beta.1"></a>
   <a href="./SECURITY.md"><img src="https://img.shields.io/badge/security-loopback%20only-c19a55" alt="Loopback only"></a>
 </p>
 
-# IndexLink V2.1
+# IndexLink V2.1 Beta
 
 IndexLink is a **local strategy-planning and research tool for long-term investors**. It turns an investing method into explainable rules, real historical backtests, periodic suggestions, and append-only execution records.
 
-V2.1 is single-user, local-first, and manually executed. It does not place live orders, promise returns, or grant an AI model trading authority.
+`2.1.0-beta.1` is single-user, local-first, and manually executed. It does not place live orders, promise returns, or grant an AI model trading authority. The formal Git tag and GitHub Release are withheld until redistribution rights for bundled research data are confirmed or the affected data is removed from release artifacts.
 
 > **Risk notice:** This project is for education, strategy research, and paper-trading demonstrations only. It is not investment advice. Historical backtests do not predict future results.
 
@@ -139,14 +139,16 @@ Select a provider and model in Advanced Lab, enter a key, and click the availabi
 docker compose -f deployment/docker-compose.yml up --build
 ```
 
-Compose publishes the API on host loopback only. This repository no longer ships cloud-server deployment scripts. Before exposing the API remotely, add authentication, TLS, rate limits, and CSRF/Origin protections.
+Compose publishes the API on host loopback only. This repository no longer ships cloud-server deployment scripts, and the current release does not support reverse-proxying or opening the port. Remote access requires a separate future release with authentication, TLS, rate limits, and CSRF/Origin protections.
+
+Plans, decision snapshots, and execution history are stored in local SQLite. Before upgrading, switching branches, or restoring old data, create and verify a backup using the [local backup and restore guide](./docs/operations/backup-and-restore.md). Do not copy only the main file of a running WAL database.
 
 ## Security model
 
-- The server and Docker bind/publish to loopback by default. The current API has **no account authentication** and must not be exposed to a LAN or the public internet.
+- The server binds to loopback by default and rejects non-loopback `APP_HOST` values. Docker uses `ALLOW_UNSAFE_NON_LOOPBACK_BIND=true` only inside its container namespace while publishing the host port on `127.0.0.1`. This escape hatch does not add authentication; the API **must not** be exposed to a LAN or the public internet.
 - HTTP request and RSS response bodies are bounded to 1 MiB; parser failures do not log raw model output.
 - Provider endpoints are server-controlled, remote endpoints require HTTPS, and API keys are never echoed.
-- OpenD must use a loopback address; a Lab session does not grant paper-broker authority.
+- OpenD must use a loopback address. Configuring a provider enables read-only market data by default; paper broker access requires explicit `OPEND_PAPER_BROKER_ENABLED=true`, and a Lab session never grants it.
 - Domain newtypes, policy documents, immutable versions, and execution records are revalidated server-side.
 - Policy runtime code cannot execute user scripts or directly reach the network, database, or broker.
 
@@ -210,9 +212,9 @@ IndexLink does not copy QuantConnect LEAN, TA-Lib, or paper strategy implementat
 - Backtesting and research: [QuantConnect LEAN](https://github.com/QuantConnect/Lean) (Apache-2.0), [TA-Lib](https://ta-lib.github.io/) (BSD), and Meb Faber's [A Quantitative Approach to Tactical Asset Allocation](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461).
 - UI and charts: [shadcn/ui](https://github.com/shadcn-ui/ui) (MIT, component patterns and a small Tailwind variant layer), [Recharts](https://recharts.github.io/) (MIT), [Apache ECharts](https://echarts.apache.org/) (Apache-2.0), and [TanStack Query](https://github.com/TanStack/query) (MIT).
 - Market interface: Futu's official [OpenD / OpenAPI documentation](https://openapi.futunn.com/futu-api-doc/en/intro/intro.html).
-- Research data: exact FRED and Cboe source URLs and checksums are stored in `crates/strategy-evaluation/data/generated/*.manifest.json`; users remain responsible for provider terms.
+- Research data: FRED, Cboe, and Multpl provenance and checksums are recorded in manifests. Redistribution rights for the current snapshots are not confirmed, so the formal Tag/Release fails closed.
 
-See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for usage, license, and reference-only boundaries.
+See [DATA_LICENSES.md](./DATA_LICENSES.md) for file-level release decisions, the [strategy source policy](./docs/contributing/strategy-source-policy.md) for contributions, and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for usage, license, and reference-only boundaries.
 
 ## Scope
 

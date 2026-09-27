@@ -4,6 +4,7 @@ target/
 indexlink.db
 indexlink.db-shm
 indexlink.db-wal
+/backups/
 .DS_Store
 .idea/
 .vscode/

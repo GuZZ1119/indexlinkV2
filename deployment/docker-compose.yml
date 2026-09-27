@@ -6,11 +6,14 @@ services:
       context: ..
       dockerfile: deployment/Dockerfile
     # Secrets stay in the repository-root .env file, which is gitignored.
-    # On ECS, create that file from .env.example before starting Compose.
+    # Create that file from .env.example before starting Compose.
     env_file:
       - ../.env
     environment:
       APP_HOST: 0.0.0.0
+      # Required only for the container namespace. The host port below remains
+      # loopback-only; never publish this service on an external interface.
+      ALLOW_UNSAFE_NON_LOOPBACK_BIND: "true"
       APP_PORT: 8080
       RUST_LOG: ${RUST_LOG:-info,indexlink_server=debug}
       DATABASE_URL: sqlite:///data/indexlink.db?mode=rwc

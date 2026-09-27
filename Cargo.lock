@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "ai-client"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "broker"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "async-trait",
  "rust_decimal",
@@ -180,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "builtin-policies"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "ai-client",
  "core-domain",
@@ -256,6 +256,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-tz"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
+dependencies = [
+ "chrono",
+ "phf",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -263,7 +273,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "core-domain"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 
 [[package]]
 name = "core-foundation-sys"
@@ -331,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "decision-engine"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "ai-client",
  "core-domain",
@@ -341,7 +351,7 @@ dependencies = [
 
 [[package]]
 name = "decision-records"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "async-trait",
  "rust_decimal",
@@ -889,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "indexlink-api"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "ai-client",
  "async-trait",
@@ -923,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "indexlink-server"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "ai-client",
  "async-trait",
@@ -945,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "indexlink-storage"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "async-trait",
  "broker",
@@ -979,9 +989,11 @@ dependencies = [
 
 [[package]]
 name = "investment-plans"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "async-trait",
+ "chrono",
+ "chrono-tz",
  "core-domain",
  "rust_decimal",
  "serde",
@@ -1089,7 +1101,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "market-data"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1261,6 +1273,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "phf"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "913273894cec178f401a31ec4b656318d95473527be05c0752cc41cdc32be8b7"
+dependencies = [
+ "phf_shared",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
+dependencies = [
+ "siphasher",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1334,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "quant-engine"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "core-domain",
 ]
@@ -1777,6 +1807,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "siphasher"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2015,7 +2051,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "strategy-dsl"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "core-domain",
  "rust_decimal",
@@ -2027,7 +2063,7 @@ dependencies = [
 
 [[package]]
 name = "strategy-evaluation"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "ai-client",
  "chrono",
@@ -2047,7 +2083,7 @@ dependencies = [
 
 [[package]]
 name = "strategy-policy"
-version = "0.1.0"
+version = "2.1.0-beta.1"
 dependencies = [
  "core-domain",
  "rust_decimal",

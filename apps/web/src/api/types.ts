@@ -410,6 +410,8 @@ export interface InvestmentPlan {
   schedule_kind: 'monthly' | 'weekly'
   schedule_day: number
   schedule_days: number[]
+  /** IANA timezone used to interpret scheduled dates and "today" for this plan. */
+  timezone: string
   policy: PolicyReference
   execution_configuration: PlanExecutionConfiguration
   max_single_execution: string
@@ -436,6 +438,8 @@ export interface CreateInvestmentPlanRequest {
   schedule_kind: 'monthly' | 'weekly'
   schedule_day: number
   schedule_days?: number[]
+  /** Browser-selected IANA timezone frozen when the plan is created. */
+  timezone: string
   policy?: PolicyReference
   bucket_allocation?: { core_ratio: string; opportunity_ratio: string }
   risk_mode?: PlanExecutionConfiguration['risk_mode']
@@ -622,6 +626,7 @@ export interface ExecutionPreview {
   schedule_kind: 'monthly' | 'weekly'
   schedule_day: number
   schedule_days: number[]
+  timezone: string
   status: 'due' | 'waiting' | 'inactive'
   planned_contribution?: string
   bucket_split?: {

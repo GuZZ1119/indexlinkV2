@@ -262,6 +262,13 @@ mod tests {
         .execute(storage.pool())
         .await
         .expect("valid execution configuration must persist");
+        let migrated_timezone = sqlx::query_scalar::<_, String>(
+            "SELECT timezone FROM plan_execution_configurations WHERE plan_id = 'plan-4'",
+        )
+        .fetch_one(storage.pool())
+        .await
+        .expect("legacy-compatible configuration timezone must be readable");
+        assert_eq!(migrated_timezone, "UTC");
         let invalid_execution_configuration = sqlx::query(
             "UPDATE plan_execution_configurations SET schedule_kind = 'weekly', schedule_day = 8 \
              WHERE plan_id = 'plan-4'",

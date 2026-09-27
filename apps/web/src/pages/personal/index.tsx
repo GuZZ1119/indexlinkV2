@@ -37,6 +37,8 @@ import { ManualExecutionHistory } from '@/components/v2_1/manual-execution-histo
 import { PageHeading } from '@/components/v2_1/page-heading'
 import { setSelectedPlanId, uiStore } from '@/stores/ui'
 
+import { nextScheduledDate } from './plan-schedule'
+
 type ExecutionDraft = {
   eventId: string
   outcome: ConfirmableOutcome
@@ -483,30 +485,10 @@ function AdviceStatusIcon({ state }: { state: AdviceCardState }) {
 }
 
 function scheduleLabel(plan: InvestmentPlan): string {
-  if (plan.schedule_kind === 'weekly') return `每周 ${plan.schedule_days.join('、')}`
-  return `每月 ${plan.schedule_days.join('、')} 日`
-}
-
-function nextScheduledDate(plan: InvestmentPlan, now = new Date()): string {
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
-  const candidates: number[] = []
-  if (plan.schedule_kind === 'weekly') {
-    const todayWeekday = now.getUTCDay() === 0 ? 7 : now.getUTCDay()
-    for (const weekday of plan.schedule_days) {
-      candidates.push(today + ((weekday - todayWeekday + 7) % 7) * 86_400_000)
-    }
-  } else {
-    for (const monthOffset of [0, 1]) {
-      const month = now.getUTCMonth() + monthOffset
-      for (const day of plan.schedule_days) {
-        const candidate = Date.UTC(now.getUTCFullYear(), month, day)
-        if (candidate >= today) candidates.push(candidate)
-      }
-    }
-  }
-  const next = new Date(Math.min(...candidates))
-  if (Number.isNaN(next.getTime())) return '下一次约定日期'
-  return new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', timeZone: 'UTC' }).format(next)
+  const cadence = plan.schedule_kind === 'weekly'
+    ? `每周 ${plan.schedule_days.join('、')}`
+    : `每月 ${plan.schedule_days.join('、')} 日`
+  return `${cadence} · ${plan.timezone}`
 }
 
 function strategyLabel(plan: InvestmentPlan): string {

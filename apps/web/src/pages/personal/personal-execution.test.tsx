@@ -4,9 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router'
 
 import PersonalPage from '@/pages/personal'
+import { nextScheduledDate } from '@/pages/personal/plan-schedule'
+import type { InvestmentPlan } from '@/api/types'
 import { setSelectedPlanId } from '@/stores/ui'
 
-const plan = {
+const plan: InvestmentPlan = {
   id: '10000000-0000-4000-8000-000000000001',
   name: '我的标普长期计划',
   symbol: 'VOO',
@@ -15,6 +17,7 @@ const plan = {
   schedule_kind: 'monthly',
   schedule_day: 15,
   schedule_days: [15],
+  timezone: 'Australia/Sydney',
   policy: { id: 'fixed_dca', version: 1 },
   execution_configuration: {
     bucket_allocation: { core_ratio: '1.00', opportunity_ratio: '0.00' },
@@ -41,6 +44,13 @@ const decision = {
   summary: '按固定计划投入，不根据短期涨跌改变节奏。',
   created_at: '2026-09-15T00:00:00Z',
 }
+
+it('calculates the next scheduled date in the frozen plan timezone', () => {
+  const instant = new Date('2026-09-30T14:30:00Z')
+  const schedule = { ...plan, schedule_day: 30, schedule_days: [30] }
+  expect(nextScheduledDate({ ...schedule, timezone: 'Australia/Sydney' }, instant)).toBe('10月30日（Australia/Sydney）')
+  expect(nextScheduledDate({ ...schedule, timezone: 'America/New_York' }, instant)).toBe('9月30日（America/New_York）')
+})
 
 const fixedCatalogEntry = {
   policy: { id: 'fixed_dca', version: 1 },
@@ -363,7 +373,7 @@ describe('personal manual execution loop', () => {
     vi.stubGlobal('fetch', skipped.fetchMock)
     const first = renderPage()
     expect(await screen.findByRole('heading', { name: '本期不需要投入' })).toBeTruthy()
-    expect(screen.getByText('每周 1、4')).toBeTruthy()
+    expect(screen.getByText('每周 1、4 · Australia/Sydney')).toBeTruthy()
     expect(screen.getByText('已暂停')).toBeTruthy()
     first.unmount()
 

@@ -6,7 +6,7 @@ use uuid::Uuid;
 const CLAIM_RUN_SQL: &str =
     "INSERT OR IGNORE INTO scheduled_decision_runs (plan_id, scheduled_for) VALUES (?1, ?2)";
 
-/// SQLite repository used to claim one automatic decision run per plan and UTC day.
+/// SQLite repository used to claim one automatic decision run per plan-local scheduled day.
 #[derive(Clone, Debug)]
 pub struct SqliteScheduledDecisionRepository {
     pool: SqlitePool,
@@ -57,7 +57,7 @@ mod tests {
 
     /// Verify a plan/day key is claimed exactly once across repository handles.
     #[tokio::test]
-    async fn claims_each_plan_and_utc_day_only_once() {
+    async fn claims_each_plan_and_scheduled_day_only_once() {
         let storage =
             SqliteStorage::connect_with_options("sqlite::memory:", 1, Duration::from_secs(1))
                 .await

@@ -37,7 +37,7 @@
 {
   "status": "ok",
   "service": "indexlink-server",
-  "version": "0.1.0"
+  "version": "2.1.0-beta.1"
 }
 ```
 
@@ -95,6 +95,7 @@
   "currency": "usd",
   "schedule_kind": "monthly",
   "schedule_day": 15,
+  "timezone": "Asia/Shanghai",
   "bucket_allocation": {
     "core_ratio": "0.80",
     "opportunity_ratio": "0.20"
@@ -113,7 +114,7 @@
 
 `opportunity_cash_policy` 可为 `expire_each_period`、`carry_forward` 或 `carry_with_cap`。`carry_with_cap` 必须同时提交正的 `opportunity_cash_cap`（金额型上限）；期数型上限尚未实现。`period_execution_limit` 是同一周或月内自动 paper order 的累计金额上限；每笔自动订单先原子预留，broker 接受后确认，终态 `filled`/`closed` 的实际成交金额会回写修正占用。pending/partial 订单保守维持估计占用。legacy 手动 preview 保留显式数量兼容，尚不进入该自动金额账本。为兼容旧客户端，省略新增配置时默认 `100%` 核心桶、`fixed` 与 `expire_each_period`。
 
-`schedule_kind` 接受 `monthly`（日期为 `1..=28`）或 `weekly`（ISO 星期为 `1..=7`）。`schedule_days` 可提供同一周期的多个固定日，必须有序、无重复，且其第一项必须等于兼容字段 `schedule_day`；省略时等价于仅 `[schedule_day]`。scheduler 使用此集合按 UTC 日期运行。
+`schedule_kind` 接受 `monthly`（日期为 `1..=28`）或 `weekly`（ISO 星期为 `1..=7`）。`schedule_days` 可提供同一周期的多个固定日，必须有序、无重复，且其第一项必须等于兼容字段 `schedule_day`；省略时等价于仅 `[schedule_day]`。`timezone` 使用 IANA 名称（如 `Asia/Shanghai`、`Australia/Sydney`）；第一方 Web 客户端保存浏览器时区。旧客户端省略该字段时使用 `UTC`，已存在计划在 migration 后也保持 `UTC`，避免静默改变原执行日。创建响应及后续查询会返回冻结的 `timezone`。
 
 普通用户从 `GET /strategy-catalog` 采用策略时，必须原样提交目录中的 `policy.id` / `policy.version` 与 `default_plan` 的核心桶、弹性桶和风险模式。`fixed_dca@1` 使用 100% 核心桶；官方与个人 Formula V1 使用 70% 核心桶、30% 弹性桶和 `approval`。服务端只按这份精确引用读取官方注册表或 SQLite 中已经保存并重新校验的公式，创建与更新 DTO 会拒绝客户端额外提交的 `formula` 字段；计划一旦创建便冻结该版本，不会自动跟随同 ID 的后续版本。
 
@@ -362,9 +363,9 @@ Dashboard 与最小 Scheduler 使用的默认入口。请求体**不接受**人�
 }
 ```
 
-服务端使用当前 UTC 月内日期。策略实际需要的数据源不可用时返回统一 `503 service_unavailable`，不创建 `waiting`、伪造决策或审计记录；当前需要独立 VIX 的自定义 Formula 也会明确失败，不会用零值冒充证据。旧策略的 Qwen 不可用时仍创建记录并明确标记 `sentiment_unavailable` / `90/10/0`。响应新增 `audit_record_id`，可用 `GET /decisions/:id` 读取可读证据。省略 `paper_order` 时绝不下单。若本次自动预览在计划日成功保存为 `due`，它会同时占用相同的 `(plan_id, scheduled_for)` 调度标记，防止后台 Scheduler 在服务重启或下一 tick 为同一计划日重复生成建议。
+服务端使用当前瞬间在该计划 `timezone` 下的月内日期。策略实际需要的数据源不可用时返回统一 `503 service_unavailable`，不创建 `waiting`、伪造决策或审计记录；当前需要独立 VIX 的自定义 Formula 也会明确失败，不会用零值冒充证据。旧策略的 Qwen 不可用时仍创建记录并明确标记 `sentiment_unavailable` / `90/10/0`。响应新增 `audit_record_id`，可用 `GET /decisions/:id` 读取可读证据。省略 `paper_order` 时绝不下单。若本次自动预览在计划日成功保存为 `due`，它会同时占用相同的 `(plan_id, scheduled_for)` 调度标记，防止后台 Scheduler 在服务重启或下一 tick 为同一计划日重复生成建议。
 
-server 默认启用周期 Scheduler：每 `SCHEDULER_TICK_SECONDS`（默认 60）秒检查一次，按每个 active plan 的 `monthly`/`weekly` `schedule_days` 与 UTC 日历创建自动决策存证。SQLite 的 `(plan_id, scheduled_for)` claim 阻止重启或下一 tick 重复存证；重启时仅补跑当前月或当前周尚未 claim 的日期。补跑不自动下单，且使用恢复时可用的数据生成存证；`approval` 计划仍须用户确认。
+server 默认启用周期 Scheduler：每 `SCHEDULER_TICK_SECONDS`（默认 60）秒检查一次，把同一 UTC 瞬间分别转换为每个 active plan 的 IANA `timezone`，再按该计划的 `monthly`/`weekly` `schedule_days` 创建自动决策存证；夏令时由 IANA 时区规则处理。SQLite 的 `(plan_id, scheduled_for)` claim 阻止重启或下一 tick 重复存证；重启时仅补跑该计划本地当前月或当前周尚未 claim 的日期。补跑不自动下单，且使用恢复时可用的数据生成存证；`approval` 计划仍须用户确认。
 
 #### `POST /investment-plans/:id/decision-preview`
 
@@ -655,7 +656,7 @@ curl -X POST 'http://127.0.0.1:8080/market-sentiment/preview?profile_id=qwen-def
 
 ### Futu/Moomoo OpenD Paper Trading API
 
-已具备 broker port、测试专用 MockBroker、OpenD raw TCP paper session 与下单 adapter。生产 server 未配置 broker 时不会安装 Mock；设置 `OPEND_PROVIDER` 后，可通过 `OPEND_MARKET_DATA_ENABLED` 与 `OPEND_PAPER_BROKER_ENABLED` 独立装配只读行情和模拟 broker。任一 adapter 初始化失败只会将对应 capability 标记为 `unavailable`，不会阻止 SQLite、Plan、Decision、Audit 或 HTTP server 启动，也绝不会静默降级到 Mock。
+已具备 broker port、测试专用 MockBroker、OpenD raw TCP paper session 与下单 adapter。生产 server 未配置 broker 时不会安装 Mock；设置 `OPEND_PROVIDER` 后默认只装配只读行情，只有显式设置 `OPEND_PAPER_BROKER_ENABLED=true` 才装配模拟 broker。两个 capability 仍可独立配置。任一 adapter 初始化失败只会将对应 capability 标记为 `unavailable`，不会阻止 SQLite、Plan、Decision、Audit 或 HTTP server 启动，也绝不会静默降级到 Mock。
 
 真实 OpenD 下单暂不需要单独 HTTP endpoint；它复用 `POST /investment-plans/:id/decision-preview` 的 `paper_order`，以确保订单必须经过计划、执行日和决策保护。
 
@@ -726,7 +727,7 @@ OPEND_PAPER_BROKER_ENABLED=true
 
 - 配置仅接受 `futu` / `moomoo` 和 loopback host（`127.0.0.1`、`::1`、`localhost`）。
 - server 配置层只构造 `Paper` adapter；没有 live environment 或 live gate 配置项。
-- 两个 capability 开关未显式设置时保持旧配置兼容：存在 `OPEND_PROVIDER` 即默认同时启用；也可分别设为 `false`。未配置或初始化失败的 broker 路由统一返回 `503 service_unavailable`，不会生成 `MOCK-*` 回执。
+- capability 开关失败关闭：存在 `OPEND_PROVIDER` 时只读行情默认启用，paper broker 默认关闭；后者必须显式设置为 `true`。未配置或初始化失败的 broker 路由统一返回 `503 service_unavailable`，不会生成 `MOCK-*` 回执。
 - 真实 smoke 是忽略式测试，必须显式确认且提供唯一 idempotency key、symbol 与 quantity；它不读取、不传输 OpenD 登录密码或 token。
 
 真实 smoke 前先在 OpenD GUI 中登录并确认选择的是虚拟账户；以下命令会提交一笔 paper market order，不应在 CI 中执行：

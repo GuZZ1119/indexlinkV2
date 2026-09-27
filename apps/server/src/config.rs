@@ -16,6 +16,7 @@ use serde::Deserialize;
 
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: &str = "8080";
+const ALLOW_UNSAFE_NON_LOOPBACK_BIND: &str = "ALLOW_UNSAFE_NON_LOOPBACK_BIND";
 const DEFAULT_DATABASE_URL: &str = "sqlite://indexlink.db?mode=rwc";
 const DEFAULT_MAX_CONNECTIONS: &str = "10";
 const DEFAULT_CONNECT_TIMEOUT_SECONDS: &str = "5";
@@ -118,6 +119,11 @@ impl Config {
         let ip = host
             .parse::<IpAddr>()
             .map_err(|_| ConfigError::InvalidHost)?;
+        let allow_unsafe_non_loopback =
+            optional_bool(&mut lookup, ALLOW_UNSAFE_NON_LOOPBACK_BIND)?.unwrap_or(false);
+        if !ip.is_loopback() && !allow_unsafe_non_loopback {
+            return Err(ConfigError::NonLoopbackBindForbidden);
+        }
 
         let database_url = value_or_default(&mut lookup, "DATABASE_URL", DEFAULT_DATABASE_URL);
         if database_url.trim().is_empty() || !database_url.starts_with("sqlite:") {
@@ -165,7 +171,7 @@ impl Config {
         let market_data_enabled =
             optional_bool(&mut lookup, OPEND_MARKET_DATA_ENABLED)?.unwrap_or(legacy_enabled);
         let paper_broker_enabled =
-            optional_bool(&mut lookup, OPEND_PAPER_BROKER_ENABLED)?.unwrap_or(legacy_enabled);
+            optional_bool(&mut lookup, OPEND_PAPER_BROKER_ENABLED)?.unwrap_or(false);
         if (market_data_enabled || paper_broker_enabled) && opend.is_none() {
             return Err(ConfigError::InvalidOpenDConfiguration);
         }
@@ -515,6 +521,10 @@ pub(crate) enum ConfigError {
     InvalidDatabaseUrl,
     #[error("APP_HOST must be a valid IP address")]
     InvalidHost,
+    #[error(
+        "non-loopback APP_HOST is unsafe without ALLOW_UNSAFE_NON_LOOPBACK_BIND=true; the API has no authentication"
+    )]
+    NonLoopbackBindForbidden,
     #[error("{name} must be a valid integer")]
     InvalidInteger {
         name: &'static str,
@@ -646,6 +656,21 @@ mod tests {
             parse(&[("DATABASE_URL", DATABASE_URL), ("APP_HOST", "localhost")]),
             Err(ConfigError::InvalidHost)
         ));
+    }
+
+    #[test]
+    fn non_loopback_bind_requires_explicit_unsafe_override() {
+        assert!(matches!(
+            parse(&[("APP_HOST", "0.0.0.0")]),
+            Err(ConfigError::NonLoopbackBindForbidden)
+        ));
+
+        let config = parse(&[
+            ("APP_HOST", "0.0.0.0"),
+            (ALLOW_UNSAFE_NON_LOOPBACK_BIND, "true"),
+        ])
+        .expect("container bind requires an explicit unsafe override");
+        assert_eq!(config.address, "0.0.0.0:8080".parse().unwrap());
     }
 
     #[test]
@@ -968,7 +993,7 @@ mod tests {
 
     /// Verify OpenD stays disabled unless a supported provider is explicitly configured.
     #[test]
-    fn opend_configuration_is_optional_and_paper_only() {
+    fn opend_provider_enables_market_data_but_not_paper_broker_by_default() {
         let config = parse(&[
             (OPEND_PROVIDER, "moomoo"),
             (OPEND_HOST, "localhost"),
@@ -977,8 +1002,8 @@ mod tests {
         ])
         .unwrap();
         let opend = config
-            .paper_broker
-            .expect("provider enables OpenD paper configuration");
+            .market_data
+            .expect("provider keeps read-only market data compatible by default");
 
         assert_eq!(opend.provider(), BrokerProvider::Moomoo);
         assert_eq!(opend.host(), DEFAULT_OPEND_HOST);
@@ -986,7 +1011,7 @@ mod tests {
         assert_eq!(opend.account_id(), Some("paper-account"));
         assert_eq!(opend.environment(), broker::BrokerEnvironment::Paper);
         assert!(!opend.live_trading_enabled());
-        assert!(config.market_data.is_some());
+        assert!(config.paper_broker.is_none());
     }
 
     #[test]

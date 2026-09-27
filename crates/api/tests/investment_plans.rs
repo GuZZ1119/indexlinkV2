@@ -141,6 +141,7 @@ fn plan_from(id: Uuid, input: CreateInvestmentPlan) -> InvestmentPlan {
         schedule_kind: input.schedule_kind,
         schedule_day: input.schedule_day,
         schedule_days: input.schedule_days,
+        timezone: input.timezone,
         policy: input
             .policy
             .unwrap_or_else(investment_plans::default_fixed_dca_policy),
@@ -177,6 +178,7 @@ fn create_input() -> CreateInvestmentPlan {
         schedule_kind: ScheduleKind::Monthly,
         schedule_day: 15,
         schedule_days: vec![15],
+        timezone: investment_plans::PlanTimeZone::utc(),
         policy: None,
         execution_configuration: PlanExecutionConfiguration::new_with_cash_policy(
             TwoBucketAllocationConfig::new(
@@ -210,6 +212,7 @@ async fn create_plan_returns_normalized_plan_json() {
                         "currency": " usd ",
                         "schedule_kind": "monthly",
                         "schedule_day": 15,
+                        "timezone": "Australia/Sydney",
                         "max_single_execution": "1500.00"
                     })
                     .to_string(),
@@ -227,6 +230,37 @@ async fn create_plan_returns_normalized_plan_json() {
     assert_eq!(body["execution_configuration"]["risk_mode"], json!("fixed"));
     assert_eq!(body["policy"]["id"], json!("fixed_dca"));
     assert_eq!(body["policy"]["version"], json!(1));
+    assert_eq!(body["timezone"], json!("Australia/Sydney"));
+}
+
+/// Verify arbitrary labels and UTC offsets cannot bypass the IANA timezone boundary.
+#[tokio::test]
+async fn create_plan_rejects_invalid_timezone() {
+    let response = app(Arc::new(FakeRepository::default()))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "name": "Invalid timezone",
+                        "symbol": "VOO",
+                        "base_contribution": "100.00",
+                        "currency": "USD",
+                        "schedule_kind": "monthly",
+                        "schedule_day": 15,
+                        "timezone": "GMT+8 maybe",
+                        "max_single_execution": "100.00"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 /// Verify API accepts a persisted weekly plan with an explicit approval-mode bucket split.

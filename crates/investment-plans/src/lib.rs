@@ -7,7 +7,7 @@
 //! 输入校验、执行预览、应用服务和 repository port；SQLite、Axum、Broker、AI、
 //! Scheduler 与订单意图均属于外部 adapter。
 //!
-//! MVP 假设：单用户系统、无计划级 timezone、不验证 symbol 是否真实可交易、不生成
+//! MVP 假设：单用户系统、计划冻结 IANA timezone、不验证 symbol 是否真实可交易、不生成
 //! 任何真实订单。计划可持久化月度或周度配置，并可为同一周期保存多个固定执行日。
 //!
 //! 金额统一使用 [`rust_decimal::Decimal`]。HTTP/JSON 边界必须以字符串编码金额，
@@ -17,6 +17,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{DateTime, NaiveDate, Utc};
+use chrono_tz::Tz;
 use core_domain::{Action, Multiplier};
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
@@ -561,6 +563,55 @@ pub enum ScheduleKind {
     Weekly,
 }
 
+/// 已校验的计划 IANA 时区。
+///
+/// 计划创建后冻结该值，使同一计划的“今天”和固定执行日不会随着服务器所在时区改变。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlanTimeZone(Tz);
+
+impl PlanTimeZone {
+    /// 创建 UTC 时区，专用于迁移前旧计划的兼容语义。
+    #[must_use]
+    pub fn utc() -> Self {
+        Self(chrono_tz::UTC)
+    }
+
+    /// 校验并创建 IANA 时区。
+    pub fn new(value: &str) -> Result<Self, PlanValidationError> {
+        value
+            .parse::<Tz>()
+            .map(Self)
+            .map_err(|_| PlanValidationError::InvalidTimeZone)
+    }
+
+    /// 返回规范 IANA 名称。
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        self.0.name()
+    }
+
+    /// 将同一 UTC 瞬间转换为该计划所在地的日历日期；DST 由 IANA 数据处理。
+    #[must_use]
+    pub fn local_date_at(self, instant: DateTime<Utc>) -> NaiveDate {
+        instant.with_timezone(&self.0).date_naive()
+    }
+}
+
+impl Default for PlanTimeZone {
+    fn default() -> Self {
+        Self::utc()
+    }
+}
+
+impl Serialize for PlanTimeZone {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.0.name())
+    }
+}
+
 /// 持久化后的投资计划。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct InvestmentPlan {
@@ -583,6 +634,8 @@ pub struct InvestmentPlan {
     ///
     /// `schedule_day` 保留为第一项，以兼容旧客户端和旧数据。
     pub schedule_days: Vec<i16>,
+    /// 解释固定执行日和“今天”的 IANA 时区。
+    pub timezone: PlanTimeZone,
     /// 已激活、不可变的策略版本引用。
     pub policy: PolicyRef,
     /// 已校验的核心/机会桶与风险模式配置。
@@ -616,6 +669,8 @@ pub struct CreateInvestmentPlan {
     pub schedule_day: i16,
     /// 所有固定执行日；至少包含一个有效日期。
     pub schedule_days: Vec<i16>,
+    /// 解释固定执行日和“今天”的 IANA 时区。
+    pub timezone: PlanTimeZone,
     /// 可选的初始策略版本；省略时绑定 [`default_fixed_dca_policy`]。
     pub policy: Option<PolicyRef>,
     /// 已校验的核心/机会桶与风险模式配置。
@@ -762,7 +817,8 @@ impl UpdateInvestmentPlan {
 
 /// 投资计划执行预览输入。
 ///
-/// 这里只表达调度日判断所需的 UTC 日历字段；timezone 和交易所日历由 scheduler adapter 负责。
+/// 这里只表达调度日判断所需的计划本地日历字段；调用方必须先按计划冻结的
+/// [`PlanTimeZone`] 把当前瞬间转换成日期。交易所日历仍由外部 adapter 负责。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct PreviewInvestmentPlanExecution {
     /// 当前月内日期，范围为 1..=31。
@@ -832,6 +888,8 @@ pub struct InvestmentPlanExecutionPreview {
     pub schedule_day: i16,
     /// 计划所有固定执行日。
     pub schedule_days: Vec<i16>,
+    /// 解释本次预览日期的计划 IANA 时区。
+    pub timezone: PlanTimeZone,
     /// 本次预览使用的月内日期。
     pub day_of_month: i16,
     /// 本次预览使用的 ISO 星期。
@@ -871,6 +929,9 @@ pub enum PlanValidationError {
     /// 固定执行日集合为空、包含重复值或含有无效日期。
     #[error("schedule days must be a non-empty unique valid set for the selected schedule")]
     InvalidScheduleDays,
+    /// 计划时区不是 IANA timezone database 中的有效名称。
+    #[error("plan timezone must be a valid IANA timezone name")]
+    InvalidTimeZone,
     /// 兼容字段 `schedule_day` 不是固定执行日集合的第一项。
     #[error("schedule_day must match the first schedule day")]
     ScheduleDayMustMatchFirst,
@@ -1229,6 +1290,7 @@ fn preview_execution(
         schedule_kind: plan.schedule_kind,
         schedule_day: plan.schedule_day,
         schedule_days: plan.schedule_days.clone(),
+        timezone: plan.timezone,
         day_of_month: input.day_of_month(),
         iso_weekday: input.iso_weekday(),
         status,
@@ -1291,10 +1353,40 @@ mod tests {
             schedule_kind: ScheduleKind::Monthly,
             schedule_day: 15,
             schedule_days: vec![15],
+            timezone: PlanTimeZone::utc(),
             policy: None,
             execution_configuration: PlanExecutionConfiguration::default(),
             max_single_execution: money("1500.00"),
         }
+    }
+
+    #[test]
+    fn plan_timezone_validates_iana_names_and_converts_dst_boundaries() {
+        assert_eq!(PlanTimeZone::new("UTC").unwrap().as_str(), "UTC");
+        assert_eq!(
+            PlanTimeZone::new("not/a-real-zone"),
+            Err(PlanValidationError::InvalidTimeZone)
+        );
+
+        let sydney = PlanTimeZone::new("Australia/Sydney").unwrap();
+        let before_dst = chrono::DateTime::parse_from_rfc3339("2026-10-03T15:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let after_dst = chrono::DateTime::parse_from_rfc3339("2026-10-03T16:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            sydney.local_date_at(before_dst),
+            NaiveDate::from_ymd_opt(2026, 10, 4).unwrap()
+        );
+        assert_eq!(
+            sydney.local_date_at(after_dst),
+            NaiveDate::from_ymd_opt(2026, 10, 4).unwrap()
+        );
+        assert_eq!(
+            PlanTimeZone::utc().local_date_at(before_dst),
+            NaiveDate::from_ymd_opt(2026, 10, 3).unwrap()
+        );
     }
 
     /// 构造带机会桶的测试执行配置。
@@ -1326,6 +1418,7 @@ mod tests {
             schedule_kind: input.schedule_kind,
             schedule_day: input.schedule_day,
             schedule_days: input.schedule_days,
+            timezone: input.timezone,
             policy: input.policy.unwrap_or_else(default_fixed_dca_policy),
             execution_configuration: input.execution_configuration,
             max_single_execution: input.max_single_execution,
