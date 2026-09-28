@@ -70,9 +70,9 @@ V2.1 的发布承诺是：
 
 | 能力 | 当前事实 | V2.1 判断 |
 | --- | --- | --- |
-| 个人中心 | 读取真实 plan、`due` decision 和 manual execution；展示策略方法、基础预算、下一评估日与历史 | 已完成；不是浏览器演示状态 |
+| 个人中心 | 读取真实 plan、`due` decision 和 manual execution；展示策略方法、基础预算、下一评估日与历史 | 当前只投影下一次评估；有限期限日历见后续 P1 |
 | 我的计划 | 查看、创建、选择、暂停、继续和删除真实计划；常驻新建入口跳转策略中心，精确选中策略后才返回显示配置表 | 已完成；已移除重复策略卡、symbol/币种硬编码并加入 Formula 预检 |
-| 手工执行 journal | append-only SQLite/API/前端闭环；同一建议只允许一个最终结果 | 已完成 |
+| 手工执行 journal | append-only SQLite/API/前端审计闭环；同一建议只允许一个最终结果 | 事实记录已完成；实际金额尚未结算入后续资金状态 |
 | 官方策略目录 | Fixed DCA 与 20 家族 × 5 Formula 预设均来自 `GET /strategy-catalog`；家族、参数档、标签、来源与校验等级由服务端提供 | 已完成；前端按家族浏览，DSL 不作为普通入口 |
 | 策略分析 | `POST /strategy-backtests` 返回 US/HK/SH/SZ 自选标的真实轨迹、指标、完整模拟执行记录、Formula 规则命中标记与来源，支持 1m/3m/6m/1y/3y/5y/all | 已完成；净值图、标的走势/规则触发点、逐日回撤、资金拆分和公式代入值共享同一响应，无数据时明确失败 |
 | 市场数据与 Formula 决策 | Formula 运行只读取价格历史；OpenD 日线 adapter、本地 canonical store 与创建前数据充足性校验已存在 | 已完成；provider 不可用、历史不足或过期时创建失败且不落半成品计划 |
@@ -237,7 +237,113 @@ strategy_version + dataset_version + assumptions_version → BacktestResult
 7. 发布页明确本地优先、研究边界、manual-first、已知限制和不构成投资建议。
 8. 3–5 位目标用户完成建立计划、找到建议、记录执行和找回历史的任务测试，并形成 Go / Adjust / Stop 决策。
 
-## 12. 本轮之后
+## 12. 后续 P1：有限期限的计划日程投影
+
+### Goal
+
+让用户在不生成未来建议、不读取未来行情的前提下，查看一段有限期限内的计划评估日期和诚实的金额口径，而不是只能看到“下一次”。
+
+### Current state
+
+- 计划只保存 `monthly/weekly`、`schedule_days`、冻结 IANA `timezone` 与资金边界；没有结束日期、总期数或完整未来日程。
+- Web 的 `nextScheduledDate` 只计算一个日期；scheduler 只为已到期日期幂等生成 `DecisionRecord`。
+- Fixed DCA 的每期金额在计划建立时已确定；Formula 的弹性额度必须等评估日取得真实历史数据后才能确定。
+- 当前没有交易所交易日历，计划日期不能被描述成保证可成交的交易日。
+
+### Desired behavior
+
+1. 新增服务端权威的只读日程投影，例如 `GET /investment-plans/:id/schedule-projection?months=3|6|12`；同时设置最大月份与最大条数，拒绝无限 `all`。
+2. 每个条目返回计划本地日期、IANA timezone、周期类型和金额口径，不创建、预占或修改任何 `DecisionRecord`。
+3. Fixed DCA 返回确定的计划金额；Formula 返回固定核心金额、弹性额度范围和单次总上限，并标记“评估日确定”，不得返回伪精确金额。
+4. Web 使用“计划评估日历”命名，并明确这是计划日期而非交易所成交承诺；暂停计划可查看配置，但标记不会生成新建议。
+5. 未来接入交易日历后，顺延/回退规则必须成为版本化 assumptions，不能由浏览器自行猜测。
+
+### Architecture constraints
+
+- 日期生成放在 investment-plan 应用/领域边界，由 API 和 scheduler 复用；React 只展示服务端结果。
+- 所有日期按计划冻结的 IANA timezone 解释，DST 不得转成浏览器本地日后再计算。
+- 投影是只读事实，不访问未来价格、不运行策略、不占用调度 claim、不提交 broker 请求。
+- Formula 金额范围由计划的核心/机会桶和 `max_single_execution` 推导；机会现金滚存存在时需返回可解释上限与来源，不能静默混入。
+
+### Explicit non-goals
+
+- 不预测未来策略命中、收益、价格或真实成交金额。
+- 不把周末/节假日自动改成交易日；在 canonical 交易日历落地前只展示“评估日期”。
+- 不在 V2.1 引入无限期日历、提醒推送、自动下单或云同步。
+
+### Acceptance criteria
+
+- 3/6/12 个月投影在每月 28 日跨月、跨年、周度多日期、DST 与暂停计划上保持确定且有界；29–31 日仍不属于当前计划模型。
+- 同一计划、from/to 和 timezone 得到稳定排序且无重复日期。
+- Fixed DCA 的金额与计划一致；Formula 只显示范围及“评估日确定”。
+- 调用投影前后 Decision、scheduler claim、period budget 与机会现金表完全不变。
+
+### Tests and deliverables
+
+- 领域测试：月度/周度、多日期、跨年、DST、边界上限和无重复。
+- API 测试：合法期限、越界拒绝、暂停计划、Fixed/Formula DTO 与无写入证明。
+- Web 测试：期限切换、空状态、金额口径、timezone 与非交易日免责声明。
+- 交付物：领域投影函数、只读 API、React Query hook、个人计划日历和公开 API 文档。
+
+## 13. 后续 P2：手工执行记录进入资金结算闭环
+
+### Goal
+
+让用户报告的 `executed/skipped` 结果在保持 `user-reported` 身份和原建议不可变的前提下，幂等影响后续周期预算与机会现金，而不仅是可回看的备注。
+
+### Current state
+
+- manual journal 已 append-only 保存 outcome、actual amount、发生时间与输入来源，同一 Decision 最多一个最终结果。
+- 追加 manual event 不修改 `DecisionRecord`、不重算策略，也不调用 broker；这是正确的审计边界。
+- 周期预算与机会现金目前只会根据已接受/终态 paper order 结算，手工实际金额不会进入下一期资金状态。
+
+### Desired behavior
+
+1. 新增独立 `ManualExecutionSettlement` 领域输入：引用 manual event、不可变建议快照、planned/core/opportunity 金额、actual amount、币种、计划周期键和发生时间。
+2. 由一个结算 Unit-of-Work port 在同一 SQLite 事务内追加事件并写入独立结算账本；以 `manual_event_id`/`decision_record_id` 唯一约束保证重试、刷新和重启不会重复结算。
+3. `executed` 按用户报告实际金额在计划硬上限内拆分核心/机会用量；`skipped` 结算为零投入，并按计划冻结的机会现金政策决定到期或滚存。无法无歧义拆分时拒绝结算，不能猜测。
+4. 保存结算时使用的 Decision 与 plan 输入快照、算法版本和计算结果；后续计划编辑不得追溯改写历史。
+5. manual settlement 与 paper fill ledger 分账并带 provenance；同一资金状态只能选择一个权威结算来源，禁止同时把 user-reported 与 broker-verified 金额计入资金，但两类原始证据可以独立共存。
+6. 未来建议读取统一的已结算资金状态，而不是直接扫描 UI 事件；读取失败时明确不可用，不静默回退为零。
+
+### Architecture constraints
+
+- `DecisionRecord` 和 manual event 保持不可变；纠错采用追加 reversal/correction 事件，不做 UPDATE。
+- 金额使用 Decimal/newtype 校验，币种必须与计划和 Decision 一致；actual amount 不能越过计划单次及周期上限。
+- 结算服务位于应用层，通过聚合 Unit-of-Work/repository port 原子写入 manual event 与 settlement；paper adapter 不依赖 manual DTO，manual 路径也不伪造 broker ack。
+- migration 必须兼容既有 journal；老记录默认“未结算”，只能由用户显式确认或受控迁移，不能后台自动猜测。
+- settlement 接线必须有本地 feature/config gate；回滚只停用新的资金读取和写入，追加 migration 与既有结算事实继续可读，不删除或改写历史。
+
+### Explicit non-goals
+
+- 不验证用户是否真的在券商成交，不将 `user-reported` 改成 broker verified。
+- 不根据备注解析成交、不自动连接实盘账户、不修改历史建议金额。
+- 不在完成结算前让未来日历显示 Formula 的精确建议金额。
+
+### Acceptance criteria
+
+- 同一事件重复提交、API 重试与服务重启只产生一次资金影响。
+- executed/skipped、少于建议、等于建议、超上限、币种不匹配和历史未结算记录均有明确结果。
+- 下一期 Decision 使用结算后的机会现金与周期预算，并保存所读余额版本；删除/暂停计划不破坏历史结算。
+- 资金状态对 manual 与 paper 只选择一个权威来源且不会双计；审计页仍可分别展示“用户报告”和“模拟券商确认”的原始证据。
+
+### Tests and deliverables
+
+- 领域测试：金额拆分、不变量、skip/carry/expire、超限、来源互斥和 correction/reversal。
+- storage/migration 测试：原子追加、唯一约束、崩溃回滚、旧库升级与重启幂等。
+- API 测试：输入快照、409 重试、错误映射、来源标签和下一期读入。
+- Web 测试：确认前展示资金影响预览，确认后展示不可编辑结算事实；失败时不把记录伪装成已结算。
+- 交付物：领域结算契约、SQLite migration/Unit-of-Work repository、API DTO、下一期资金读取接线、feature/config gate、审计展示与升级/回滚说明。
+
+### Dependency order
+
+1. 先完成结算领域契约与来源互斥规则；金额、migration 与审计需独立 review。
+2. 再实现 SQLite 账本和旧数据兼容，验证原子性与幂等。
+3. 接通 manual API；仍不改变 scheduler 和 paper 行为。
+4. 让新 Decision 读取统一资金状态并补因果/快照测试。
+5. 最后让有限日程投影展示结算后的可解释预算范围；没有 P2 时，P1 只能展示计划静态边界。
+
+## 14. 本轮之后
 
 本轮动态标的与 Formula 预检完成后，优先执行用户任务验证，不继续堆叠策略数量。
 

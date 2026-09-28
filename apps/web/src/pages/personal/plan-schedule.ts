@@ -1,14 +1,20 @@
 import type { InvestmentPlan } from '@/api/types'
 
 /** Return the next plan-local calendar date without converting it back through the browser zone. */
-export function nextScheduledDate(plan: InvestmentPlan, now = new Date()): string {
+export function nextScheduledDate(
+  plan: InvestmentPlan,
+  now = new Date(),
+  options: { strictlyAfterToday?: boolean } = {},
+): string {
   const today = datePartsInTimeZone(now, plan.timezone)
   const todayOrdinal = Date.UTC(today.year, today.month - 1, today.day)
   const candidates: Array<{ year: number; month: number; day: number }> = []
   if (plan.schedule_kind === 'weekly') {
     const todayWeekday = isoWeekday(today.year, today.month, today.day)
     for (const weekday of plan.schedule_days) {
-      const date = new Date(todayOrdinal + ((weekday - todayWeekday + 7) % 7) * 86_400_000)
+      let daysUntil = (weekday - todayWeekday + 7) % 7
+      if (options.strictlyAfterToday && daysUntil === 0) daysUntil = 7
+      const date = new Date(todayOrdinal + daysUntil * 86_400_000)
       candidates.push({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() })
     }
   } else {
@@ -17,7 +23,10 @@ export function nextScheduledDate(plan: InvestmentPlan, now = new Date()): strin
       for (const day of plan.schedule_days) {
         const candidateDate = new Date(Date.UTC(monthAnchor.getUTCFullYear(), monthAnchor.getUTCMonth(), day))
         if (candidateDate.getUTCMonth() !== monthAnchor.getUTCMonth() || candidateDate.getUTCDate() !== day) continue
-        if (candidateDate.getTime() >= todayOrdinal) candidates.push({ year: monthAnchor.getUTCFullYear(), month: monthAnchor.getUTCMonth() + 1, day })
+        const isFutureCandidate = options.strictlyAfterToday
+          ? candidateDate.getTime() > todayOrdinal
+          : candidateDate.getTime() >= todayOrdinal
+        if (isFutureCandidate) candidates.push({ year: monthAnchor.getUTCFullYear(), month: monthAnchor.getUTCMonth() + 1, day })
       }
     }
   }

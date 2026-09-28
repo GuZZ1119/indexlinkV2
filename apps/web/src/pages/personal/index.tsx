@@ -290,7 +290,7 @@ function DecisionExecution({ plan, decision, strategy, catalogPending }: { plan:
       </section>
 
       <section className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <PlanStrategySummary plan={plan} strategy={strategy} catalogPending={catalogPending} />
+        <PlanStrategySummary plan={plan} strategy={strategy} catalogPending={catalogPending} excludeCurrentDate={Boolean(recordedOutcome)} />
 
         <ManualExecutionHistory events={journal.data ?? []} pending={journal.isPending} error={journal.error} onRetry={() => void journal.refetch()} />
       </section>
@@ -385,9 +385,9 @@ function NoDecisionState({ plan }: { plan: InvestmentPlan }) {
   return <section className="rounded-[1.6rem] bg-[#102028] p-8 text-white"><p className="text-sm text-[#b8d5c6]">{plan.name}</p><h2 className="mt-4 text-3xl font-semibold tracking-[-0.04em]">{plan.is_active ? '现在只需要继续等待' : '这个计划已经暂停'}</h2><p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">{plan.is_active ? `计划按${scheduleLabel(plan)}执行，下一次计划日是 ${nextDate}。只有到计划日，真实建议才会出现在这里。` : '暂停期间不会产生新的待执行建议；继续计划后，系统会恢复原来的固定节奏。'}</p><Link to="/decisions" className="mt-5 inline-flex items-center gap-1 text-sm font-medium text-[#b8d5c6]">查看全部建议 <ArrowRight className="size-3.5" /></Link></section>
 }
 
-function PlanStrategySummary({ plan, strategy, catalogPending }: { plan: InvestmentPlan; strategy?: StrategyCatalogEntry; catalogPending: boolean }) {
+function PlanStrategySummary({ plan, strategy, catalogPending, excludeCurrentDate = false }: { plan: InvestmentPlan; strategy?: StrategyCatalogEntry; catalogPending: boolean; excludeCurrentDate?: boolean }) {
   const fixedAmount = plan.policy.id === 'fixed_dca'
-  const nextDate = nextScheduledDate(plan)
+  const nextDate = nextScheduledDate(plan, new Date(), { strictlyAfterToday: excludeCurrentDate })
   const baseAmount = formatMoney(plan.currency, plan.base_contribution)
   const coreAmount = multiplyMoney(plan.currency, plan.base_contribution, plan.execution_configuration.bucket_allocation.core_ratio)
   const flexibleAmount = multiplyMoney(plan.currency, plan.base_contribution, plan.execution_configuration.bucket_allocation.opportunity_ratio)

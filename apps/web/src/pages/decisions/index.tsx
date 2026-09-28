@@ -3,14 +3,14 @@ import { Link, useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 
-import { useAllDecisionRecords, useApproveDecisionPaperOrder, useDecisionRecord, useManualExecutions, usePlans } from '@/api/queries'
+import { useAllDecisionRecords, useApproveDecisionPaperOrder, useDecisionRecord, useManualExecutions, usePlans, useRuntimeStatus } from '@/api/queries'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ManualExecutionHistory } from '@/components/v2_1/manual-execution-history'
 import { actionBadgeClass } from '@/lib/decision'
 import { cn } from '@/lib/utils'
-import type { DecisionAction, DecisionRecord, PersistedMarketSentimentSnapshot } from '@/api/types'
+import type { DecisionAction, DecisionRecord, PersistedMarketSentimentSnapshot, RuntimeStatus } from '@/api/types'
 import { filterDecisionRecords } from './filters'
 
 const PAGE_SIZE = 12
@@ -72,10 +72,23 @@ export default function DecisionsPage() {
 function DecisionDetail({ record, isPending, error, approvePaperOrder }: { record?: DecisionRecord; isPending: boolean; error: unknown; approvePaperOrder: ReturnType<typeof useApproveDecisionPaperOrder> }) {
   const { t } = useTranslation()
   const journal = useManualExecutions(record?.id ?? null)
+  const runtime = useRuntimeStatus()
   if (isPending) return <PageMessage message={t('live.history.loadRecord')} />
   if (error || !record) return <PageMessage message={errorMessage(error)} />
   const decision = record.decision_snapshot
-  return <div className="mx-auto grid w-full max-w-6xl gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_21rem] lg:p-6"><Card><CardHeader><CardTitle className="flex items-center gap-2"><span>{record.symbol}</span><Badge className={cn(actionBadgeClass[decision.action])}>{t(`action.${decision.action}`)}</Badge></CardTitle><CardDescription>{new Date(record.created_at).toLocaleString()}</CardDescription></CardHeader><CardContent className="space-y-4"><p className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">{record.summary}</p><AuditOverview record={record} /><div className="grid gap-4 md:grid-cols-2"><SignalEvidence title={t('live.history.fundamental')} snapshot={record.fundamental_snapshot} /><SignalEvidence title={t('live.history.trend')} snapshot={record.trend_snapshot} /></div>{record.sentiment_snapshot && <SentimentEvidence value={record.sentiment_snapshot} />}<OrderEvidence record={record} approvePaperOrder={approvePaperOrder} /></CardContent></Card><ManualExecutionHistory events={journal.data ?? []} pending={journal.isPending} error={journal.error} onRetry={() => void journal.refetch()} className="self-start" /></div>
+  const paperCapability: RuntimeStatus['paper_broker'] | 'checking' = runtime.data?.paper_broker ?? 'checking'
+  return <div className="mx-auto grid w-full max-w-6xl gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_21rem] lg:p-6"><Card><CardHeader><CardTitle className="flex items-center gap-2"><span>{record.symbol}</span><Badge className={cn(actionBadgeClass[decision.action])}>{t(`action.${decision.action}`)}</Badge></CardTitle><CardDescription>{new Date(record.created_at).toLocaleString()}</CardDescription></CardHeader><CardContent className="space-y-4"><ReadableDecisionSummary record={record} /><OrderEvidence record={record} approvePaperOrder={approvePaperOrder} paperCapability={paperCapability} /><details className="group rounded-lg border bg-muted/10"><summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{t('decisions.audit.technicalDetails')}<span aria-hidden="true" className="ml-2 text-muted-foreground group-open:hidden">+</span><span aria-hidden="true" className="ml-2 hidden text-muted-foreground group-open:inline">−</span></summary><div className="space-y-4 border-t p-4"><p className="rounded-lg bg-muted/50 p-3 text-sm leading-relaxed">{record.summary}</p><AuditOverview record={record} /><div className="grid gap-4 md:grid-cols-2"><SignalEvidence title={t('live.history.fundamental')} snapshot={record.fundamental_snapshot} /><SignalEvidence title={t('live.history.trend')} snapshot={record.trend_snapshot} /></div>{record.sentiment_snapshot && <SentimentEvidence value={record.sentiment_snapshot} />}</div></details></CardContent></Card><ManualExecutionHistory events={journal.data ?? []} pending={journal.isPending} error={journal.error} onRetry={() => void journal.refetch()} className="self-start" /></div>
+}
+
+/** Keep the ordinary view focused on the action a person can understand and verify. */
+function ReadableDecisionSummary({ record }: { record: DecisionRecord }) {
+  const { t, i18n } = useTranslation()
+  const decision = record.decision_snapshot
+  const usesMarketSignals = record.policy_evidence?.recommendation_snapshot?.market_signals_used === true
+  const amount = record.planned_contribution
+    ? formatMoney(record.currency, record.planned_contribution, i18n.language)
+    : t('decisions.audit.notDue')
+  return <section className="rounded-xl bg-[#f1f7f4] p-4 sm:p-5"><p className="text-sm font-medium text-[#2d6a57]">{t('decisions.audit.readableTitle')}</p><h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[#102028]">{amount}</h2><p className="mt-3 text-sm leading-6 text-slate-600">{t(`decisions.audit.actionExplanation.${decision.action}`)}</p><div className="mt-4 grid gap-3 border-t border-[#d9e7e0] pt-4 text-sm sm:grid-cols-2"><AuditFact label={t('decisions.audit.executionTime')} value={new Date(record.created_at).toLocaleString(i18n.language)} /><AuditFact label={t('decisions.audit.strategyMethod')} value={usesMarketSignals ? t('decisions.audit.ruleBasedMethod') : t('decisions.audit.fixedMethod')} /><AuditFact label={t('decisions.audit.executionBoundary')} value={t('decisions.audit.manualBoundary')} /></div></section>
 }
 
 /** Render saved Qwen reasoning as readable audit evidence instead of a raw JSON blob. */
@@ -118,12 +131,28 @@ function SignalEvidence({ title, snapshot }: { title: string; snapshot: Record<s
 }
 
 /** Render the paper-order intent and acknowledgement as readable evidence. */
-function OrderEvidence({ record, approvePaperOrder }: { record: DecisionRecord; approvePaperOrder: ReturnType<typeof useApproveDecisionPaperOrder> }) {
+function OrderEvidence({ record, approvePaperOrder, paperCapability }: { record: DecisionRecord; approvePaperOrder: ReturnType<typeof useApproveDecisionPaperOrder>; paperCapability: RuntimeStatus['paper_broker'] | 'checking' }) {
   const { t } = useTranslation()
   const approvalRequired = readBoolean(record.execution_snapshot, 'execution', 'bucket_split', 'requires_approval')
-  const canApprove = approvalRequired && !record.broker_order_request && !record.broker_order_ack && record.execution_status === 'due'
-  if (!record.broker_order_request && !record.broker_order_ack && !canApprove) return null
-  return <section className="space-y-2 rounded-lg border p-4 text-sm"><h2 className="font-semibold">{t('decisions.audit.orders')}</h2>{record.broker_order_request && <p className="text-muted-foreground">{t('decisions.audit.request')}: {readText(record.broker_order_request, 'side')} · {readText(record.broker_order_request, 'quantity')} · {readText(record.broker_order_request, 'order_type')}</p>}{record.broker_order_ack ? <p className="text-semantic-positive">{t('decisions.audit.acknowledgement')}: {record.broker_order_ack.status} · {record.broker_order_ack.order_id} · {record.broker_order_ack.environment}</p> : <p className="text-muted-foreground">{t('decisions.audit.noOrder')}</p>}{canApprove && <div className="space-y-2 pt-2"><p className="text-xs text-muted-foreground">{t('decisions.audit.approval')}</p><Button disabled={approvePaperOrder.isPending} onClick={() => approvePaperOrder.mutate({ id: record.id, idempotencyKey: globalThis.crypto.randomUUID() })}>{approvePaperOrder.isPending ? t('decisions.audit.submitting') : t('decisions.audit.approve')}</Button>{approvePaperOrder.error && <p className="text-xs text-destructive">{errorMessage(approvePaperOrder.error)}</p>}</div>}</section>
+  const awaitingApproval = approvalRequired && !record.broker_order_request && !record.broker_order_ack && record.execution_status === 'due'
+  const canApprove = awaitingApproval && paperCapability === 'configured'
+  if (!record.broker_order_request && !record.broker_order_ack && !awaitingApproval) return null
+  const unavailableMessage = paperCapability === 'not_configured'
+    ? t('decisions.audit.paperNotConfigured')
+    : paperCapability === 'unavailable'
+      ? t('decisions.audit.paperUnavailable')
+      : t('decisions.audit.paperChecking')
+  return <section className="space-y-2 rounded-lg border p-4 text-sm"><h2 className="font-semibold">{t('decisions.audit.orders')}</h2>{record.broker_order_request && <p className="text-muted-foreground">{t('decisions.audit.request')}: {readText(record.broker_order_request, 'side')} · {readText(record.broker_order_request, 'quantity')} · {readText(record.broker_order_request, 'order_type')}</p>}{record.broker_order_ack ? <p className="text-semantic-positive">{t('decisions.audit.acknowledgement')}: {record.broker_order_ack.status} · {record.broker_order_ack.order_id} · {record.broker_order_ack.environment}</p> : <p className="text-muted-foreground">{t('decisions.audit.noOrder')}</p>}{awaitingApproval && <div className="space-y-2 pt-2"><p className="text-xs text-muted-foreground">{canApprove ? t('decisions.audit.approval') : unavailableMessage}</p>{canApprove && <Button disabled={approvePaperOrder.isPending} onClick={() => approvePaperOrder.mutate({ id: record.id, idempotencyKey: globalThis.crypto.randomUUID() })}>{approvePaperOrder.isPending ? t('decisions.audit.submitting') : t('decisions.audit.approve')}</Button>}{approvePaperOrder.error && <p className="text-xs text-destructive">{errorMessage(approvePaperOrder.error)}</p>}</div>}</section>
+}
+
+function formatMoney(currency: string, amount: string, language: string): string {
+  const numeric = Number(amount)
+  if (!Number.isFinite(numeric)) return `${currency} ${amount}`
+  try {
+    return new Intl.NumberFormat(language, { style: 'currency', currency, maximumFractionDigits: 2 }).format(numeric)
+  } catch {
+    return `${currency} ${numeric.toLocaleString(language, { maximumFractionDigits: 2 })}`
+  }
 }
 
 /** Convert safe request errors to a concise display message. */

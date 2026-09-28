@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-09-28 01:07 AEST — 决策详情分层、模拟下单能力门控与同日计划推进
+
+- 执行模型：GPT-5 Codex（多 Agent 分别审查 Web 行为与后续资金/日程契约，主线程实现并统一验收）。
+- 变更类型：决策详情信息架构、runtime capability 门控、计划本地日期推进、后续计划契约与回归测试。
+- 涉及文件：`apps/web/src/pages/decisions/{index.tsx,decision-journal.test.tsx}`、`apps/web/src/pages/personal/{index.tsx,plan-schedule.ts,personal-execution.test.tsx}`、`apps/web/src/i18n/locales/{zh.ts,en.ts}`、`docs/plans/{decision_detail_schedule_ux_hardness.md,v2_1_closeout_hardness.md,v2_1_productization_plan.md}`、`CHANGE_LOG.md`。
+- 变更内容：决策详情先展示本期金额、可读动作、计划方法与人工执行边界，原始 summary、内部倍率、策略版本和输入快照仍完整保留但默认收进“技术审计信息”；模拟下单按钮现在以服务端 `paper_broker` capability 为准，未配置、不可用或仍在检查时只给出解释，不再暴露会失败的提交动作，已经存在的 request/ack 审计证据不受影响。个人中心在读取到该建议的最终手工执行记录后，按计划冻结时区把“本期 / 下一评估”严格推进到下一周期，避免完成当天仍显示今天；月度与周度重复规则均有覆盖。本轮不伪造完整未来日程，也不把 `user-reported` 金额当作已结算资金；有限期限的 3/6/12 个月评估日历与 manual settlement 资金闭环已按 Goal、约束、非目标、验收、测试和交付物登记为后续 P1/P2。
+- 技能影响：`frontend-design` 用于将普通用户真正需要的动作、方法和边界置于首层，同时保留低干扰、可展开的完整技术审计证据，延续当前低饱和视觉语言。
+- 验证：`pnpm --dir apps/web exec vitest run src/pages/decisions/decision-journal.test.tsx src/pages/personal/personal-execution.test.tsx`（18 项）、`pnpm --dir apps/web test:coverage`（11 个文件、81 项；Statements 94.42%、Branches 90.15%、Functions 94.94%、Lines 97.04%）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`cargo test -p core-domain --locked`（13 项）通过；生产构建仅保留既有两个图表 chunk 超过 500 kB 的提示。
+
 ### 2026-09-27 10:30 AEST — V2.1 Beta 本地发行加固与数据发布门禁
 
 - 执行模型：GPT-5 Codex（多 Agent 并行审查与主线程统一验收）。
