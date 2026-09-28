@@ -52,6 +52,16 @@ it('calculates the next scheduled date in the frozen plan timezone', () => {
   expect(nextScheduledDate({ ...schedule, timezone: 'America/New_York' }, instant)).toBe('9月30日（America/New_York）')
 })
 
+it('moves a resolved plan to the next period instead of repeating today', () => {
+  const monthlyDueDay = new Date('2026-09-15T02:00:00Z')
+  expect(nextScheduledDate(plan, monthlyDueDay)).toBe('9月15日（Australia/Sydney）')
+  expect(nextScheduledDate(plan, monthlyDueDay, { strictlyAfterToday: true })).toBe('10月15日（Australia/Sydney）')
+
+  const weeklyPlan = { ...plan, schedule_kind: 'weekly' as const, schedule_day: 2, schedule_days: [2] }
+  expect(nextScheduledDate(weeklyPlan, monthlyDueDay)).toBe('9月15日（Australia/Sydney）')
+  expect(nextScheduledDate(weeklyPlan, monthlyDueDay, { strictlyAfterToday: true })).toBe('9月22日（Australia/Sydney）')
+})
+
 const fixedCatalogEntry = {
   policy: { id: 'fixed_dca', version: 1 },
   name: '每月稳步投入',
@@ -154,7 +164,29 @@ function createApi(options: {
 
 describe('personal manual execution loop', () => {
   beforeEach(() => setSelectedPlanId(null))
-  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  it('advances the visible evaluation after loading a resolved event on today\'s plan date', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-09-15T02:00:00Z'))
+    const completed: TestEvent = {
+      id: '30000000-0000-4000-8000-000000000003',
+      decision_record_id: decision.id,
+      plan_id: plan.id,
+      outcome: 'executed',
+      actual_amount: '1000.00',
+      currency: 'USD',
+      occurred_at: '2026-09-15T01:00:00Z',
+      recorded_at: '2026-09-15T01:01:00Z',
+      source: 'user_reported',
+    }
+    const api = createApi({ events: [completed] })
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+
+    expect(await screen.findByText('10月15日（Australia/Sydney）')).toBeTruthy()
+    expect(screen.queryByText('9月15日（Australia/Sydney）')).toBeNull()
+  })
 
   it('reads the real advice, confirms an executed amount, and refreshes history', async () => {
     const api = createApi()
