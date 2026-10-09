@@ -1,3 +1,4 @@
+import { uiLocale, uiText } from '@/i18n/ui'
 import type { EChartsCoreOption } from 'echarts/core'
 
 import type { DynamicBacktestSeries, StrategyCatalogEntry } from '@/api/types'
@@ -15,7 +16,7 @@ const markerSymbols = ['diamond', 'rect', 'triangle'] as const
 export function buildNormalizedChartOption(series: DynamicBacktestSeries[], catalogById: Map<string, StrategyCatalogEntry>, dashedSeries: ReadonlySet<string>): EChartsCoreOption {
   return {
     animationDuration: 260,
-    aria: { enabled: true, decal: { show: false }, description: '策略净值指数折线图。所有策略从一百开始，可用鼠标滚轮缩放时间范围并拖动平移。' },
+    aria: { enabled: true, decal: { show: false }, description: uiText("策略净值指数折线图。所有策略从一百开始，可用鼠标滚轮缩放时间范围并拖动平移。") },
     grid: { left: 72, right: 28, top: 24, bottom: 68 },
     tooltip: {
       trigger: 'axis',
@@ -35,7 +36,7 @@ export function buildNormalizedChartOption(series: DynamicBacktestSeries[], cata
     yAxis: {
       type: 'value',
       scale: true,
-      name: '净值指数',
+      name: uiText("净值指数"),
       nameTextStyle: { color: '#718096', align: 'left', padding: [0, 0, 8, -44] },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -70,7 +71,7 @@ export function buildMarketExecutionChartOption(points: MarketChartPoint[], seri
   const names = series.map((item) => strategyName(item, catalogById))
   return {
     animationDuration: 260,
-    aria: { enabled: true, decal: { show: false }, description: '复权收盘价与策略规则触发点。触发点同时显示在价格曲线和策略轨道中，可用鼠标滚轮缩放时间范围并拖动平移。' },
+    aria: { enabled: true, decal: { show: false }, description: uiText("复权收盘价与策略规则触发点。触发点同时显示在价格曲线和策略轨道中，可用鼠标滚轮缩放时间范围并拖动平移。") },
     axisPointer: {
       show: true,
       triggerOn: 'mousemove|click',
@@ -114,7 +115,7 @@ export function buildMarketExecutionChartOption(points: MarketChartPoint[], seri
         type: 'value',
         gridIndex: 0,
         scale: true,
-        name: `复权价（${currency}）`,
+        name: uiText("复权价（{{p0}}）", { p0: currency }),
         nameTextStyle: { color: '#718096', align: 'left', padding: [0, 0, 8, -50] },
         axisLine: { show: false },
         axisTick: { show: false },
@@ -136,7 +137,7 @@ export function buildMarketExecutionChartOption(points: MarketChartPoint[], seri
     series: [
       {
         id: 'market-price',
-        name: '复权收盘价',
+        name: uiText("复权收盘价"),
         type: 'line',
         xAxisIndex: 0,
         yAxisIndex: 0,
@@ -235,8 +236,8 @@ function formatNormalizedTooltip(input: unknown): string {
   const params = normalizeTooltipParams(input)
   if (params.length === 0) return ''
   const date = valueAt(params[0].value, 0)
-  const rows = params.map((param) => `${param.seriesName ?? '策略'}  ${formatNumber(valueAt(param.value, 1), 2)}`)
-  return [`${formatFullDate(date)}`, ...rows, '起点 = 100'].join('\n')
+  const rows = params.map((param) => `${param.seriesName ?? uiText("策略")}  ${formatNumber(valueAt(param.value, 1), 2)}`)
+  return [`${formatFullDate(date)}`, ...rows, uiText("起点 = 100")].join('\n')
 }
 
 function formatMarketTooltip(input: unknown, currency: string): string {
@@ -244,11 +245,11 @@ function formatMarketTooltip(input: unknown, currency: string): string {
   if (params.length === 0) return ''
   const date = valueAt(params[0].value, 0)
   const rows = params.flatMap((param) => {
-    if (param.seriesType === 'line') return [`复权收盘价  ${formatCurrency(currency, valueAt(param.value, 1))}`]
+    if (param.seriesType === 'line') return [uiText("复权收盘价  {{p0}}", { p0: formatCurrency(currency, valueAt(param.value, 1)) })]
     const value = Array.isArray(param.value) ? param.value : []
     return [
-      `${param.seriesName ?? '策略'}`,
-      `模拟投入  ${formatCurrency(currency, value[2])}  ·  本期预算 ${formatNumber(value[3], 0)}%`,
+      `${param.seriesName ?? uiText("策略")}`,
+      uiText("模拟投入  {{p0}}  ·  本期预算 {{p1}}%", { p0: formatCurrency(currency, value[2]), p1: formatNumber(value[3], 0) }),
     ]
   })
   return [`${formatFullDate(date)}`, ...rows].join('\n')
@@ -277,13 +278,13 @@ function formatFullDate(value: unknown): string {
   if (typeof value !== 'string' && typeof value !== 'number') return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' }).format(date)
+  return new Intl.DateTimeFormat(uiLocale(), { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' }).format(date)
 }
 
 function formatCurrency(currency: string, value: unknown): string {
   const amount = Number(value)
   if (!Number.isFinite(amount)) return '—'
-  return new Intl.NumberFormat('zh-CN', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
+  return new Intl.NumberFormat(uiLocale(), { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
 }
 
 function formatNumber(value: unknown, fractionDigits: number): string {
@@ -292,5 +293,5 @@ function formatNumber(value: unknown, fractionDigits: number): string {
 }
 
 function formatCompactNumber(value: number): string {
-  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2, notation: Math.abs(value) >= 10_000 ? 'compact' : 'standard' }).format(value)
+  return new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2, notation: Math.abs(value) >= 10_000 ? 'compact' : 'standard' }).format(value)
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import i18n from '@/i18n'
 
 import type { DynamicBacktestSeries, StrategyCatalogEntry } from '@/api/types'
 import { buildMarketExecutionChartOption, buildNormalizedChartOption } from '@/pages/strategy-analysis/chart-options'
@@ -6,6 +7,21 @@ import { buildMarketChartData } from '@/pages/strategy-analysis/market-execution
 import { buildAllocationChartOption, buildDrawdownChartOption } from '@/pages/strategy-analysis/research-chart-options'
 
 describe('market execution chart helpers', () => {
+  it('uses English axis and tooltip copy without changing any chart values', async () => {
+    const first = backtestSeries('first', [executionPoint(700, 70, true)])
+    const catalog = new Map([['first', { name: 'My custom name' } as StrategyCatalogEntry]])
+    const original = buildNormalizedChartOption([first], catalog, new Set()) as unknown as NormalizedOption
+    await i18n.changeLanguage('en')
+    const normalized = buildNormalizedChartOption([first], catalog, new Set()) as unknown as NormalizedOption
+    expect(normalized.series).toEqual(original.series)
+    expect(JSON.stringify(normalized)).toContain('NAV index')
+    expect(normalized.tooltip.formatter([{ seriesName: 'My custom name', value: ['2026-01-02', 108.25] }])).toContain('Start = 100')
+    const allocation = buildAllocationChartOption(first, 'USD') as unknown as ResearchOption
+    expect(allocation.series[0].data).toEqual([700])
+    expect(JSON.stringify(allocation)).toContain('Core contribution')
+    expect(allocation.tooltip.formatter([{ axisValue: '2026-01-02', seriesName: 'Core contribution', value: 700 }])).toContain('January 2, 2026')
+    expect(allocation.tooltip.formatter([{ axisValue: '2026-01-02', seriesName: 'Core contribution', value: 700 }])).toContain('$700.00')
+  })
   it('joins only executions inside the common market window and prefers catalog names', () => {
     const series = backtestSeries('formula', [
       executionPoint(700, 70, true),

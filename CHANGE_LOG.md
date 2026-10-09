@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### 2026-10-10（Australia/Sydney）— 修复 V2.1 中英文页面切换与展示格式
+
+- 执行模型：GPT-5 Codex（主线程完成检查、实现与验收）。
+- 变更类型：i18n 接线修复、展示层官方策略翻译、日期/金额格式化与前端回归门禁。
+- 涉及文件：`apps/web/src/i18n/{index.ts,ui.ts,ui-messages.ts,catalog.ts,catalog-messages.ts,test-setup.ts,ui.test.tsx}`、`apps/web/src/App.tsx`、`apps/web/src/api/queries.ts`、`apps/web/src/components/v2_1/{manual-execution-history,strategy-card,strategy-center-nav}.tsx`、`apps/web/src/features/v2_1/model.ts`、`apps/web/src/pages/{personal,plans,strategy-center,strategy-builder,strategy-analysis,lab}/**` 中当前页面与图表/模型文件及聚焦测试、`apps/web/src/pages/v2_1-shell.test.tsx`、`apps/web/{vitest.config.ts,PLAN.md}`、`docs/plans/i18n_repair_hardness.md`、`CHANGE_LOG.md`。
+- 问题定位：已有语言按钮与侧栏翻译正常，但 V2.1 新页面大量标题、状态、输入提示和研究图表使用中文常量；多个金额/日期格式固定为 `zh-CN`。旧测试只验证历史 locale 的键对齐，未检查实际页面切换。
+- 变更内容：沿用 i18next/react-i18next，新增独立 `ui` namespace 的原文 key 英文资源与插值；六个当前主页面及共用卡片订阅语言变化，静态选项在读取时翻译，日期/货币跟随语言而不改变计划时区或数值。浏览器地区语言按 zh/en 匹配，根元素 `lang` 与用户选择同步，偏好继续保存在 `i18nextLng`。官方目录通过 React Query `select` 产生展示副本，覆盖官方家族、参数标签、说明、限制及规则中的原始数值；类别过滤保留稳定的原始值。图表语言变化只重建 option，不重新运行回测。个人名称、备注、AI 正文、未知供应商文字与原始审计证据不做自动翻译；不改写缓存、API 契约、策略标识、参数或数据库。
+- 技能影响：`vercel-react-best-practices` 用于保持语言订阅与 React Query 展示派生，切换语言不通过重挂页面丢弃未保存表单，也不通过修改 query key 触发行情/AI/回测调用。
+- 验证：`pnpm --dir apps/web test:coverage`（12 个文件、94 项；Statements 93.42%、Branches 90.10%、Functions 91.54%、Lines 95.15%；包含新 i18n 文件）、`pnpm --dir apps/web lint`、`pnpm --dir apps/web build`、`cargo test -p core-domain`（13 项）通过。新增六页 zh→en→zh 点击测试、持久化与地区语言匹配、草稿保留、官方目录原文/个人策略边界、类别筛选保持、图表数值不变及切换不重跑回测测试；源码门禁检查 UI 翻译完整性、插值一致性并拒绝新增 JSX/属性硬编码中文。构建仍有既有大于 500 kB 的主包/图表包提示，不阻止构建。本轮组件测试使用接口 fixture，未调用真实 AI/行情、未修改用户计划；未进行真实浏览器视觉验收。
+- 交付方式：初次修复仅保存在本地；用户随后授权 push。发布基线核对为 v2 `main` 的 `91a058d`（与原实现基线代码树一致），通过独立分支 `codex/v2-1-i18n-fix` 提交并推送到 `GuZZ1119/indexlinkV2`，以新 PR 审查，不直接修改 `main`。发布前重新运行 Web lint、coverage、build 与 `cargo test -p core-domain --locked`；CI 状态以远端 Actions 为准。未打包 `.env`、密钥、SQLite、日志或本机缓存。
+
 ### 2026-09-28 01:07 AEST — 决策详情分层、模拟下单能力门控与同日计划推进
 
 - 执行模型：GPT-5 Codex（多 Agent 分别审查 Web 行为与后续资金/日程契约，主线程实现并统一验收）。

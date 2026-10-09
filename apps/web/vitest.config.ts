@@ -8,10 +8,16 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   test: {
     environment: 'jsdom',
+    setupFiles: ['./src/i18n/test-setup.ts'],
     exclude: [...configDefaults.exclude, 'src/pages/strategies/**'],
     coverage: {
       provider: 'v8',
       include: [
+        'src/i18n/index.ts',
+        'src/i18n/ui.ts',
+        'src/i18n/catalog.ts',
+        'src/i18n/ui-messages.ts',
+        'src/i18n/catalog-messages.ts',
         'src/i18n/locales/en.ts',
         'src/i18n/locales/zh.ts',
         'src/pages/decisions/filters.ts',

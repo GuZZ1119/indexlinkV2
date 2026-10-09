@@ -1,3 +1,4 @@
+import { uiLocale, uiText } from '@/i18n/ui'
 import type { InvestmentPlan } from '@/api/types'
 
 /** Return the next plan-local calendar date without converting it back through the browser zone. */
@@ -31,8 +32,12 @@ export function nextScheduledDate(
     }
   }
   const next = candidates.sort((left, right) => Date.UTC(left.year, left.month - 1, left.day) - Date.UTC(right.year, right.month - 1, right.day))[0]
-  if (!next) return '下一次约定日期'
-  return `${next.month}月${next.day}日（${plan.timezone}）`
+  if (!next) return uiText("下一次约定日期")
+  if (uiLocale() !== 'zh-CN') {
+    const date = new Date(Date.UTC(next.year, next.month - 1, next.day))
+    return `${new Intl.DateTimeFormat(uiLocale(), { timeZone: 'UTC', month: 'short', day: 'numeric' }).format(date)} (${plan.timezone})`
+  }
+  return uiText("{{p0}}月{{p1}}日（{{p2}}）", { p0: next.month, p1: next.day, p2: plan.timezone })
 }
 
 function datePartsInTimeZone(value: Date, timezone: string): { year: number; month: number; day: number } {

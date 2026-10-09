@@ -212,6 +212,38 @@ describe('V2.1 consumer shell', () => {
     expect(submitted.range).toBe('6m')
   })
 
+  it('translates cached analysis and official labels without rerunning a backtest', async () => {
+    const fetchMock = vi.fn((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : url.includes('/ai/providers') ? { providers: [] } : strategyBacktest(['fixed_dca']))))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<><AppHeader /><StrategyAnalysisPage /></>)
+    await screen.findByRole('heading', { name: '策略净值指数（起点 = 100）' })
+    const before = fetchMock.mock.calls.filter(([url]) => url.includes('/strategy-backtests')).length
+    fireEvent.click(screen.getByRole('button', { name: '切换语言' }))
+    expect(await screen.findByRole('heading', { name: 'Strategy NAV index (start = 100)' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /Fixed contributions/ })).toBeTruthy()
+    expect(screen.getByLabelText('About the strategy NAV index').textContent).toContain('not a price or account balance')
+    expect(screen.getByRole('button', { name: '3 years' }).getAttribute('aria-pressed')).toBe('true')
+    expect(fetchMock.mock.calls.filter(([url]) => url.includes('/strategy-backtests'))).toHaveLength(before)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }))
+    expect(await screen.findByRole('heading', { name: '策略净值指数（起点 = 100）' })).toBeTruthy()
+  })
+
+  it('preserves the canonical category filter when translating the catalog', async () => {
+    const fetchMock = vi.fn((url: string) => Promise.resolve(response(url.includes('/strategy-catalog') ? strategyCatalog() : [])))
+    vi.stubGlobal('fetch', fetchMock)
+    renderPage(<><AppHeader /><StrategyCenterPage /></>)
+    fireEvent.click(await screen.findByRole('button', { name: '趋势' }))
+    const requests = fetchMock.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '切换语言' }))
+    const filter = await screen.findByRole('button', { name: 'Trend' })
+    expect(filter.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'All methods' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByRole('heading', { name: 'Growth and volatility balance' })).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(requests)
+    fireEvent.click(screen.getByRole('button', { name: 'Switch language' }))
+    expect((await screen.findByRole('button', { name: '趋势' })).getAttribute('aria-pressed')).toBe('true')
+  })
+
   it('explains a real backtest only after the user requests it', async () => {
     const profile = { id: 'gpt-local', provider: 'openai', display_name: 'GPT', model: 'gpt-local', capabilities: { market_evidence: false, restricted_policy_drafts: true, read_only_explanations: true } }
     const fetchMock = vi.fn().mockImplementation((url: string) => {
