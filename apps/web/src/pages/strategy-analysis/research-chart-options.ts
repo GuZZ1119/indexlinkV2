@@ -1,3 +1,4 @@
+import { uiLocale, uiText } from '@/i18n/ui'
 import type { EChartsCoreOption } from 'echarts/core'
 
 import type { DynamicBacktestSeries, StrategyCatalogEntry } from '@/api/types'
@@ -12,7 +13,7 @@ interface TooltipParam {
 export function buildDrawdownChartOption(series: DynamicBacktestSeries[], catalogById: Map<string, StrategyCatalogEntry>): EChartsCoreOption {
   return {
     animationDuration: 260,
-    aria: { enabled: true, decal: { show: false }, description: '各策略相对自身历史高点的每日回撤曲线，零表示处于新高。' },
+    aria: { enabled: true, decal: { show: false }, description: uiText("各策略相对自身历史高点的每日回撤曲线，零表示处于新高。") },
     grid: { left: 72, right: 28, top: 24, bottom: 68 },
     tooltip: {
       trigger: 'axis',
@@ -32,7 +33,7 @@ export function buildDrawdownChartOption(series: DynamicBacktestSeries[], catalo
     yAxis: {
       type: 'value',
       max: 0,
-      name: '回撤',
+      name: uiText("回撤"),
       nameTextStyle: { color: '#718096', align: 'left', padding: [0, 0, 8, -42] },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -63,7 +64,7 @@ export function buildAllocationChartOption(series: DynamicBacktestSeries, curren
   const dates = series.execution_points.map((point) => point.date)
   return {
     animationDuration: 260,
-    aria: { enabled: true, decal: { show: false }, description: '每个计划日的核心投入、机会投入和未投入现金堆叠柱状图。' },
+    aria: { enabled: true, decal: { show: false }, description: uiText("每个计划日的核心投入、机会投入和未投入现金堆叠柱状图。") },
     grid: { left: 74, right: 28, top: 24, bottom: 82 },
     tooltip: {
       trigger: 'axis',
@@ -82,7 +83,7 @@ export function buildAllocationChartOption(series: DynamicBacktestSeries, curren
     yAxis: {
       type: 'value',
       min: 0,
-      name: `本期资金（${currency}）`,
+      name: uiText("本期资金（{{p0}}）", { p0: currency }),
       nameTextStyle: { color: '#718096', align: 'left', padding: [0, 0, 8, -54] },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -91,9 +92,9 @@ export function buildAllocationChartOption(series: DynamicBacktestSeries, curren
     },
     dataZoom: researchDataZoom(),
     series: [
-      allocationBar('核心投入', '#55768a', series.execution_points.map((point) => point.core_invested_amount)),
-      allocationBar('机会投入', '#2d6a57', series.execution_points.map((point) => point.opportunity_invested_amount)),
-      allocationBar('本期未投入', '#b58a4a', series.execution_points.map((point) => point.unallocated_amount)),
+      allocationBar(uiText("核心投入"), '#55768a', series.execution_points.map((point) => point.core_invested_amount)),
+      allocationBar(uiText("机会投入"), '#2d6a57', series.execution_points.map((point) => point.opportunity_invested_amount)),
+      allocationBar(uiText("本期未投入"), '#b58a4a', series.execution_points.map((point) => point.unallocated_amount)),
     ],
   }
 }
@@ -104,7 +105,7 @@ function allocationBar(name: string, color: string, data: number[]) {
     type: 'bar' as const,
     stack: 'period-budget',
     barMaxWidth: 24,
-    itemStyle: { color, borderRadius: name === '本期未投入' ? [4, 4, 0, 0] : 0 },
+    itemStyle: { color, borderRadius: name === uiText("本期未投入") ? [4, 4, 0, 0] : 0 },
     emphasis: { focus: 'series' as const },
     data,
   }
@@ -121,14 +122,14 @@ function formatDrawdownTooltip(input: unknown): string {
   const params = normalizeTooltipParams(input)
   if (params.length === 0) return ''
   const date = Array.isArray(params[0].value) ? params[0].value[0] : params[0].axisValue
-  const rows = params.map((param) => `${param.seriesName ?? '策略'}  ${formatPercent(Array.isArray(param.value) ? param.value[1] : param.value)}`)
+  const rows = params.map((param) => `${param.seriesName ?? uiText("策略")}  ${formatPercent(Array.isArray(param.value) ? param.value[1] : param.value)}`)
   return [formatFullDate(date), ...rows].join('\n')
 }
 
 function formatAllocationTooltip(input: unknown, currency: string): string {
   const params = normalizeTooltipParams(input)
   if (params.length === 0) return ''
-  const rows = params.map((param) => `${param.seriesName ?? '资金'}  ${formatCurrency(currency, param.value)}`)
+  const rows = params.map((param) => `${param.seriesName ?? uiText("资金")}  ${formatCurrency(currency, param.value)}`)
   return [formatFullDate(params[0].axisValue), ...rows].join('\n')
 }
 
@@ -151,7 +152,7 @@ function formatFullDate(value: unknown): string {
   if (typeof value !== 'string' && typeof value !== 'number') return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat('zh-CN', { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' }).format(date)
+  return new Intl.DateTimeFormat(uiLocale(), { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' }).format(date)
 }
 
 function formatPercent(value: unknown): string {
@@ -162,9 +163,9 @@ function formatPercent(value: unknown): string {
 function formatCurrency(currency: string, value: unknown): string {
   const amount = Number(value)
   if (!Number.isFinite(amount)) return '—'
-  return new Intl.NumberFormat('zh-CN', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
+  return new Intl.NumberFormat(uiLocale(), { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
 }
 
 function formatCompactNumber(value: number): string {
-  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2, notation: Math.abs(value) >= 10_000 ? 'compact' : 'standard' }).format(value)
+  return new Intl.NumberFormat(uiLocale(), { maximumFractionDigits: 2, notation: Math.abs(value) >= 10_000 ? 'compact' : 'standard' }).format(value)
 }

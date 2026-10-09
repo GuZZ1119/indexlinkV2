@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import type { ComponentType, LazyExoticComponent } from 'react'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
+import { useTranslation } from 'react-i18next'
 
 import { AppLayout } from '@/components/layout/app-layout'
 import RouteErrorPage from '@/pages/route-error'
@@ -14,7 +15,8 @@ const PlansPage = lazy(() => import('@/pages/plans'))
 const StrategyBuilderPage = lazy(() => import('@/pages/strategy-builder'))
 
 function PageFallback() {
-  return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+  const { t } = useTranslation()
+  return <div className="p-6 text-sm text-muted-foreground">{t('common.loading')}</div>
 }
 
 function LazyPage({ Page }: { Page: LazyExoticComponent<ComponentType> }) {

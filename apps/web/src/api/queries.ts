@@ -1,4 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback } from 'react'
+import { uiText, useUiLocale } from '@/i18n/ui'
+import { localizeCatalog } from '@/i18n/catalog'
 
 import type {
   CreateInvestmentPlanRequest,
@@ -66,16 +69,16 @@ export class ApiRequestError extends Error {
 export function describeAiActionError(error: unknown, fallback: string): string {
   if (error instanceof ApiRequestError) {
     if (error.code === 'ai_response_invalid') {
-      return 'AI 已经回复，但没有按策略工坊模板返回完整配置。请缩短描述、明确一个判断条件后重试。'
+      return uiText("AI 已经回复，但没有按策略工坊模板返回完整配置。请缩短描述、明确一个判断条件后重试。")
     }
     if (error.code === 'ai_draft_invalid') {
-      return 'AI 返回了配置，但其中的指标、周期、阈值或额度超出策略工坊支持范围。请换一种更简单的描述后重试。'
+      return uiText("AI 返回了配置，但其中的指标、周期、阈值或额度超出策略工坊支持范围。请换一种更简单的描述后重试。")
     }
     if (error.status === 503 || error.code === 'service_unavailable') {
-      return 'AI 服务没有完成请求。请到高级实验室重新输入有效的 API Key，并检查模型名称、账户额度和网络连接。'
+      return uiText("AI 服务没有完成请求。请到高级实验室重新输入有效的 API Key，并检查模型名称、账户额度和网络连接。")
     }
     if (error.status === 400 || error.code === 'bad_request') {
-      return '这次 AI 请求未通过本机校验。请检查所选模型和输入内容后重试。'
+      return uiText("这次 AI 请求未通过本机校验。请检查所选模型和输入内容后重试。")
     }
   }
   return fallback
@@ -251,7 +254,7 @@ export function fetchMarketSignalInput(symbol: string): Promise<MarketSignalInpu
 export async function fetchMarketSentiment(): Promise<MarketSentimentEvidence> {
   const response = await request<Partial<MarketSentimentEvidence>>('/market-sentiment/preview', { method: 'POST' })
   if (typeof response.rationale !== 'string' || !Array.isArray(response.warnings) || !Array.isArray(response.headlines)) {
-    throw new ApiRequestError('本机 Rust 服务仍在运行旧版 Qwen 响应契约。请重启 indexlink-server 后重试。', { status: 426 })
+    throw new ApiRequestError(uiText("本机 Rust 服务仍在运行旧版 Qwen 响应契约。请重启 indexlink-server 后重试。"), { status: 426 })
   }
   return response as MarketSentimentEvidence
 }
@@ -417,7 +420,12 @@ export function useStrategies() {
 
 /** Cache the official catalog separately from user-authored Workshop strategies. */
 export function useStrategyCatalog() {
-  return useQuery({ queryKey: ['strategy-catalog'], queryFn: fetchStrategyCatalog })
+  const locale = useUiLocale()
+  const select = useCallback((entries: StrategyCatalogEntry[]) => {
+    // The dependency reprojects cached data, without another market/AI request.
+    return localizeCatalog(entries, locale)
+  }, [locale])
+  return useQuery({ queryKey: ['strategy-catalog'], queryFn: fetchStrategyCatalog, select })
 }
 
 /** Cache one immutable backtest request separately from draft UI controls. */

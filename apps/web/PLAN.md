@@ -44,7 +44,8 @@ V2.1 不再用 `SPY / VOO / QQQ` 静态数组决定策略能否创建。统一�
 ## 前端约束 / Frontend rules
 
 - React Router 路由页面按需加载，并设置可恢复的 `errorElement`；不得向用户展示框架默认异常页。
-- 中英文翻译键保持完全对齐；Vitest 验证两套 locale 的键集合与非空值。
+- 中英文沿用 i18next 与 `react-i18next`：历史页面使用具名 key，V2.1 页面使用独立 `ui` namespace 的原文 key 与插值；`useUiLocale` 订阅语言切换，`uiLocale` 统一日期/金额格式。Vitest 除 locale 键对齐外，验证当前六个页面实际中英往返、语言持久化、表单不丢失、图表/提示与官方目录展示更新以及英文文案覆盖；新增 JSX/属性硬编码中文会使测试失败。
+- 官方策略中文元数据只通过 React Query `select` 转成展示副本；分类筛选保留稳定的原始类别值。语言切换不得触发行情/AI/回测请求，不改写缓存、策略版本、参数、个人名称、备注、AI 回复或原始审计证据。未知供应商文字保留原文，不猜测翻译。
 - 服务端数据通过 React Query；Valtio 只保存当前筛选、选中计划、modal 和图表范围等临时 UI 状态。
 - 标的合法性、canonical symbol、币种和 Formula 历史充足性以服务端结果为准；前端只做输入提示和呈现服务端拒绝原因。
 - 手工执行确认只对 `due` 建议开放；同一 decision 只能保存一个最终结果，重试复用同一 `event_id`，`409 conflict` 后重新读取。普通界面只提供“已执行”和“跳过”，历史 `partial` 只读兼容。
