@@ -27,6 +27,7 @@ export default defineConfig({
         'src/components/v2_1/strategy-center-nav.tsx',
         'src/components/v2_1/manual-execution-history.tsx',
         'src/pages/personal/index.tsx',
+        'src/pages/personal/recommendation-notice.ts',
         'src/pages/plans/index.tsx',
         'src/pages/strategy-center/index.tsx',
         'src/pages/strategy-analysis/index.tsx',

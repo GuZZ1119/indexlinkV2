@@ -107,7 +107,7 @@ Fixed DCA 始终保留为基准。旧“70/20/10 自适应”研究没有进入�
 ### 依赖
 
 - Rust stable（包含 `cargo`、`rustfmt`、`clippy`）
-- Node.js 与 pnpm
+- Node.js >=22.19.0（推荐受支持的 LTS）与 pnpm；冻结安装需要同时保留 `apps/web/pnpm-workspace.yaml` 和锁文件
 - 可选：本机 Futu/Moomoo OpenD，用于 US/HK/SH/SZ 真实日线与模拟账户实验
 
 ### 1. 启动后端

@@ -90,7 +90,7 @@ Warm-up shortages, stale or unavailable data, and provider permission failures a
 
 ## Run locally
 
-Requirements: stable Rust, Node.js, and pnpm. Futu/Moomoo OpenD is optional and is needed for new real-data US/HK/SH/SZ backtests.
+Requirements: stable Rust, Node.js >=22.19.0 (a supported LTS is recommended), and pnpm. Keep both `apps/web/pnpm-workspace.yaml` and the lockfile for frozen installs. Futu/Moomoo OpenD is optional and is needed for new real-data US/HK/SH/SZ backtests.
 
 ```bash
 git clone https://github.com/GuZZ1119/indexlinkV2.git

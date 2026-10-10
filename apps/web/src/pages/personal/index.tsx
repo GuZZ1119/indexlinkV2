@@ -39,6 +39,7 @@ import { PageHeading } from '@/components/v2_1/page-heading'
 import { setSelectedPlanId, uiStore } from '@/stores/ui'
 
 import { nextScheduledDate } from './plan-schedule'
+import { savedRecommendationNotice } from './recommendation-notice'
 
 type ExecutionDraft = {
   eventId: string
@@ -261,7 +262,7 @@ function DecisionExecution({ plan, decision, strategy, catalogPending }: { plan:
             ) : null}
             {!journal.isPending && !journal.error && !recordedOutcome ? (
               <div className="mt-7">
-                <p className="mb-3 text-xs leading-5 text-slate-400">{uiText("当前是这份计划的执行日。本次建议只能确认一次。")}</p>
+                <p className="mb-3 text-xs leading-5 text-slate-400" role="note" aria-label={uiText("原建议日期说明")}>{savedRecommendationNotice(plan, decision)}</p>
                 <div className="flex flex-wrap gap-3" aria-label={uiText("记录执行结果")}>
                   <button type="button" onClick={() => beginConfirmation('executed')} className="rounded-full bg-white px-4 py-2.5 text-sm font-medium text-[#102028] transition-colors hover:bg-[#dcece4] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/50">{uiText("我已执行")}</button>
                   <button type="button" onClick={() => beginConfirmation('skipped')} className="rounded-full px-4 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-white/40">{uiText("这次跳过")}</button>

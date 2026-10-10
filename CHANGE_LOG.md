@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### 2026-10-10 12:12 AEDT — 修复本地页面刷新、原建议日期与前端依赖门禁
+
+- 执行模型：GPT-5 Codex（主线程串行实现与验收）。
+- 变更类型：Vite 文档/API 代理边界、不可变建议展示、双语回归、安全依赖锁定、CI 与发布门槛说明。
+- 涉及文件：`apps/web/{vite.config.ts,vite.config.test.ts,vitest.config.ts,package.json,pnpm-workspace.yaml,pnpm-lock.yaml,PLAN.md}`、`apps/web/src/pages/personal/{index.tsx,recommendation-notice.ts,recommendation-notice.test.ts,personal-execution.test.tsx}`、`apps/web/src/i18n/ui-messages.ts`、`.github/workflows/web-ci.yml`、`SECURITY.md`、`readme.md`、`readme.en.md`、`docs/plans/{local_preview_repair_hardness.md,v2_1_closeout_hardness.md}`、`docs/releases/v2.1.0-beta.1-candidate.md`、`CHANGE_LOG.md`。
+- 变更内容：Vite dev 与 preview 只让已知页面的 GET HTML 导航绕过重叠代理，修复 `/personal` 刷新 404 和 `/decisions/:id` 刷新显示 JSON；同路径 JSON 与 mutation 继续进入原 Rust API。个人中心按计划时区解释原建议的保存日，区分今天保存、历史待办和日期无法核验；保存日不替代执行日，也不把历史 `due` 状态描述为今天执行。原始建议、金额、执行历史和数据库完全不变。新增测试覆盖刷新路由/API、时区跨日、异常日期、旧待办可记录和中英文切换不产生 mutation。
+- 依赖修复：通过 pnpm 11 的 Web workspace 配置锁定 `source-map-js 1.2.2`、`brace-expansion 5.0.12`、`browserslist 4.28.7`、`baseline-browser-mapping 2.11.0` 与 `undici 8.10.2`，不忽略公告。Web CI 新增完整依赖 high 审计门禁，Node 22 使用受维护版本线；安装说明与 engines 统一要求 >=22.19.0，以匹配实际依赖。
+- 技能影响：`vercel-react-best-practices` 用于把日期提示保持为只读展示派生，不通过 effect 或复制服务端状态改变历史证据。
+- 验证：冻结依赖安装、Web lint、`test:coverage`（13 个文件、117 项；Statements 93.51%、Branches 90.19%、Functions 91.59%、Lines 95.22%）、build 与 `cargo test -p core-domain --locked`（13 项）通过；完整 `pnpm audit --audit-level=high` 和生产依赖 audit 均为 0 公告。开发与临时生产预览共 14 个只读 HTTP 检查均为 200，页面为 HTML、决策/日志 API 为 JSON；真实浏览器验证个人中心和原建议详情刷新、中英往返及历史待办文案，控制台无 error/warn。构建保留既有两个超过 500 kB 的包提示。本次未重新进行全仓 Rust audit、Docker、付费 AI 或 broker 写单验收。
+- 发布边界：数据再分发授权与 3–5 位真实目标用户验收仍未完成，正式 tag / Release 门槛保持失败关闭；修正旧收口文档把数据许可误列为非阻塞项的表述。本轮不删除研究快照、不伪造许可/用户证据、不上传本机数据库、密钥或运行日志。以 `codex/v2-1-local-preview-fixes` 独立提交到 V2 进行 PR 审查，不直接合并 main 或创建正式 Release。
+
 ### 2026-10-10（Australia/Sydney）— 修复 V2.1 中英文页面切换与展示格式
 
 - 执行模型：GPT-5 Codex（主线程完成检查、实现与验收）。

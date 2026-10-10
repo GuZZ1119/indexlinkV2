@@ -44,6 +44,9 @@ V2.1 不再用 `SPY / VOO / QQQ` 静态数组决定策略能否创建。统一�
 ## 前端约束 / Frontend rules
 
 - React Router 路由页面按需加载，并设置可恢复的 `errorElement`；不得向用户展示框架默认异常页。
+- Vite dev / preview 中，`/personal`、`/decisions` 与详情路径的 GET HTML 文档请求进入 SPA；同路径的 JSON API 与所有 mutation 继续代理到 Rust。API 客户端保持 `Accept: application/json`，不能用删代理的方式修复页面刷新。
+- 待办日期提示按计划时区区分今天保存、历史保存和日期无法核验；`created_at` 是保存日，不是 scheduled date，不把历史 `due` 或补生成记录描述为今天执行。显示提示不自动计算新金额或改写原建议。
+- 前端要求 Node.js >=22.19.0；安全 overrides 放在 Web 自身的 `pnpm-workspace.yaml`。Web CI 在冻结安装后审计所有依赖，以 high 阈值阻断已知高危问题。
 - 中英文沿用 i18next 与 `react-i18next`：历史页面使用具名 key，V2.1 页面使用独立 `ui` namespace 的原文 key 与插值；`useUiLocale` 订阅语言切换，`uiLocale` 统一日期/金额格式。Vitest 除 locale 键对齐外，验证当前六个页面实际中英往返、语言持久化、表单不丢失、图表/提示与官方目录展示更新以及英文文案覆盖；新增 JSX/属性硬编码中文会使测试失败。
 - 官方策略中文元数据只通过 React Query `select` 转成展示副本；分类筛选保留稳定的原始类别值。语言切换不得触发行情/AI/回测请求，不改写缓存、策略版本、参数、个人名称、备注、AI 回复或原始审计证据。未知供应商文字保留原文，不猜测翻译。
 - 服务端数据通过 React Query；Valtio 只保存当前筛选、选中计划、modal 和图表范围等临时 UI 状态。
@@ -84,6 +87,7 @@ V2.1 不再用 `SPY / VOO / QQQ` 静态数组决定策略能否创建。统一�
 pnpm --dir apps/web lint
 pnpm --dir apps/web test:coverage
 pnpm --dir apps/web build
+pnpm --dir apps/web audit --audit-level=high
 cargo test -p core-domain
 ```
 
