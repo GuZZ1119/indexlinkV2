@@ -27,10 +27,10 @@ The current API has no account authentication. Exposing it to a LAN, a public IP
 - AI JSON extraction is string- and escape-aware; parse failures log only safe metadata, not the raw model response.
 - Remote AI endpoints are selected by server-side provider profiles and require HTTPS.
 
-## Dependency status (2026-09-23)
+## Dependency status
 
-- `pnpm audit --prod`: **0 advisories** after removing the shadcn CLI runtime dependency and upgrading React Router, Vite, and Tailwind.
-- `cargo audit`: one lock-file advisory remains: `RUSTSEC-2023-0071` for `rsa 0.9.10`, with no fixed release. `cargo tree -i rsa` has no active path in the supported SQLite build; it is retained in Cargo's resolved SQLx metadata and is not linked into the current target. This is an accepted V2.1 lock-only risk, not permission to enable MySQL.
+- Web checked 2026-10-10: full `pnpm audit` and `pnpm audit --prod` report **0 advisories**. The lockfile pins `source-map-js 1.2.2`, `brace-expansion 5.0.12`, `browserslist 4.28.7`, `baseline-browser-mapping 2.11.0`, and `undici 8.10.2` through `apps/web/pnpm-workspace.yaml`. Web CI audits all dependencies and rejects high/critical findings without an advisory allowlist. Node.js >=22.19.0 is required; CI uses the maintained Node 22 line.
+- Rust last audited 2026-09-23 (not re-audited in the Web repair): one lock-file advisory remains: `RUSTSEC-2023-0071` for `rsa 0.9.10`, with no fixed release. `cargo tree -i rsa` had no active path in the supported SQLite build; it is retained in Cargo's resolved SQLx metadata and is not linked into the current target. This is an accepted V2.1 lock-only risk, not permission to enable MySQL.
 - Former runtime advisories for `quick-xml 0.37.5` and `rustls 0.23.40` were remediated by upgrading to `quick-xml 0.42.0` and `rustls 0.23.45` or later compatible lock revisions.
 - Former warnings for `event-listener 5.4.1` and yanked `spin 0.9.8` were removed by refreshing compatible dependencies.
 

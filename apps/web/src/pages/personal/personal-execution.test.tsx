@@ -7,6 +7,7 @@ import PersonalPage from '@/pages/personal'
 import { nextScheduledDate } from '@/pages/personal/plan-schedule'
 import type { InvestmentPlan } from '@/api/types'
 import { setSelectedPlanId } from '@/stores/ui'
+import i18n from '@/i18n'
 
 const plan: InvestmentPlan = {
   id: '10000000-0000-4000-8000-000000000001',
@@ -164,7 +165,26 @@ function createApi(options: {
 
 describe('personal manual execution loop', () => {
   beforeEach(() => setSelectedPlanId(null))
-  afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals() })
+  afterEach(async () => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); await i18n.changeLanguage('zh') })
+
+  it('keeps an old pending recommendation readable and recordable without claiming today is its execution date', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-10-10T02:00:00Z'))
+    const api = createApi()
+    vi.stubGlobal('fetch', api.fetchMock)
+    renderPage()
+
+    const note = await screen.findByRole('note', { name: '原建议日期说明' })
+    expect(note.textContent).toContain('历史待办')
+    expect(note.textContent).toContain('2026/09/15（Australia/Sydney）')
+    expect(screen.queryByText('当前是这份计划的执行日。本次建议只能确认一次。')).toBeNull()
+    expect(screen.getByRole('button', { name: '我已执行' })).toBeTruthy()
+    expect(api.requests.some(({ method }) => method === 'POST')).toBe(false)
+    await i18n.changeLanguage('en')
+    await waitFor(() => expect(screen.getByRole('note', { name: 'Saved recommendation date' }).textContent).toContain('Historical pending recommendation'))
+    expect(screen.getByRole('note', { name: 'Saved recommendation date' }).textContent).toContain('09/15/2026 (Australia/Sydney)')
+    expect(api.requests.some(({ method }) => method === 'POST')).toBe(false)
+  })
 
   it('advances the visible evaluation after loading a resolved event on today\'s plan date', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
