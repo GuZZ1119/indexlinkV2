@@ -16,15 +16,15 @@
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f7661" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/version-2.1.0--beta.1-10242c" alt="2.1.0-beta.1"></a>
+  <a href="./docs/releases/v2.1.0-beta.1-candidate.md"><img src="https://img.shields.io/badge/candidate-2.1.0--beta.1-10242c" alt="2.1.0-beta.1 candidate"></a>
   <a href="./SECURITY.md"><img src="https://img.shields.io/badge/security-loopback%20only-c19a55" alt="Loopback only"></a>
 </p>
 
-# IndexLink V2.1 Beta
+# IndexLink V2.1 Beta Candidate
 
 IndexLink is a **local strategy-planning and research tool for long-term investors**. It turns an investing method into explainable rules, real historical backtests, periodic suggestions, and append-only execution records.
 
-`2.1.0-beta.1` is single-user, local-first, and manually executed. It does not place live orders, promise returns, or grant an AI model trading authority. The formal Git tag and GitHub Release are withheld until redistribution rights for bundled research data are confirmed or the affected data is removed from release artifacts.
+`2.1.0-beta.1` is currently a single-user, local-first, manually executed Beta candidate for local preview and small-scale task validation. No formal Git tag or GitHub Release has been created. It does not place live orders, promise returns, or grant AI trading authority. Both bundled-data licensing and acceptance by 3–5 target users must be completed before release; passing engineering checks does not satisfy those gates. See the [candidate notes](./docs/releases/v2.1.0-beta.1-candidate.md) and [release gates](./docs/plans/v2_1_closeout_hardness.md).
 
 > **Risk notice:** This project is for education, strategy research, and paper-trading demonstrations only. It is not investment advice. Historical backtests do not predict future results.
 
@@ -40,7 +40,7 @@ IndexLink is not a collection of static screens or an AI chat wrapper that deleg
 | Web | React 19, TypeScript, Vite 8, Tailwind CSS v4, TanStack Query, and Valtio with server state separated from temporary UI state |
 | Charts | Apache ECharts for zoomable wealth, price, and execution tracks; Recharts for lighter result views |
 | External adapters | Local read-only daily bars through Futu/Moomoo OpenD; QwenCloud, DashScope, GPT, Claude, and DeepSeek only after a manual user action |
-| Quality gates | Rustfmt, Clippy, Cargo workspace tests, ESLint, TypeScript builds, and Vitest with a 90% frontend coverage floor |
+| Quality gates | Rustfmt, Clippy, Cargo workspace tests, ESLint, TypeScript builds, and Vitest; all four frontend coverage measures must be >=90%, and Web CI audits all dependencies at the high threshold |
 
 The architecture is **Hexagonal Architecture (Ports & Adapters) in a Rust modular monolith**. Core policy rules do not depend on the browser, database, market-data provider, or model vendor, and both inputs and conclusions retain auditable evidence.
 
@@ -60,8 +60,9 @@ The architecture is **Hexagonal Architecture (Ports & Adapters) in a Rust modula
 
 ```text
 Strategy Center / Workshop
-        → real-instrument backtest and data preflight
-        → create a personal plan
+        → select an immutable policy version
+        ├─ Fixed DCA: create a plan without market data
+        └─ Formula: create a plan after history preflight
         → scheduler idempotently creates a due suggestion
         → the user trades in their own broker
         → manually record executed or skipped
@@ -69,6 +70,17 @@ Strategy Center / Workshop
 ```
 
 “Execution” normally means a user-reported fact. The optional OpenD paper broker is an explicit local experiment only; neither the scheduler nor AI can submit orders automatically.
+
+Real backtests are a research step for comparing policies and require real daily bars. They are not a prerequisite for creating a Fixed DCA plan: its plans, suggestions, and manual audit remain usable without AI, OpenD, or market data.
+
+### Current limitations
+
+- Personal shows only the next evaluation date, not a complete 3/6/12-month schedule projection. Dates follow the plan's frozen time zone and do not guarantee an exchange trading day.
+- Historical pending suggestions are saved evidence, not amounts recalculated for today. The saved date is not the original scheduled execution date.
+- Manual execution closes the audit loop, but actual amounts are not yet settled into subsequent period budgets or opportunity cash. The journal is not a complete holdings/cash ledger, and manual and paper-broker records remain separate.
+- AI returns bounded policy drafts, explanations, or summaries; it cannot create or activate a personal plan directly. Exact future Formula contributions cannot be determined before the evaluation date.
+
+Bounded schedule projection and manual settlement remain [planned work](./docs/plans/v2_1_productization_plan.md), not delivered features.
 
 ## Policy and backtest model
 
@@ -90,30 +102,36 @@ Warm-up shortages, stale or unavailable data, and provider permission failures a
 
 ## Run locally
 
-Requirements: stable Rust, Node.js >=22.19.0 (a supported LTS is recommended), and pnpm. Keep both `apps/web/pnpm-workspace.yaml` and the lockfile for frozen installs. Futu/Moomoo OpenD is optional and is needed for new real-data US/HK/SH/SZ backtests.
+Requirements: stable Rust, Node.js >=22.19.0 (a supported LTS is recommended), and pnpm `11.15.0`, matching `apps/web/package.json` and CI. Keep both `apps/web/pnpm-workspace.yaml` and the lockfile for frozen installs. Futu/Moomoo OpenD is optional and is needed for new real-data US/HK/SH/SZ backtests.
 
 ```bash
 git clone https://github.com/GuZZ1119/indexlinkV2.git
 cd indexlinkV2
-cp .env.example .env
-cargo run -p indexlink-server
+if [ ! -e .env ]; then cp .env.example .env; fi
+APP_HOST=127.0.0.1 APP_PORT=8080 cargo run -p indexlink-server
 ```
 
-The API binds to `127.0.0.1:8080` by default:
+The example creates `.env` only on first use and does not overwrite existing configuration. Existing installations can run the startup command from their project directory. Native SQLite defaults to `indexlink.db` in that directory and is configurable through `DATABASE_URL`. The API binds to `127.0.0.1:8080`; the default scheduler only creates due suggestions and paper broker access defaults to disabled. Check readiness:
 
 ```bash
-curl http://127.0.0.1:8080/health
-curl http://127.0.0.1:8080/ready
+curl --fail http://127.0.0.1:8080/health
+curl --fail http://127.0.0.1:8080/ready
 ```
 
-Start the web application in another terminal:
+Start the web application in another terminal, from the same project directory:
 
 ```bash
 pnpm --dir apps/web install --frozen-lockfile
-pnpm --dir apps/web dev
+pnpm --dir apps/web dev --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-Open the local Vite URL, usually `http://127.0.0.1:5173`.
+Open `http://127.0.0.1:5173/personal`. Press `Ctrl+C` in each terminal to stop its service. Stop an existing backend before switching to another startup method.
+
+Common startup issues:
+
+- `NonLoopbackBindForbidden`: check `APP_HOST` in old `.env` or shell configuration and use `127.0.0.1`. Do not enable `ALLOW_UNSAFE_NON_LOOPBACK_BIND` to bypass the ordinary local security boundary.
+- `Address already in use` / `Port 5173 is already in use`: inspect the listener with `lsof -nP -iTCP:8080 -sTCP:LISTEN` or the corresponding `5173` port. Use the existing service or stop it in its original terminal before restarting; do not kill an unidentified process.
+- Installation/build failures: check `node --version` and `pnpm --version` against the requirements above.
 
 ### Optional OpenD market data
 
@@ -131,15 +149,19 @@ Without OpenD, plan management, Fixed DCA, the manual execution journal, and bun
 
 ### Optional user-provided AI
 
-Select a provider and model in Advanced Lab, enter a key, and click the availability test. The key is sent only to the local backend process and is not written to browser storage, SQLite, `.env`, or logs. Saving a connection does not invoke the model; every AI action is manually triggered.
+Select a provider and model in Advanced Lab, enter a key, click “Save session connection”, then “Verify AI”. Saving only puts credentials into the current Rust process; it does not validate the provider. Testing sends a minimal model request and may incur API charges. QwenCloud and DashScope use different provider addresses and keys and must not be mixed. The key is not written to browser storage, SQLite, `.env`, or logs; page-configured connections must be configured again after restarting the backend. Drafts, explanations, and summaries still require a separate manual action.
 
 ### Optional local Docker
+
+This replaces the native `cargo run` backend and **starts only the Rust API, not the Web application**. Prepare `.env` using the first-use step above and stop any native backend occupying port 8080 before running:
 
 ```bash
 docker compose -f deployment/docker-compose.yml up --build
 ```
 
-Compose publishes the API on host loopback only. This repository no longer ships cloud-server deployment scripts, and the current release does not support reverse-proxying or opening the port. Remote access requires a separate future release with authentication, TLS, rate limits, and CSRF/Origin protections.
+The default API is `http://127.0.0.1:8080`; start Web separately using the commands above. If you change the published port, adjust the Web API address/proxy as well: its default proxy targets 8080. Compose stores SQLite in the `sqlite-data` volume, independently of native `indexlink.db`. Stop the container with `docker compose -f deployment/docker-compose.yml stop server`; do not delete the volume just to restart.
+
+Compose publishes the API on host loopback only. This repository no longer ships cloud-server deployment scripts, and the current candidate does not support reverse-proxying or opening the port. Remote access requires a separate future release with authentication, TLS, rate limits, and CSRF/Origin protections.
 
 Plans, decision snapshots, and execution history are stored in local SQLite. Before upgrading, switching branches, or restoring old data, create and verify a backup using the [local backup and restore guide](./docs/operations/backup-and-restore.md). Do not copy only the main file of a running WAL database.
 
@@ -197,12 +219,16 @@ See the [API guide](./docs/reference/api-management.md), [Web Plan](./apps/web/P
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo audit
 pnpm --dir apps/web lint
 pnpm --dir apps/web test:coverage
 pnpm --dir apps/web build
+pnpm --dir apps/web audit --audit-level=high
+pnpm --dir apps/web audit --prod
+git diff --check
 ```
 
-Behavior changes require focused tests and an entry in [CHANGE_LOG.md](./CHANGE_LOG.md). The frontend coverage threshold is 90%.
+Behavior changes require focused tests and an entry in [CHANGE_LOG.md](./CHANGE_LOG.md). Statements, branches, functions, and lines must each reach >=90%; Web CI rejects high/critical dependency advisories. `cargo audit` requires cargo-audit to be installed separately. See [SECURITY.md](./SECURITY.md) and release records for the existing Rust lockfile advisory and unrun network/OpenD tests; do not ignore failures or describe unverified checks as passing.
 
 ## Open-source and research references
 
@@ -220,8 +246,8 @@ See [DATA_LICENSES.md](./DATA_LICENSES.md) for file-level release decisions, the
 
 V2.1 deliberately does not provide multi-user accounts, cloud synchronization, public hosting, automated live trading, high-frequency strategies, arbitrary Python/JavaScript policies, social copy trading, or automatic AI news signals.
 
-The next priorities are data-license review, remaining dependency-audit work, exchange calendars, and separating contribution cadence from strategy observation frequency.
+First address bundled-data redistribution rights and have 3–5 target users complete plan creation, finding a suggestion, recording execution, and retrieving history, producing Go / Adjust / Stop evidence. Use that feedback to prioritize bounded schedule projection and manual cash settlement, then evaluate exchange calendars and separate contribution/observation cadences. Dependency audits remain ongoing; a conversational plan assistant is neither a release prerequisite nor a promised feature.
 
 ## License
 
-Copyright © 2026 IndexLink Contributors. Project code is released under the [MIT License](./LICENSE). Third-party libraries, research data, and external services retain their own licenses and terms.
+Copyright © 2026 Jame / Xuan Zhou, matching the [LICENSE](./LICENSE) attribution. Project code is released under the MIT License. Third-party libraries, research data, and external services retain their own licenses and terms.

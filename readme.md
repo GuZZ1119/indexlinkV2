@@ -16,11 +16,11 @@
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f7661" alt="MIT License"></a>
-  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/version-2.1.0--beta.1-10242c" alt="2.1.0-beta.1"></a>
+  <a href="./docs/releases/v2.1.0-beta.1-candidate.md"><img src="https://img.shields.io/badge/candidate-2.1.0--beta.1-10242c" alt="2.1.0-beta.1 candidate"></a>
   <a href="./SECURITY.md"><img src="https://img.shields.io/badge/security-loopback%20only-c19a55" alt="Loopback only"></a>
 </p>
 
-# IndexLink V2.1 Beta
+# IndexLink V2.1 Beta 候选
 
 IndexLink 是一个面向普通长期投资者的**本地策略计划与研究工具**。它把一条投资方法拆成可解释的规则、真实历史回测、定期建议和不可覆盖的执行记录，让用户能回答四个问题：
 
@@ -29,7 +29,7 @@ IndexLink 是一个面向普通长期投资者的**本地策略计划与研究�
 3. 这期为什么建议投入、减量或等待；
 4. 我最终是否执行，历史记录能否复查。
 
-`2.1.0-beta.1` 是**单用户、本地优先、人工执行**的 Beta 版本。它不会代替用户下单，不承诺收益，也不把 AI 变成交易决策者。正式 Git tag 与 GitHub Release 只有在随包研究数据的再分发权完成确认或相关数据移出发行物后才会创建。
+`2.1.0-beta.1` 当前是**单用户、本地优先、人工执行**的 Beta 候选，可用于本地预览与小范围任务验证，尚未创建正式 Git tag 或 GitHub Release。它不会代替用户下单，不承诺收益，也不把 AI 变成交易决策者。正式发布仍须同时完成随包研究数据的许可处理与 3–5 位目标用户验收；工程检查通过不等于这两项门槛通过。详情见[发布候选说明](./docs/releases/v2.1.0-beta.1-candidate.md)与[发布门槛](./docs/plans/v2_1_closeout_hardness.md)。
 
 > **风险声明：** 本项目仅供学习、策略研究和 paper-trading 演示，不构成投资建议。历史回测不预测未来；数据错误、市场制度变化、税费、滑点和流动性都可能改变结果。
 
@@ -45,7 +45,7 @@ IndexLink 不是一组静态页面，也不是把策略判断交给大模型的�
 | Web | React 19、TypeScript、Vite 8、Tailwind CSS v4、TanStack Query 与 Valtio；服务端状态和临时界面状态分离 |
 | 图表 | Apache ECharts 用于可缩放净值、价格与执行轨道；Recharts 用于轻量结果展示 |
 | 外部适配 | Futu/Moomoo OpenD 提供本机只读日线；QwenCloud、百炼、GPT、Claude、DeepSeek 仅在用户手动触发时调用 |
-| 质量门禁 | Rustfmt、Clippy、Cargo workspace tests、ESLint、TypeScript build 与 Vitest；前端覆盖率门槛 90% |
+| 质量门禁 | Rustfmt、Clippy、Cargo workspace tests、ESLint、TypeScript build 与 Vitest；前端四项覆盖率均须 >=90%，Web CI 对全量依赖执行 high 审计门禁 |
 
 架构采用 **Hexagonal Architecture（Ports & Adapters）+ Rust modular monolith**：核心规则不依赖浏览器、数据库、行情源或模型供应商，外部能力可以替换，输入与结论均能留下可审计证据。
 
@@ -66,10 +66,10 @@ IndexLink 不是一组静态页面，也不是把策略判断交给大模型的�
 ```text
 策略中心 / 策略工坊
         ↓ 选择不可变策略版本
-真实标的回测与数据预检
+        ├─ Fixed DCA：无需行情，可直接建立计划
+        └─ 公式策略：历史数据预检通过后建立计划
         ↓
-建立个人计划
-        ↓ 到期时由调度器幂等生成建议
+本地计划 → 到期时由调度器幂等生成建议
 查看建议与依据
         ↓ 用户在自己的券商操作
 手工确认“已执行 / 跳过”
@@ -78,6 +78,17 @@ IndexLink 不是一组静态页面，也不是把策略判断交给大模型的�
 ```
 
 系统中的“执行”默认是**用户报告的事实记录**。可选 OpenD paper broker 仅用于本机模拟账户实验；scheduler 和 AI 都没有自动提交订单的权限。
+
+真实回测是比较策略的研究步骤，需要可用的真实日线；它不是 Fixed DCA 建计划的前置条件。即使没有 AI、OpenD 或行情，Fixed DCA 的计划、建议与人工执行审计仍可使用。
+
+### 当前限制
+
+- 个人中心只显示下一评估日期，尚无完整的 3/6/12 个月日程投影；评估日期按计划冻结时区解释，不保证当天是交易所可成交日。
+- 历史待办是已保存的原建议，不是今天重新计算的金额；保存日期不能代替原计划执行日。
+- 手工执行记录已形成审计闭环，但实际金额尚未结算到后续周期预算或机会现金；不能把日志理解为完整持仓/资金账本。manual journal 与 paper broker 继续分账。
+- AI 返回受限策略草案、解释或摘要，不能直接创建或激活个人计划；Formula 的未来精确投入金额须到评估日才能确定。
+
+有限期限日程投影与手工资金结算仍是[后续计划](./docs/plans/v2_1_productization_plan.md)，不是已交付能力。
 
 ## 策略模型
 
@@ -107,7 +118,7 @@ Fixed DCA 始终保留为基准。旧“70/20/10 自适应”研究没有进入�
 ### 依赖
 
 - Rust stable（包含 `cargo`、`rustfmt`、`clippy`）
-- Node.js >=22.19.0（推荐受支持的 LTS）与 pnpm；冻结安装需要同时保留 `apps/web/pnpm-workspace.yaml` 和锁文件
+- Node.js >=22.19.0（推荐受支持的 LTS）与 pnpm `11.15.0`（与 `apps/web/package.json`、CI 一致）；冻结安装需要同时保留 `apps/web/pnpm-workspace.yaml` 和锁文件
 - 可选：本机 Futu/Moomoo OpenD，用于 US/HK/SH/SZ 真实日线与模拟账户实验
 
 ### 1. 启动后端
@@ -115,25 +126,33 @@ Fixed DCA 始终保留为基准。旧“70/20/10 自适应”研究没有进入�
 ```bash
 git clone https://github.com/GuZZ1119/indexlinkV2.git
 cd indexlinkV2
-cp .env.example .env
-cargo run -p indexlink-server
+if [ ! -e .env ]; then cp .env.example .env; fi
+APP_HOST=127.0.0.1 APP_PORT=8080 cargo run -p indexlink-server
 ```
 
-默认监听 `127.0.0.1:8080`。检查服务：
+上述命令仅在首次运行时复制配置，不覆盖已有 `.env`；现有安装从项目目录直接执行启动命令即可。默认 SQLite 位于项目根目录 `indexlink.db`，可通过 `DATABASE_URL` 修改。后端监听 `127.0.0.1:8080`；默认 scheduler 只生成到期建议，paper broker 默认关闭。检查服务：
 
 ```bash
-curl http://127.0.0.1:8080/health
-curl http://127.0.0.1:8080/ready
+curl --fail http://127.0.0.1:8080/health
+curl --fail http://127.0.0.1:8080/ready
 ```
 
 ### 2. 启动前端
 
+在另一个终端、同一个项目目录执行：
+
 ```bash
 pnpm --dir apps/web install --frozen-lockfile
-pnpm --dir apps/web dev
+pnpm --dir apps/web dev --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-浏览器打开 Vite 输出的本地地址，通常是 `http://127.0.0.1:5173`。
+浏览器打开 `http://127.0.0.1:5173/personal`。分别在前后端终端按 `Ctrl+C` 停止；使用另一种后端启动方式前，先停止已有实例。
+
+常见启动问题：
+
+- `NonLoopbackBindForbidden`：检查旧 `.env` 或 shell 的 `APP_HOST`，改为 `127.0.0.1`；不要通过开启 `ALLOW_UNSAFE_NON_LOOPBACK_BIND` 绕过普通本地安装的安全边界。
+- `Address already in use` / `Port 5173 is already in use`：用 `lsof -nP -iTCP:8080 -sTCP:LISTEN` 或对应的 `5173` 检查占用，使用已启动的服务或在其原终端停止后重启；不要直接结束不明进程。
+- 依赖安装或构建失败：先检查 `node --version` 与 `pnpm --version`，确认满足上面的版本要求。
 
 ### 3. 可选：接入 OpenD
 
@@ -151,15 +170,19 @@ OPEND_PAPER_BROKER_ENABLED=false
 
 ### 4. 可选：接入自己的 AI
 
-在“高级实验室”选择供应商、模型并输入 Key，然后点击“验证 AI 可用性”。Key 只发送到当前本机后端进程，不写入浏览器存储、SQLite、`.env` 或日志。保存连接本身不会调用模型；所有 AI 功能仍需用户逐次点击。
+在“高级实验室”选择供应商、模型并输入 Key，先点击“保存本次连接”，再点击“验证 AI 可用性”。保存只表示凭据进入当前 Rust 进程，不代表供应商验证通过；验证会调用一次最小模型请求，可能产生 API 费用。QwenCloud 与阿里云百炼使用不同供应商地址和 Key，不能混用。Key 不写入浏览器存储、SQLite、`.env` 或日志，后端重启后页面连接需重新配置。策略草案、解释和摘要仍需用户逐次点击。
 
 ### 5. 可选：本地 Docker
+
+这是原生 `cargo run` 后端的替代方案，**只启动 Rust API，不包含 Web 服务**。先按首次配置步骤准备 `.env`，停止占用 8080 的原生后端，再执行：
 
 ```bash
 docker compose -f deployment/docker-compose.yml up --build
 ```
 
-Compose 只把服务发布到宿主机 `127.0.0.1`。本仓库不再提供云服务器一键部署脚本；当前版本不支持自行反向代理或开放端口。远程访问必须作为包含认证、TLS、限流和 CSRF/Origin 防护的独立后续版本实现。
+默认 API 为 `http://127.0.0.1:8080`；Web 仍按第 2 步在另一个终端启动。若修改 Compose 发布端口，须同步调整 Web API 地址或代理，默认前端代理固定为 8080。Compose 的 SQLite 在 `sqlite-data` volume 中，与原生 `indexlink.db` 是独立数据。停止容器可执行 `docker compose -f deployment/docker-compose.yml stop server`，不要为重启删除 volume。
+
+Compose 只把服务发布到宿主机 `127.0.0.1`。本仓库不再提供云服务器一键部署脚本；当前候选版不支持自行反向代理或开放端口。远程访问必须作为包含认证、TLS、限流和 CSRF/Origin 防护的独立后续版本实现。
 
 计划、建议快照和执行历史保存在本地 SQLite。升级、切换分支或恢复历史数据前，请先按[本地备份与恢复指南](./docs/operations/backup-and-restore.md)生成并校验备份；不要直接复制仍在运行的 WAL 数据库主文件。
 
@@ -218,12 +241,16 @@ docs                        API、计划、审查与策略研究
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo audit
 pnpm --dir apps/web lint
 pnpm --dir apps/web test:coverage
 pnpm --dir apps/web build
+pnpm --dir apps/web audit --audit-level=high
+pnpm --dir apps/web audit --prod
+git diff --check
 ```
 
-行为变更需要聚焦测试，并在 [CHANGE_LOG.md](./CHANGE_LOG.md) 记录涉及文件、验证结果和模型。前端覆盖率门槛为 90%。
+行为变更需要聚焦测试，并在 [CHANGE_LOG.md](./CHANGE_LOG.md) 记录涉及文件、验证结果和模型。前端 statements、branches、functions、lines 均须 >=90%；Web CI 的全量依赖审计会拒绝 high/critical 公告。`cargo audit` 需单独安装 cargo-audit；既有 Rust 锁文件公告与未运行的网络/OpenD 测试边界见 [SECURITY.md](./SECURITY.md) 和发布记录，不应忽略失败或把未验证项描述成通过。
 
 ## 开源来源与引用
 
@@ -247,8 +274,8 @@ V2.1 的目标是把本地闭环做完整，不继续扩大成券商托管平台
 - 社交发布、跟单、策略市场和跨用户排行榜；
 - 把 AI 新闻情绪自动注入普通策略。
 
-下一阶段优先项是数据许可复核、依赖审计余项、交易日历，以及把“资金周期”和“策略观察频率”拆成两个独立契约。
+下一阶段先处理随包数据的再分发许可，并让 3–5 位目标用户完成建立计划、找到建议、记录执行与找回历史的任务，形成 Go / Adjust / Stop 证据。之后根据真实反馈推进有限期限日程投影、手工执行资金结算，再评估交易日历和资金/观察频率拆分。依赖审计持续执行；聊天式计划助手不是当前发布前置条件，也没有承诺交付。
 
 ## License
 
-Copyright © 2026 IndexLink Contributors。项目代码以 [MIT License](./LICENSE) 发布。第三方库、研究数据和外部服务分别受其原始许可证与使用条款约束。
+Copyright © 2026 Jame / Xuan Zhou（与 [LICENSE](./LICENSE) 署名一致）。项目代码以 MIT License 发布。第三方库、研究数据和外部服务分别受其原始许可证与使用条款约束。
