@@ -102,6 +102,8 @@ Warm-up shortages, stale or unavailable data, and provider permission failures a
 
 ## Run locally
 
+A [Chinese illustrated getting-started guide](./docs/guides/getting-started.zh.md) walks through a Fixed DCA plan, saved suggestions, manual records, history, and backups without AI or OpenD. An English illustrated edition is not available yet.
+
 Requirements: stable Rust, Node.js >=22.19.0 (a supported LTS is recommended), and pnpm `11.15.0`, matching `apps/web/package.json` and CI. Keep both `apps/web/pnpm-workspace.yaml` and the lockfile for frozen installs. Futu/Moomoo OpenD is optional and is needed for new real-data US/HK/SH/SZ backtests.
 
 ```bash

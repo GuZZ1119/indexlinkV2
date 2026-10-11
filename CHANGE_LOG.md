@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-10-12 00:12 AEDT — 中文图文入门教程与隔离实例截图
+
+- 执行模型：GPT-5 Codex（主线程串行制作、核对与验收）。
+- 变更类型：用户教程、真实页面截图、文档导航与验证记录；不改变功能代码。
+- 涉及文件：`docs/guides/getting-started.zh.md`、`docs/guides/images/{README.md,01–12 共 12 张 JPEG}`、`docs/plans/illustrated_guide_hardness.md`、`docs/README.md`、`readme.md`、`readme.en.md`、`CHANGE_LOG.md`。
+- 变更内容：新增中文 Markdown 图文入门，从启动前后端、选择 Fixed DCA、创建计划、解释日期与时区，到人工执行/跳过、原建议回看、暂停/继续和灾备；可选章节介绍受限策略工坊、真实回测的两个 Y 轴/规则标记以及 AI 保存与手动验证，明确未交付日程投影和人工资金结算。中英文 README 和文档索引增加入口，英文入口注明教程当前仅中文。12 张原生浏览器 JPEG 均为 2026-10-11 隔离实例实拍，共约 890 KiB；独立临时 SQLite 与 loopback 端口、清空的后端环境，没有读取现有用户数据库或 `.env`，没有真实交易、行情导入或付费 AI。图片来源说明记录基线、日期、尺寸和演示边界，未修饰界面或伪造结果。
+- 验证：`cargo build -p indexlink-server --locked`、`cargo test -p core-domain --locked`（13 项）和 Web personal-execution / decision-journal 聚焦测试（19 项）通过；实际界面完成创建、不同实际金额记录、跳过及暂停/继续，读取 API 确认两份演示计划各有且只有一条 `user_reported` 事件、原建议金额仍为 100，页面下一评估推进至 11 月 11 日。临时库 online backup 的完整性检查通过。12 张图逐张目视检查、JPEG 文件头/尺寸、按序引用、Markdown 本地链接/锚点、Bash 示例 `sh -n`、`git diff --check` 通过，浏览器未见 error/warn。未运行全量 Rust/Web 检查、Docker、真实行情、AI、broker 或真实数据库恢复；截图不宣称这些能力已成功验收。
+- 交付与清理：教程分支为 `codex/v2-1-illustrated-guide`，V2 main 已合并先前 README PR #9 且代码树与截图基线一致。本次演示前后端进程与截图标签已关闭，未停止原有用户服务；临时演示库及备份保留在本机临时目录，不提交。仅推送文档与图片供独立 PR 审查，不合并 main，不创建 tag/Release，数据许可与真实目标用户验收门槛不变。
+
 ### 2026-10-11 20:49 AEDT — 同步中英文 README 的候选版状态与本地使用边界
 
 - 执行模型：GPT-5 Codex（主线程串行核对与文档更新）。

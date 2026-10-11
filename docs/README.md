@@ -2,6 +2,10 @@
 
 根目录的 [中文 README](../readme.md) 与 [English README](../readme.en.md) 是当前功能、运行方法和产品边界的入口。这里保留仍能解释 V2.1 代码或研究结论的维护者文档；已经完成且与现状冲突的 push 执行稿不再进入公开上游。
 
+## 用户教程 / User guides
+
+- [中文图文入门：完成第一个长期计划](./guides/getting-started.zh.md)（12 张隔离演示实例的真实截图；Fixed DCA 主线与可选能力边界）
+
 ## 当前契约 / Current contracts
 
 - [API 管理与接口契约](./reference/api-management.md)
