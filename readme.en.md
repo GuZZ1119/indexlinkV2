@@ -16,15 +16,19 @@
 
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-2f7661" alt="MIT License"></a>
-  <a href="./docs/releases/v2.1.0-beta.1-candidate.md"><img src="https://img.shields.io/badge/candidate-2.1.0--beta.1-10242c" alt="2.1.0-beta.1 candidate"></a>
+  <a href="./Cargo.toml"><img src="https://img.shields.io/badge/version-2.1.0--beta.1-10242c" alt="Version 2.1.0-beta.1"></a>
   <a href="./SECURITY.md"><img src="https://img.shields.io/badge/security-loopback%20only-c19a55" alt="Loopback only"></a>
 </p>
 
-# IndexLink V2.1 Beta Candidate
+<p align="center">
+  <a href="./docs/guides/getting-started.zh.md"><strong>Illustrated quick start: create your first plan (Chinese) →</strong></a>
+</p>
+
+# IndexLink V2.1 Beta
 
 IndexLink is a **local strategy-planning and research tool for long-term investors**. It turns an investing method into explainable rules, real historical backtests, periodic suggestions, and append-only execution records.
 
-`2.1.0-beta.1` is currently a single-user, local-first, manually executed Beta candidate for local preview and small-scale task validation. No formal Git tag or GitHub Release has been created. It does not place live orders, promise returns, or grant AI trading authority. Both bundled-data licensing and acceptance by 3–5 target users must be completed before release; passing engineering checks does not satisfy those gates. See the [candidate notes](./docs/releases/v2.1.0-beta.1-candidate.md) and [release gates](./docs/plans/v2_1_closeout_hardness.md).
+`2.1.0-beta.1` is a single-user, local-first, manually executed Beta version. Plans and execution records stay on your machine: trade through your own broker, then record the outcome here. It does not place live orders, promise returns, or grant AI trading authority.
 
 > **Risk notice:** This project is for education, strategy research, and paper-trading demonstrations only. It is not investment advice. Historical backtests do not predict future results.
 
@@ -163,7 +167,7 @@ docker compose -f deployment/docker-compose.yml up --build
 
 The default API is `http://127.0.0.1:8080`; start Web separately using the commands above. If you change the published port, adjust the Web API address/proxy as well: its default proxy targets 8080. Compose stores SQLite in the `sqlite-data` volume, independently of native `indexlink.db`. Stop the container with `docker compose -f deployment/docker-compose.yml stop server`; do not delete the volume just to restart.
 
-Compose publishes the API on host loopback only. This repository no longer ships cloud-server deployment scripts, and the current candidate does not support reverse-proxying or opening the port. Remote access requires a separate future release with authentication, TLS, rate limits, and CSRF/Origin protections.
+Compose publishes the API on host loopback only. This repository does not ship cloud-server deployment scripts or support reverse-proxying or opening the port. Remote access needs authentication, TLS, rate limits, and CSRF/Origin protections; do not expose the current API directly.
 
 Plans, decision snapshots, and execution history are stored in local SQLite. Before upgrading, switching branches, or restoring old data, create and verify a backup using the [local backup and restore guide](./docs/operations/backup-and-restore.md). Do not copy only the main file of a running WAL database.
 
@@ -240,7 +244,7 @@ IndexLink does not copy QuantConnect LEAN, TA-Lib, or paper strategy implementat
 - Backtesting and research: [QuantConnect LEAN](https://github.com/QuantConnect/Lean) (Apache-2.0), [TA-Lib](https://ta-lib.github.io/) (BSD), and Meb Faber's [A Quantitative Approach to Tactical Asset Allocation](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461).
 - UI and charts: [shadcn/ui](https://github.com/shadcn-ui/ui) (MIT, component patterns and a small Tailwind variant layer), [Recharts](https://recharts.github.io/) (MIT), [Apache ECharts](https://echarts.apache.org/) (Apache-2.0), and [TanStack Query](https://github.com/TanStack/query) (MIT).
 - Market interface: Futu's official [OpenD / OpenAPI documentation](https://openapi.futunn.com/futu-api-doc/en/intro/intro.html).
-- Research data: FRED, Cboe, and Multpl provenance and checksums are recorded in manifests. Redistribution rights for the current snapshots are not confirmed, so the formal Tag/Release fails closed.
+- Research data: FRED, Cboe, and Multpl provenance and checksums are recorded in manifests. Redistribution rights for the current snapshots are not confirmed, and the project's MIT License does not cover them. See the data-license inventory below for usage and distribution boundaries.
 
 See [DATA_LICENSES.md](./DATA_LICENSES.md) for file-level release decisions, the [strategy source policy](./docs/contributing/strategy-source-policy.md) for contributions, and [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for usage, license, and reference-only boundaries.
 
@@ -248,7 +252,7 @@ See [DATA_LICENSES.md](./DATA_LICENSES.md) for file-level release decisions, the
 
 V2.1 deliberately does not provide multi-user accounts, cloud synchronization, public hosting, automated live trading, high-frequency strategies, arbitrary Python/JavaScript policies, social copy trading, or automatic AI news signals.
 
-First address bundled-data redistribution rights and have 3–5 target users complete plan creation, finding a suggestion, recording execution, and retrieving history, producing Go / Adjust / Stop evidence. Use that feedback to prioritize bounded schedule projection and manual cash settlement, then evaluate exchange calendars and separate contribution/observation cadences. Dependency audits remain ongoing; a conversational plan assistant is neither a release prerequisite nor a promised feature.
+Possible next steps include bounded schedule projection, manual cash settlement, exchange calendars, and separate contribution/observation cadences. These are not delivered features; priorities will follow actual usage feedback.
 
 ## License
 

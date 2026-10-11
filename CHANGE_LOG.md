@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### 2026-10-12 00:30 AEDT — 公开 README 与仓库文件卫生清理
+
+- 执行模型：GPT-5 Codex（主线程串行检查、修改与验证）。
+- 变更类型：公开文档整理、本地文件忽略规则、过期任务稿取消跟踪与文档链接修复；无运行时行为变更。
+- 涉及文件：`readme.md`、`readme.en.md`、`.gitignore`、`CHANGE_LOG.md`、`docs/research/calibration/STRATEGY_{C3_RESEARCH_V1,C4_RESEARCH_V1,CALIBRATION_BASELINE_V1,CALIBRATION_RESEARCH_V2}.md`；取消跟踪 `docs/plans/{decision_detail_schedule_ux,i18n_repair,illustrated_guide,local_preview_repair,readme_refresh,sqlite_backup_restore,web_ci_data_licensing}_hardness.md`。
+- 变更内容：中英文 README 去掉候选标题、候选徽章与内部发布验收流程，保留真实 Beta 版本、安全、数据许可和未交付限制；Logo 下增加现有中文图文入门入口。7 份已完成的一次性任务稿经引用检查后仅移出 Git 跟踪，实体保留在本机并精确忽略；当前有效计划、审查、许可、备份指南、教程截图和构建所需研究夹具仍保留。新增 `.env.*`（保留 `.env.example`）、SQLite 主文件/sidecar、运行日志、常见私钥格式、Agent 本机目录与工具缓存忽略规则。修复 4 处历史研究报告的相对链接。
+- 文件检查：从 V2 `main` 基线 `36a7c46` 扫描 284 个已跟踪路径及文本，未发现本机配置/数据库/日志/私钥文件，亦未匹配常见供应商 Key、GitHub token、AWS access key、私钥头或个人绝对目录模式；检查未输出密钥值，未读取真实 `.env`/SQLite。扫描仅针对当前树，不等于完整 Git 历史审计，也不能证明所有未知格式的秘密均不存在。
+- 验证：`cargo test -p core-domain --locked`（13 项）、忽略规则 20 个正例/9 个反例、7 份取消跟踪文件本地保留检查、94 个已跟踪 Markdown/HTML 本地链接及 `git diff --check` 通过。无本机保留文件的干净 Git 导出中，`cargo check --workspace --all-targets --locked --offline` 与 Web 的等价 `tsc -b && vite build` 通过；Web 复用已安装依赖，pnpm 自动依赖校验因导出目录的 node_modules 链接拒绝无 TTY 重装，故未把该尝试记为通过或声称完成干净安装。构建仍提示两个大于 500 kB 的既有 chunk；本轮未重跑全量测试、覆盖率、依赖审计、Docker 或付费外部能力。
+- 交付边界：独立文档清理分支供 V2 PR 审查，不直接合并 `main`，不创建 tag/Release、不修改历史提交、不删除用户本地文件。CHANGE_LOG 中历史任务名称保留为变更记录，不作为当前指南；有效维护者门槛及数据授权事实不因 README 文案调整而改变。
+
 ### 2026-10-12 00:12 AEDT — 中文图文入门教程与隔离实例截图
 
 - 执行模型：GPT-5 Codex（主线程串行制作、核对与验收）。
