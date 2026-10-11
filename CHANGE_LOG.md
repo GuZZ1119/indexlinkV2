@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### 2026-10-11 20:49 AEDT — 同步中英文 README 的候选版状态与本地使用边界
+
+- 执行模型：GPT-5 Codex（主线程串行核对与文档更新）。
+- 变更类型：文档事实同步、安装说明与发布边界澄清；不改变功能代码。
+- 涉及文件：`readme.md`、`readme.en.md`、`docs/plans/readme_refresh_hardness.md`、`CHANGE_LOG.md`。
+- 变更内容：保留 360px Logo 和技术制作表，明确 `2.1.0-beta.1` 为本地预览候选版，正式发布仍受数据许可与 3–5 位目标用户验收双重门槛约束；区别无需行情的 Fixed DCA 建计划与 Formula 历史数据预检。补充有限日程投影、手工金额后续结算尚未交付的边界；同步 Node/pnpm 要求、安全且不覆盖已有配置的启动命令、端口冲突和非 loopback 错误说明。明确 Docker 只启动 Rust API、SQLite volume 与原生数据库独立；AI 先保存会话再手动验证，验证可能产生费用且重启后需重新配置。同步全量依赖审计门禁、后续用户验证路线与 LICENSE 版权署名。
+- 验证：`cargo test -p core-domain --locked`（13 项）通过；中英文 README 分别 21/20 个本地链接目标存在，分别 5 个 Bash 示例通过 `sh -n`；Node/pnpm 要求、AI 按钮名称、默认配置、Compose、Web CI 和发布计划逐项核对；`git diff --check` 通过。本次未执行启动示例、Docker、付费 AI、全仓 Rust/Web 测试或新的依赖审计，未访问/修改用户密钥、数据库或运行进程。
+- 交付边界：从 V2 `main` 的 `806a050` 建立 `codex/v2-1-readme-refresh` 独立文档分支；只推送本次四个文档并通过 PR 审查，不直接合并 main 或创建 tag/Release。
+
 ### 2026-10-10 12:12 AEDT — 修复本地页面刷新、原建议日期与前端依赖门禁
 
 - 执行模型：GPT-5 Codex（主线程串行实现与验收）。
