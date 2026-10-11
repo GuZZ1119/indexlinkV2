@@ -115,6 +115,8 @@ Fixed DCA 始终保留为基准。旧“70/20/10 自适应”研究没有进入�
 
 ## 本地启动
 
+第一次使用可跟随[中文图文入门教程](./docs/guides/getting-started.zh.md)，从无需 AI/OpenD 的 Fixed DCA 计划开始，了解建议、人工记录、历史与备份。
+
 ### 依赖
 
 - Rust stable（包含 `cargo`、`rustfmt`、`clippy`）
