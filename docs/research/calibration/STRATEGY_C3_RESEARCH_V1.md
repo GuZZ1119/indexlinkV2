@@ -2,7 +2,7 @@
 # C3 基本面 / 趋势解耦研究 V1
 
 > Status / 状态：预登记研究已完成；C3 **未**升级为生产默认，未修改 `decision-engine`、API、scheduler 或下单行为。
-> Machine-readable result / 机器可读结果：[calibration-v2-c3-research.report.json](crates/strategy-evaluation/data/generated/calibration-v2-c3-research.report.json)
+> Machine-readable result / 机器可读结果：[calibration-v2-c3-research.report.json](../../../crates/strategy-evaluation/data/generated/calibration-v2-c3-research.report.json)
 
 ## Pre-registered rule / 预登记规则
 

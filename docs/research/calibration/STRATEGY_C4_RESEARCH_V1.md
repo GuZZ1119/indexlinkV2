@@ -5,7 +5,7 @@
 > `decision-engine`、API、scheduler 或 paper order 行为。
 >
 > Machine-readable result / 机器可读结果：
-> [calibration-v2-c4-research.report.json](crates/strategy-evaluation/data/generated/calibration-v2-c4-research.report.json)
+> [calibration-v2-c4-research.report.json](../../../crates/strategy-evaluation/data/generated/calibration-v2-c4-research.report.json)
 
 ## Scope and fairness / 范围与公平口径
 

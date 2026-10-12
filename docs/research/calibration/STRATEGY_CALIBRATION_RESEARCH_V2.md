@@ -1,7 +1,7 @@
 # Strategy Research Correction V2 / 策略研究口径修正 V2
 
 > Status / 状态：研究评估完成；**没有**修改生产默认权重、`decision-engine`、API 或下单行为。
-> Machine-readable result / 机器可读结果：[calibration-v2.report.json](crates/strategy-evaluation/data/generated/calibration-v2.report.json)
+> Machine-readable result / 机器可读结果：[calibration-v2.report.json](../../../crates/strategy-evaluation/data/generated/calibration-v2.report.json)
 
 ## Scope / 范围
 

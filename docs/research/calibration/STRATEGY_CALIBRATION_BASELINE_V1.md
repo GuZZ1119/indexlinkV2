@@ -2,7 +2,7 @@
 
 > Status / 状态：已完成当前生产规则的离线、可复现基线测量；**未**据此修改任何生产权重、阈值或下单逻辑。
 > Generated / 生成日期：2026-08-21
-> Machine-readable result / 机器可读结果：[calibration-v1.report.json](crates/strategy-evaluation/data/generated/calibration-v1.report.json)
+> Machine-readable result / 机器可读结果：[calibration-v1.report.json](../../../crates/strategy-evaluation/data/generated/calibration-v1.report.json)
 
 ## 1. Purpose / 目的
 
